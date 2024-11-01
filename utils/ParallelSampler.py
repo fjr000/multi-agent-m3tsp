@@ -116,7 +116,7 @@ class ParallelSamplerAsync(ParallelSampler):
 
     def __run(self, worker_id):
         while True:
-            if self.queue.qsize() > self.num_worker * 3:
+            if self.queue.qsize() > self.num_worker * 2:
                 time.sleep(1)
             else:
                 self._run_episode(worker_id)
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     from model.RandomAgent import RandomAgent
     from utils.GraphPlot import GraphPlot as GP
     agent = RandomAgent()
-    num_worker = 20
+    num_worker = 2
     sample_times = 2
     gp = GP()
     PS = ParallelSamplerAsync(agent, MTSPEnv, num_worker=num_worker, config=envs.MTSP.Config.Config)

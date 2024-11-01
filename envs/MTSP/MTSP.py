@@ -2,7 +2,7 @@ from distutils.command.config import config
 
 import numpy as np
 import gym
-from typing import Tuple, List,Dict
+from typing import Tuple, List, Dict
 import sys
 import os
 import gym
@@ -13,15 +13,17 @@ from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
 from model.RandomAgent import RandomAgent
 
+
 class MTSPEnv(gym.Env):
     """
     Limitations::
-    - Can't move backward (action == 1) before traveling
+    - Can't move backward (action == - 1) before traveling
     - Can't reach the depot before all cities have been visited
     - All salesmen must arrive at the depot at the same time (at the end).
     - Salesmen can't visit the same city except for the depot.
     """
-    def __init__(self, config:Dict = Config):
+
+    def __init__(self, config: Dict = Config):
         """
 
         :param city_nums: (min_num, max_num); min_num <= max_num
@@ -31,6 +33,12 @@ class MTSPEnv(gym.Env):
         city_nums = config.get("city_nums")
         agent_nums = config.get("agent_nums")
         seed = config.get("seed")
+        allow_back = config.get("allow_back")
+        if allow_back is not None:
+            self.allow_back = allow_back
+        else:
+            self.allow_back = True
+
         assert isinstance(city_nums, Tuple) or isinstance(city_nums, List), "city_nums must be a tuple or list"
         assert isinstance(agent_nums, Tuple) or isinstance(agent_nums, List), "agent_nums must be a tuple or list"
         assert len(city_nums) == 2 and len(agent_nums) == 2, "city_nums and agent_nums must have equal length 2"
@@ -44,8 +52,8 @@ class MTSPEnv(gym.Env):
         if self.seed is not None:
             np.random.seed(self.seed)
         self.GG = GG(1, self.city_nums[1], 2, seed)
-        self.actual_city_num = np.random.randint(self.city_nums[0], self.city_nums[1] +1)
-        self.actual_agent_num = np.random.randint(self.agent_nums[0], self.agent_nums[1]+1)
+        self.actual_city_num = np.random.randint(self.city_nums[0], self.city_nums[1] + 1)
+        self.actual_agent_num = np.random.randint(self.agent_nums[0], self.agent_nums[1] + 1)
         self.city_dims = 2
         self.agent_dims = 3
 
@@ -67,8 +75,8 @@ class MTSPEnv(gym.Env):
         self.init_graph_matrix = None
         self.global_mask = np.zeros(self.actual_city_num)
         self.global_mask[0] = 1
-        self.actors_action_mask = np.zeros((self.actual_agent_num,2))
-        self.actors_action_mask[:,0] = 1
+        self.actors_action_mask = np.zeros((self.actual_agent_num, 2))
+        self.actors_action_mask[:, 0] = 1
         self.actors_state = np.zeros((self.actual_agent_num, self.agent_dims), dtype=np.float32)
         self.actors_trajectory = [[1] for _ in range(self.actual_agent_num)]
         self.actors_action_record = [[] for _ in range(self.actual_agent_num)]
@@ -77,7 +85,7 @@ class MTSPEnv(gym.Env):
         self.to_end = False
         np.random.set_state(self.random_state)
 
-    def reset(self, config = None):
+    def reset(self, config=None):
         """
 
         :param seed: random seed
@@ -92,6 +100,9 @@ class MTSPEnv(gym.Env):
             agent_nums = config.get("agent_nums")
             seed = config.get("seed")
             fixed_graph = config.get("fixed_graph")
+            allow_back = config.get("allow_back")
+            if allow_back is not None:
+                self.allow_back = allow_back
 
         if fixed_graph:
             if self.init_graph is None:
@@ -112,13 +123,13 @@ class MTSPEnv(gym.Env):
                 assert self.city_nums[0] > agent_nums[1], "agent_min_num must be greater than city_max_num"
                 self.agent_nums = agent_nums
 
+            self.actual_city_num = np.random.randint(self.city_nums[0], self.city_nums[1] + 1)
+            self.actual_agent_num = np.random.randint(self.agent_nums[0], self.agent_nums[1] + 1)
+            self.reset_state()
             if self.seed is not None:
                 np.random.seed(self.seed)
                 self.GG = GG(1, self.city_nums[1], self.city_dims, seed)
-
-            self.actual_city_num = np.random.randint(self.city_nums[0], self.city_nums[1]+1)
-            self.actual_agent_num = np.random.randint(self.agent_nums[0], self.agent_nums[1]+1)
-            self.reset_state()
+                self.random_state = np.random.get_state()
             self.__init_graph()
 
         return self.actors_state, \
@@ -157,9 +168,9 @@ class MTSPEnv(gym.Env):
             self.global_mask[0] = 0
 
         info = {
-                "global_mask": self.global_mask,
-                "agents_action_mask": self.get_agents_action_mask(),
-            }
+            "global_mask": self.global_mask,
+            "agents_action_mask": self.get_agents_action_mask(),
+        }
 
         if done:
             info.update({
@@ -177,26 +188,29 @@ class MTSPEnv(gym.Env):
         1:  depot
         1<=a<=city_num : city index
         :param agent_id: 0< agent id < self.actual_agent_num
-        :param action: [-1, self.actual_city_num]
+        :param action: range : [-1, self.actual_city_num]
         :return: done
         """
         assert 0 <= agent_id <= self.actual_agent_num, "agent_id out of range"
-        assert -1 <= action <= self.actual_city_num, "action out of range"
+        if self.allow_back:
+            assert -1 <= action <= self.actual_city_num, "action out of range"
+        else:
+            assert 0 <= action <= self.actual_city_num, "action out of range , Env can't support back"
 
         if action == -1:
             assert len(self.actors_trajectory[agent_id]) > 1, "can't back before travel"
             last_cost = self.get_cost(self.actors_trajectory[agent_id][-1], self.actors_trajectory[agent_id][-2])
             if self.actors_trajectory[agent_id][-1] != 1:
-                self.global_mask[self.actors_trajectory[agent_id][-1]-1] = 0
+                self.global_mask[self.actors_trajectory[agent_id][-1] - 1] = 0
             self.actors_trajectory[agent_id].pop()
             self.actors_cost[agent_id] -= last_cost
         elif action != 0:
             if action != 1:
-                assert self.global_mask[action-1] == 0, f"reach city {action} twice"
+                assert self.global_mask[action - 1] == 0, f"reach city {action} twice"
             cost = self.get_cost(self.actors_trajectory[agent_id][-1], action)
             self.actors_trajectory[agent_id].append(action)
             self.actors_cost[agent_id] += cost
-            self.global_mask[action-1] = 1
+            self.global_mask[action - 1] = 1
 
         self.__update_agent_state(agent_id)
         self.actors_action_record[agent_id].append(action)
@@ -248,7 +262,10 @@ class MTSPEnv(gym.Env):
             return 0
 
     def __update_agent_back_mask(self, agent_id: int):
-        self.actors_action_mask[agent_id, 0] = (self.actors_trajectory[agent_id][-1] == 1) or self.to_end
+        if self.allow_back:
+            self.actors_action_mask[agent_id, 0] = (self.actors_trajectory[agent_id][-1] == 1) or self.to_end
+        else:
+            self.actors_action_mask[agent_id, 0] = 1
 
     def get_agents_action_mask(self):
         self.actors_action_mask[:, 1] = self.to_end
@@ -260,6 +277,7 @@ class MTSPEnv(gym.Env):
     def final_action_choice(action_to_chose, action_mask):
         special_action_to_chose = np.where(action_mask == 0)[0] - 1
         return np.concatenate((special_action_to_chose, action_to_chose), axis=-1)
+
 
 if __name__ == '__main__':
     cfg = {
@@ -297,4 +315,4 @@ if __name__ == '__main__':
             EndInfo.update(info)
     print(f"trajectory:{EndInfo}")
     gp = GP()
-    gp.draw_route(graph,EndInfo["actors_trajectory"],title="random", one_first=True)
+    gp.draw_route(graph, EndInfo["actors_trajectory"], title="random", one_first=True)
