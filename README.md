@@ -1,1 +1,2 @@
-# Solve Min-Max MTSP by multi-agent reinforcement learning
+# multi-agent-m3tsp
+try to solve the min max mtsp with multi agent reinforcement learning
