@@ -53,13 +53,13 @@ def ortools_solve_mtsp(graph, M = 5, C = 100000):
     routing.AddDimension(
         transit_callback_index,
         0,  # no slack
-        C * C // 100 // M,  # max distance per vehicle
+        C * N // M,  # max distance per vehicle
         True,  # start cumul to zero
         dimension_name)
     distance_dimension = routing.GetDimensionOrDie(dimension_name)
     # 设置最大路径长度的系数，启用 Min-Max 目标
 
-    distance_dimension.SetGlobalSpanCostCoefficient(C * C)
+    distance_dimension.SetGlobalSpanCostCoefficient(C * C * N // M)
 
     # 设置搜索参数
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
@@ -81,9 +81,9 @@ def ortools_solve_mtsp(graph, M = 5, C = 100000):
 
 if __name__ == '__main__':
     B = 1
-    N = 200
+    N = 50
     D = 2
-    M = 20
+    M = 5
     C = 100000
     graph_generator = GG(B, N, D)
     graph_plot = GP()

@@ -27,7 +27,13 @@ class TestModel(nn.Module):
         self.graph = graph
         self.cities_embedding = self.cities_encoder()
 
-
     def forward(self, agent_state, city_state, global_mask, agent_action_mask = None):
         assert agent_state.shape[-1] == self.agent_state_dim, f"the dimension of input agent state is {agent_state.shape[-1]} and should be equal to {self.agent_state_dim} "
         assert city_state.shape[-1] == self.city_state_dim, f"the dimension of input agent state is {city_state.shape[-1]} and should be equal to {self.city_state_dim} "
+
+        agent_embedding = self.agents_encoder(agent_state)[0]
+        city_embeddings = self.cities_encoder(city_state)
+        depot_embedding = city_embeddings[0]
+        visited_embedding = city_embeddings[1]
+        to_visit_embedding = city_embeddings[2]
+        return agent_embedding, city_embeddings

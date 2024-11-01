@@ -60,12 +60,15 @@ class GraphGenerator:
 
 
 if __name__ == '__main__':
-    dg = GraphGenerator()
+    dg = GraphGenerator(seed=1)
     data = dg.test()
     # print(f"generate data size:{data.shape}")
     # print(f"generate data:\n{data}")
-
-    data = dg.generate(2, 3, 2)
+    from utils.GraphPlot import GraphPlot as GP
+    gp = GP()
+    for i in range(10):
+        data = dg.generate(1, 3, 2)
+        gp.draw_graph(data)
     matrix = dg.nodes_to_matrix(data)
-    print(np.all(dg.vio_nodes_to_matrix(data) == dg.nodes_to_matrix(data)))
+    print(np.all(dg.nodes_to_matrix(data) == dg.nodes_to_matrix(data)))
     print(dg.generate_distance_matrix(2, 3, 2))

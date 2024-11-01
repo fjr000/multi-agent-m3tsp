@@ -142,6 +142,8 @@ class SelfEncoder(nn.Module):
         else:
             embed = embeddings[0]
         out = self.att(embed, attn_mask)
+        split_dim = [dd.shape[1] for dd in x]
+        out = torch.split(out, split_dim, dim=1)
         return out
 
 

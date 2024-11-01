@@ -1,15 +1,19 @@
+from distutils.command.config import config
+
 import numpy as np
 import gym
-from typing import Tuple, List
+from typing import Tuple, List,Dict
 import sys
 import os
+import gym
 
 sys.path.append("../")
-from Config import Config
+from envs.MTSP.Config import Config
 from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
+from model.RandomAgent import RandomAgent
 
-class MTSPEnv:
+class MTSPEnv(gym.Env):
     """
     Limitations::
     - Can't move backward (action == 1) before traveling
@@ -17,12 +21,16 @@ class MTSPEnv:
     - All salesmen must arrive at the depot at the same time (at the end).
     - Salesmen can't visit the same city except for the depot.
     """
-    def __init__(self, city_nums: Tuple = (10, 100), agent_nums: Tuple = (1, 9), seed=None):
+    def __init__(self, config:Dict = Config):
         """
 
         :param city_nums: (min_num, max_num); min_num <= max_num
         :param agent_nums: (min_num, max_num); min_num <= max_num; agent_num < city_num
         """
+
+        city_nums = config.get("city_nums")
+        agent_nums = config.get("agent_nums")
+        seed = config.get("seed")
         assert isinstance(city_nums, Tuple) or isinstance(city_nums, List), "city_nums must be a tuple or list"
         assert isinstance(agent_nums, Tuple) or isinstance(agent_nums, List), "agent_nums must be a tuple or list"
         assert len(city_nums) == 2 and len(agent_nums) == 2, "city_nums and agent_nums must have equal length 2"
@@ -51,6 +59,7 @@ class MTSPEnv:
         self.travel_over = None
         self.actors_action_mask = None
         self.to_end = False
+        self.random_state = np.random.get_state()
         self.reset_state()
 
     def reset_state(self):
@@ -66,8 +75,9 @@ class MTSPEnv:
         self.actors_cost = np.zeros(self.actual_agent_num, dtype=np.float32)
         self.travel_over = np.zeros(self.actual_agent_num, dtype=np.bool_)
         self.to_end = False
+        np.random.set_state(self.random_state)
 
-    def reset(self, city_nums: Tuple = None, agent_nums: Tuple = None, fixed_graph=False, seed=None):
+    def reset(self, config = None):
         """
 
         :param seed: random seed
@@ -75,6 +85,13 @@ class MTSPEnv:
         :param city_nums: (min_num, max_num); min_num <= max_num
         :param agent_nums: (min_num, max_num); min_num <= max_num; agent_num < city_num
         """
+        fixed_graph = False
+        city_nums, agent_nums, seed = None, None, None
+        if config is not None:
+            city_nums = config.get("city_nums")
+            agent_nums = config.get("agent_nums")
+            seed = config.get("seed")
+            fixed_graph = config.get("fixed_graph")
 
         if fixed_graph:
             if self.init_graph is None:
@@ -150,6 +167,7 @@ class MTSPEnv:
                 "actors_trajectory": self.actors_trajectory,
                 "actors_action_record": self.actors_action_record,
             })
+            self.random_state = np.random.get_state()
         return self.actors_state, reward, done, info
 
     def one_step(self, agent_id: int, action: int):
@@ -244,7 +262,15 @@ class MTSPEnv:
         return np.concatenate((special_action_to_chose, action_to_chose), axis=-1)
 
 if __name__ == '__main__':
-    env = MTSPEnv(city_nums=(5, 10), agent_nums=(2, 3))
+    cfg = {
+        "city_nums": (5, 10),
+        "agent_nums": (2, 3),
+        "seed": None,
+        "fixed_graph": False
+    }
+    env = MTSPEnv(
+        cfg
+    )
     states, info = env.reset()
     anum = info["anum"]
     cnum = info["cnum"]
@@ -254,16 +280,15 @@ if __name__ == '__main__':
 
     done = False
     EndInfo = {}
+    EndInfo.update(info)
+    agent_config = {
+        "city_nums": cnum,
+        "agent_nums": anum,
+    }
+    agent = RandomAgent(agent_config)
+    agent.reset(agent_config)
     while not done:
-        action_to_chose = np.where(global_mask == 0)[0] + 1
-        actions = np.zeros(anum, dtype=np.int32)
-        for i in range(anum):
-            final_action_to_chose = MTSPEnv.final_action_choice(action_to_chose, agents_action_mask[i])
-            actions[i] = np.random.choice(final_action_to_chose)
-            if actions[i] != 0 and actions[i] != -1:
-                if actions[i] != 1:
-                    idx = np.where(action_to_chose == actions[i])[0]
-                    action_to_chose = np.delete(action_to_chose, idx)
+        actions = agent.predict(states, global_mask, agents_action_mask)
         # action = np.random.choice(action_to_chose, anum, replace=False)
         state, reward, done, info = env.step(actions)
         global_mask = info["global_mask"]
