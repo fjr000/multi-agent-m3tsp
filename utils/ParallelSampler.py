@@ -32,8 +32,8 @@ class ParallelSampler:
             self.envs.append(self.env_class(cfg))
 
     def update_agent(self, id, agent):
+        data = cloudpickle.dumps((id, agent))
         for i in range(self.num_worker):
-            data = cloudpickle.dumps((id, agent))
             self.agent_pipes[i][0].send(data)
 
     def __update_agent(self, worker_id):
