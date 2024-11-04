@@ -6,10 +6,13 @@ from envs.MTSP.MTSP import MTSPEnv
 from typing import Dict
 import torch.multiprocessing as multiprocessing
 import numpy as np
+import copy
 
 class ParallelSampler:
     def __init__(self, agent, env_class=MTSPEnv, num_worker=2, config: Dict = None):
         self.agent = agent
+        self.agent_id = 0
+        # self.lock = multiprocessing.Lock()
         self.env_class = env_class
         self.num_worker = num_worker
         self.config = config
@@ -18,6 +21,7 @@ class ParallelSampler:
         self.seed = None
         self.processes = [None for _ in range(num_worker)]
         self.queue = multiprocessing.Queue()
+        self.agent_pipes = [multiprocessing.Pipe() for _ in range(num_worker)]
         self.envs = []
         # np.random.seed(config["seed"])
         for i in range(self.num_worker):
@@ -26,7 +30,18 @@ class ParallelSampler:
             # cfg["seed"] = None
             self.envs.append(self.env_class(cfg))
 
+    def update_agent(self, id, agent):
+        for i in range(self.num_worker):
+            self.agent_pipes[i][0].send((id, agent))
+
+    def __update_agent(self, worker_id):
+        while self.agent_pipes[worker_id][1].poll():
+            self.agent_id, self.agent = self.agent_pipes[worker_id][1].recv()
+
     def _run_episode(self, worker_id):
+
+        self.__update_agent(worker_id)
+        # print(f"{worker_id} 's agent id: {self.agent_id}")
         env = self.envs[worker_id]
         obs, info = env.reset()
         anum = info.get("anum")
@@ -39,7 +54,8 @@ class ParallelSampler:
             "city_nums": cnum,
             "agent_nums": anum
         }
-        agent.reset(agent_config)
+
+        self.agent.reset(agent_config)
 
         done = False
         obs_list = [obs]
@@ -90,7 +106,7 @@ class ParallelSampler:
                 global_mask_lists.append(global_mask_list)
                 action_mask_lists.append(action_mask_list)
                 global_info_list.append(global_info)
-                print(f"before_size:{qlen}, after_size:{self.queue.qsize()}")
+                # print(f"before_size:{qlen}, after_size:{self.queue.qsize()}")
         except KeyboardInterrupt:
             print("采样中断.")
         return obs_lists, reward_lists, done_lists, global_mask_lists, action_mask_lists, global_info_list
@@ -139,20 +155,21 @@ if __name__ == '__main__':
     from model.RandomAgent import RandomAgent
     from utils.GraphPlot import GraphPlot as GP
     agent = RandomAgent()
-    num_worker = 2
-    sample_times = 2
+    num_worker = 16
+    sample_times = 100
     gp = GP()
     PS = ParallelSamplerAsync(agent, MTSPEnv, num_worker=num_worker, config=envs.MTSP.Config.Config)
     st=time.time_ns()
-    for _ in range(sample_times):
+    for t in range(sample_times):
         PS.start()
         obs_lists, reward_lists, done_lists, global_mask_lists, action_mask_lists, global_info_list = PS.collect()
-        for i in range(num_worker):
-            global_info = global_info_list[i]
-            gp.draw_route(global_info["graph"], global_info["actors_trajectory"], one_first=True)
+        # for i in range(num_worker):
+        #     global_info = global_info_list[i]
+        #     gp.draw_route(global_info["graph"], global_info["actors_trajectory"], one_first=True)
+        PS.update_agent(t + 1,agent)
     ed=time.time_ns()
     PS.close()
     # for i in range(num_worker):
     #     global_info = global_info_list[i]
     #     gp.draw_route(global_info["graph"], global_info["actors_trajectory"], one_first=True)
-    print(f"time_cost_pre_worker:{(ed-st)/1e9 / num_worker / sample_times}")
+    print(f"time_cost_per_worker:{(ed-st)/1e9 / num_worker / sample_times}")
