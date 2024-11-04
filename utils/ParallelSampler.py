@@ -7,6 +7,7 @@ from typing import Dict
 import torch.multiprocessing as multiprocessing
 import numpy as np
 import copy
+import cloudpickle
 
 class ParallelSampler:
     def __init__(self, agent, env_class=MTSPEnv, num_worker=2, config: Dict = None):
@@ -32,11 +33,13 @@ class ParallelSampler:
 
     def update_agent(self, id, agent):
         for i in range(self.num_worker):
-            self.agent_pipes[i][0].send((id, agent))
+            data = cloudpickle.dumps((id, agent))
+            self.agent_pipes[i][0].send(data)
 
     def __update_agent(self, worker_id):
         while self.agent_pipes[worker_id][1].poll():
-            self.agent_id, self.agent = self.agent_pipes[worker_id][1].recv()
+            data = self.agent_pipes[worker_id][1].recv()
+            self.agent_id, self.agent = cloudpickle.loads(data)
 
     def _run_episode(self, worker_id):
 
