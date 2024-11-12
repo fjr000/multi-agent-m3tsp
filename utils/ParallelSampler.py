@@ -1,12 +1,9 @@
 import time
-from random import random
 
 import envs.MTSP.Config
 from envs.MTSP.MTSP import MTSPEnv
 from typing import Dict
 import torch.multiprocessing as multiprocessing
-import numpy as np
-import copy
 import cloudpickle
 
 class ParallelSampler:
@@ -154,23 +151,25 @@ class ParallelSamplerAsync(ParallelSampler):
         return self._sample()
 
 
+
+
 if __name__ == '__main__':
-    from model.RandomAgent import RandomAgent
+    from model.NNN.RandomAgent import RandomAgent
     from utils.GraphPlot import GraphPlot as GP
     agent = RandomAgent()
     num_worker = 16
     sample_times = 100
     gp = GP()
     PS = ParallelSamplerAsync(agent, MTSPEnv, num_worker=num_worker, config=envs.MTSP.Config.Config)
-    st=time.time_ns()
+    st = time.time_ns()
     for t in range(sample_times):
         PS.start()
         obs_lists, reward_lists, done_lists, global_mask_lists, action_mask_lists, global_info_list = PS.collect()
         # for i in range(num_worker):
         #     global_info = global_info_list[i]
         #     gp.draw_route(global_info["graph"], global_info["actors_trajectory"], one_first=True)
-        PS.update_agent(t + 1,agent)
-    ed=time.time_ns()
+        PS.update_agent(t + 1, agent)
+    ed = time.time_ns()
     PS.close()
     # for i in range(num_worker):
     #     global_info = global_info_list[i]

@@ -1,5 +1,5 @@
 import numpy as np
-from model.AgentBase import AgentBase
+from model.Base.AgentBase import AgentBase
 
 
 def final_action_choice(action_to_chose, action_mask):
@@ -14,7 +14,7 @@ class RandomAgent(AgentBase):
     def reset(self, config=None):
         super(RandomAgent, self).reset(config)
 
-    def predict(self, observation, global_mask, agents_action_mask, mode=None):
+    def predict(self, agents_state, cities_state, global_mask, agents_action_mask, mode=None):
         action_to_chose = np.where(global_mask == 0)[0] + 1
         actions = np.zeros(self.agent_nums, dtype=np.int32)
 

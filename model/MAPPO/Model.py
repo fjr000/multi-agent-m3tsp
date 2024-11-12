@@ -1,11 +1,6 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
-import numpy as np
-
-import model.Net as Net
+import model.Base.Net as Net
 
 class Model(nn.Module):
     def __init__(self, agent_dim, city_dim, embedding_dim):

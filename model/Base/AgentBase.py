@@ -21,7 +21,10 @@ class AgentBase:
             if agent_nums is not None:
                 self.agent_nums = agent_nums
 
-    def predict(self, observation, global_mask, agents_action_mask, mode=None):
+    def forward(self, agent_state, city_state, index):
+        raise NotImplementedError
+
+    def predict(self, agents_state, cities_state, global_mask, agents_action_mask, mode=None):
         raise NotImplementedError
 
     def save_model(self):

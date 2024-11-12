@@ -1,17 +1,13 @@
-from distutils.command.config import config
-
 import numpy as np
-import gym
 from typing import Tuple, List, Dict
 import sys
-import os
 import gym
 
 sys.path.append("../")
 from envs.MTSP.Config import Config
 from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
-from model.RandomAgent import RandomAgent
+from model.NNN.RandomAgent import RandomAgent
 
 
 class MTSPEnv(gym.Env):
@@ -66,6 +62,7 @@ class MTSPEnv(gym.Env):
         self.actors_cost = None
         self.travel_over = None
         self.actors_action_mask = None
+        self.actors_way = None
         self.to_end = False
         self.random_state = np.random.get_state()
         self.reset_state()
@@ -78,6 +75,7 @@ class MTSPEnv(gym.Env):
         self.actors_action_mask = np.zeros((self.actual_agent_num, 2))
         self.actors_action_mask[:, 0] = 1
         self.actors_state = np.zeros((self.actual_agent_num, self.agent_dims), dtype=np.float32)
+        self.actors_way = np.zeros((self.actual_agent_num, 2), dtype=np.int32)
         self.actors_trajectory = [[1] for _ in range(self.actual_agent_num)]
         self.actors_action_record = [[] for _ in range(self.actual_agent_num)]
         self.actors_cost = np.zeros(self.actual_agent_num, dtype=np.float32)
@@ -140,6 +138,7 @@ class MTSPEnv(gym.Env):
                 "graph_matrix": self.init_graph_matrix,
                 "global_mask": self.global_mask,
                 "agents_action_mask": self.get_agents_action_mask(),
+                "agents_way":self.get_agents_way()
             }
 
     def __init_graph(self):
@@ -170,6 +169,7 @@ class MTSPEnv(gym.Env):
         info = {
             "global_mask": self.global_mask,
             "agents_action_mask": self.get_agents_action_mask(),
+            "agents_way": self.get_agents_way()
         }
 
         if done:
@@ -272,6 +272,16 @@ class MTSPEnv(gym.Env):
         for i in range(self.actual_agent_num):
             self.__update_agent_back_mask(i)
         return self.actors_action_mask
+
+    def get_agents_way(self):
+
+        for i in range(self.actual_agent_num):
+            if len(self.actors_trajectory[i]) > 1:
+                self.actors_way[i] = np.array(self.actors_trajectory[-2:])
+            else:
+                self.actors_way[i] = np.array([1,1])
+        return self.actors_way
+
 
     @staticmethod
     def final_action_choice(action_to_chose, action_mask):
