@@ -3,7 +3,7 @@ from typing import Dict, Tuple, Union, List
 import numpy as np
 
 
-def __to_target_shape_dim(data, target_shape_dim=None):
+def _to_target_shape_dim(data, target_shape_dim=None):
     assert isinstance(target_shape_dim, int) or target_shape_dim is None
     assert isinstance(data, torch.Tensor) or isinstance(data, np.ndarray), "data must be torch.Tensor or np.ndarray"
     res = data
@@ -26,11 +26,11 @@ def _convert_tensor(data, dtype = torch.float32, device="cpu", target_shape_dim=
 
     for idx, d in enumerate(iter_data):
         if isinstance(d, torch.Tensor):
-            d = __to_target_shape_dim(d, target_shape_dim)
+            d = _to_target_shape_dim(d, target_shape_dim)
             iter_data[idx] = d.to(device)
         else:
             iter_data[idx] = torch.tensor(d, dtype=dtype, device=device)
-            iter_data[idx] = __to_target_shape_dim(iter_data[idx], target_shape_dim)
+            iter_data[idx] = _to_target_shape_dim(iter_data[idx], target_shape_dim)
 
     if to_iter:
         return iter_data[0]

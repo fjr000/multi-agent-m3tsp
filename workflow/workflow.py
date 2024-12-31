@@ -45,16 +45,8 @@ if __name__ == '__main__':
     for t in range(sample_times):
         PS.start()
         obs_lists, reward_lists, done_lists, global_mask_lists, action_mask_lists, global_info_list = PS.collect()
-
         # model update
-
-
-
         PS.update_agent(t + 1, model)
-
-
-
-
     PS.close()
     # # for i in range(num_worker):
     # #     global_info = global_info_list[i]

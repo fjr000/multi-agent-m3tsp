@@ -161,14 +161,14 @@ class SingleHeadAttention(nn.Module):
         U = self.tanh_clipping * torch.tanh(U)
 
         if mask is not None:
-            mask = mask.view(batch_size, 1, target_size).expand_as(U)  # copy for n_heads times
+            # mask = mask.view(batch_size, 1, target_size).expand_as(U)  # copy for n_heads times
             # U = U-1e8*mask  # ??
-            U[mask.bool()] = -1e8
-        attention = torch.log_softmax(U, dim=-1)  # batch_size*n_query*targets_size
+            U[mask<1e-8] = -1e8
+        # attention = torch.log_softmax(U, dim=-1)  # batch_size*n_query*targets_size
 
-        out = attention
+        # out = attention
 
-        return out
+        return U
 
 
 class SelfAttentionLayer(nn.Module):

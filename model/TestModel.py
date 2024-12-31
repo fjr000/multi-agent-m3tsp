@@ -153,6 +153,7 @@ if __name__ == '__main__':
         "seed": 1111,
         "fixed_graph": False,
         "allow_back": True
+
     }
     env = ENV(Config)
     states, info = env.reset()
