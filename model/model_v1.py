@@ -172,8 +172,8 @@ if __name__ == "__main__":
 
     env = MTSPEnv()
     cfg = {
-        "city_nums": (5, 10),
-        "agent_nums": (2, 3),
+        "city_nums": (10, 10),
+        "agent_nums": (3, 3),
         "seed": None,
         "fixed_graph": False
     }
@@ -211,17 +211,17 @@ if __name__ == "__main__":
         # action = np.random.choice(action_to_chose, anum, replace=False)
 
         actions_numpy = actions.squeeze(0).cpu().numpy()
-        s = set()
-        true_logp = np.zeros_like(actions_numpy)
-        for i in range(len(actions_numpy)):
-            if actions_numpy[i] == 1 or actions_numpy[i] not in s:
-                s.add(actions_numpy[i])
-            else:
-                actions_numpy[i] = 0
-            if actions_numpy[i] == agents_way[i, -1]:
-                actions_numpy[i] = 0
-            elif actions_numpy[i] == agents_way[i, 0]:
-                actions_numpy[i] = -1
+        # s = set()
+        # true_logp = np.zeros_like(actions_numpy)
+        # for i in range(len(actions_numpy)):
+        #     if actions_numpy[i] == 1 or actions_numpy[i] not in s:
+        #         s.add(actions_numpy[i])
+        #     else:
+        #         actions_numpy[i] = 0
+        #     if actions_numpy[i] == agents_way[i, -1]:
+        #         actions_numpy[i] = 0
+        #     elif actions_numpy[i] == agents_way[i, 0]:
+        #         actions_numpy[i] = -1
         states, reward, done, info = env.step(actions_numpy)
         global_mask = info["global_mask"]
         agents_mask = info["agents_mask"]

@@ -83,6 +83,7 @@ class MTSPEnv(gym.Env):
         self.actors_cost = np.zeros(self.actual_agent_num, dtype=np.float32)
         self.travel_over = np.zeros(self.actual_agent_num, dtype=np.bool_)
         self.to_end = False
+        self.act_step = 0
         np.random.set_state(self.random_state)
 
     def reset(self, config=None):
@@ -149,8 +150,8 @@ class MTSPEnv(gym.Env):
         for i in range(self.actual_agent_num):
             if self.actors_way[i,-1] != 1:
                 agents_mask[i,self.actors_way[i, -1]-1] = 1
-            if self.actors_way[i,0] != 1:
-                agents_mask[i,self.actors_way[i, 0]-1] = 1
+            # if self.actors_way[i,0] != 1:
+            #     agents_mask[i,self.actors_way[i, 0]-1] = 1
         return agents_mask
 
     def __init_graph(self):
@@ -164,6 +165,10 @@ class MTSPEnv(gym.Env):
         argsoft = np.argsort(self.actors_cost)
         new_actions = np.zeros_like(actions)
         visited = set()
+        agents_way = self.get_agents_way()
+        for idx in range(self.actual_agent_num):
+            if actions[idx] == agents_way[idx, -1] and actions[idx] >=1:
+                actions[idx] = 0
         for idx in argsoft:
             if actions[idx] in visited and actions[idx] > 1:
                 new_actions[idx] = 0
@@ -193,12 +198,17 @@ class MTSPEnv(gym.Env):
         if self.to_end and not done:
             self.global_mask[0] = 1
 
+        self.act_step += 1
+
         info = {
             "global_mask": self.global_mask,
             "agents_way": self.get_agents_way(),
             "agents_mask": self.get_agents_mask(),
             "actors_last_state": self.get_last_agents_state(),
         }
+
+        if self.act_step >= self.actual_city_num * 2:
+            done = True
 
         if done:
             info.update({
@@ -207,6 +217,7 @@ class MTSPEnv(gym.Env):
                 "actors_action_record": self.actors_action_record,
             })
             self.random_state = np.random.get_state()
+
         return self.actors_state, reward, done, info
 
     def one_step(self, agent_id: int, action: int):
