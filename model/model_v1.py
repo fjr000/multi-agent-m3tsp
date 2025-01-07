@@ -118,19 +118,16 @@ class ActionDecoder(nn.Module):
         self.agent_city_att = CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim)
         self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.action = SingleHeadAttention(embed_dim)
+        self.num_heads = num_heads
 
-    def forward(self, agent_embed, city_embed, attn_mask, mode="sample"):
-        aca = self.agent_city_att(agent_embed, city_embed, city_embed, attn_mask)
+    def forward(self, agent_embed, city_embed, masks):
+        expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
+        expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1)
+        expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
+        aca = self.agent_city_att(agent_embed, expand_city_embed, expand_city_embed, expand_masks)
         cross_out = self.linear_forward(aca)
-        action_logits = self.action(cross_out, city_embed, attn_mask.unsqueeze(0))
-        dist = torch.distributions.Categorical(logits=action_logits)
-        if mode == "greedy":
-            action = torch.argmax(action_logits, dim=-1)
-            logprob = dist.log_prob(action)
-        elif mode == "sample":
-            action = dist.sample()
-            logprob = dist.log_prob(action)
-        return action, logprob
+        action_logits = self.action(cross_out, expand_city_embed, masks)
+        return action_logits
 
 
 class ActionReselector(nn.Module):
@@ -154,16 +151,21 @@ class Model(nn.Module):
         self.city_embed = None
 
     def init_city(self, city):
+        """
+        :param city: [B,N,2]
+        :return: None
+        """
         self.city_embed = self.city_encoder(city)
 
     def forward(self, agent, mask):
         agent_embed = self.agent_encoder(agent)
-        select, logprob = self.agent_decoder(agent_embed, self.city_embed, mask)
+        actions_logits = self.agent_decoder(agent_embed, self.city_embed, mask)
+
         # expanded_city_embed = self.city_embed.expand(select.size(1), -1, -1)
         # expanded_select = select.unsqueeze(-1).expand(-1,-1,128)
         # select_city_embed = torch.gather(expanded_city_embed,1, expanded_select)
         # reselect = self.action_reselector(agent_embed, select_city_embed)
-        return select + 1, logprob
+        return actions_logits
 
 
 if __name__ == "__main__":
@@ -186,7 +188,7 @@ if __name__ == "__main__":
     graph = info["graph"]
     global_mask = info["global_mask"]
     agents_mask = info["agents_mask"]
-    agents_last_states = info["actors_last_state"]
+    agents_last_states = info["actors_last_states"]
     agents_way = info["agents_way"]
 
     done = False
@@ -203,30 +205,26 @@ if __name__ == "__main__":
 
     agent = RandomAgent()
     reward = 0
+    mode = "sample"
     while not done:
         state_t = _convert_tensor(states, device="cuda", target_shape_dim=3)
         last_state_t = _convert_tensor(agents_last_states, device="cuda", target_shape_dim=3)
         agents_mask_t = _convert_tensor(agents_mask, device="cuda", target_shape_dim=2)
-        actions, logp = model([last_state_t, state_t], agents_mask_t)
+        actions_logits  = model([last_state_t, state_t], agents_mask_t)
         # action = np.random.choice(action_to_chose, anum, replace=False)
-
+        dist = torch.distributions.Categorical(logits=actions_logits)
+        if mode == "greedy":
+            actions = torch.argmax(actions_logits, dim=-1)
+            logprob = dist.log_prob(actions)
+        elif mode == "sample":
+            actions = dist.sample()
+            logprob = dist.log_prob(actions)
         actions_numpy = actions.squeeze(0).cpu().numpy()
-        # s = set()
-        # true_logp = np.zeros_like(actions_numpy)
-        # for i in range(len(actions_numpy)):
-        #     if actions_numpy[i] == 1 or actions_numpy[i] not in s:
-        #         s.add(actions_numpy[i])
-        #     else:
-        #         actions_numpy[i] = 0
-        #     if actions_numpy[i] == agents_way[i, -1]:
-        #         actions_numpy[i] = 0
-        #     elif actions_numpy[i] == agents_way[i, 0]:
-        #         actions_numpy[i] = -1
         states, reward, done, info = env.step(actions_numpy)
         global_mask = info["global_mask"]
         agents_mask = info["agents_mask"]
         agents_way = info["agents_way"]
-        agents_last_states = info["actors_last_state"]
+        agents_last_states = info["actors_last_states"]
         if done:
             EndInfo.update(info)
     loss = reward

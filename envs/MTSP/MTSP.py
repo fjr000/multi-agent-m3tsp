@@ -8,7 +8,7 @@ from envs.MTSP.Config import Config
 from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
 from model.NNN.RandomAgent import RandomAgent
-
+import torch.nn.functional as F
 
 class MTSPEnv(gym.Env):
     """
@@ -69,8 +69,8 @@ class MTSPEnv(gym.Env):
         self.reset_state()
 
     def reset_state(self):
-        self.init_graph = None
-        self.init_graph_matrix = None
+        # self.init_graph = None
+        # self.init_graph_matrix = None
         self.global_mask = np.ones(self.actual_city_num)
         self.global_mask[0] = 0
         self.actors_action_mask = np.ones((self.actual_agent_num, 2))
@@ -106,9 +106,9 @@ class MTSPEnv(gym.Env):
                 self.allow_back = allow_back
 
         if fixed_graph:
-            if self.init_graph is None:
-                self.reset_state()
-                self.__init_graph()
+            self.reset_state()
+            for agent_id in range(self.actual_agent_num):
+                self.__update_agent_state(agent_id)
         else:
             if city_nums is not None:
                 assert isinstance(city_nums, Tuple) or isinstance(city_nums, List), "city_nums must be a tuple or list"
@@ -142,20 +142,30 @@ class MTSPEnv(gym.Env):
                 "global_mask": self.global_mask,
                 "agents_way": self.get_agents_way(),
                 "agents_mask": self.get_agents_mask(),
-                "actors_last_state": self.get_last_agents_state(),
+                "actors_last_states": self.get_last_agents_state(),
             }
 
     def get_agents_mask(self):
         agents_mask = self.global_mask[np.newaxis].repeat(self.actual_agent_num, axis=0)
-        for i in range(self.actual_agent_num):
-            if self.actors_way[i,-1] != 1:
-                agents_mask[i,self.actors_way[i, -1]-1] = 1
+        # for i in range(self.actual_agent_num):
+        #     if self.actors_way[i,-1] != 1:
+        #         agents_mask[i,self.actors_way[i, -1]-1] = 1
             # if self.actors_way[i,0] != 1:
             #     agents_mask[i,self.actors_way[i, 0]-1] = 1
         return agents_mask
 
     def __init_graph(self):
         self.init_graph = self.GG.generate(1, self.actual_city_num, self.city_dims)
+        self.init_graph_matrix = self.GG.nodes_to_matrix(self.init_graph).squeeze(0)
+        self.init_graph = self.init_graph.squeeze(0)
+        for agent_id in range(self.actual_agent_num):
+            self.__update_agent_state(agent_id)
+
+    def init_fixed_graph(self, fixed_graph, agent_num = 2):
+        self.actual_city_num = len(fixed_graph[0])
+        self.actual_agent_num = agent_num
+        self.reset_state()
+        self.init_graph = fixed_graph
         self.init_graph_matrix = self.GG.nodes_to_matrix(self.init_graph).squeeze(0)
         self.init_graph = self.init_graph.squeeze(0)
         for agent_id in range(self.actual_agent_num):
@@ -204,11 +214,13 @@ class MTSPEnv(gym.Env):
             "global_mask": self.global_mask,
             "agents_way": self.get_agents_way(),
             "agents_mask": self.get_agents_mask(),
-            "actors_last_state": self.get_last_agents_state(),
+            "actors_last_states": self.get_last_agents_state(),
+            "actors_cost": self.actors_cost,
         }
 
-        if self.act_step >= self.actual_city_num * 2:
-            done = True
+        # if self.act_step >= self.actual_city_num * 2:
+        #     done = True
+        #     reward = - self.actual_city_num * 2
 
         if done:
             info.update({
@@ -219,7 +231,6 @@ class MTSPEnv(gym.Env):
             self.random_state = np.random.get_state()
 
         return self.actors_state, reward, done, info
-
     def one_step(self, agent_id: int, action: int):
         """
         -1: back previous city
