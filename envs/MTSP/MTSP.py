@@ -10,6 +10,7 @@ from utils.GraphPlot import GraphPlot as GP
 from model.NNN.RandomAgent import RandomAgent
 import torch.nn.functional as F
 
+
 class MTSPEnv(gym.Env):
     """
     Limitations::
@@ -150,8 +151,8 @@ class MTSPEnv(gym.Env):
         # for i in range(self.actual_agent_num):
         #     if self.actors_way[i,-1] != 1:
         #         agents_mask[i,self.actors_way[i, -1]-1] = 1
-            # if self.actors_way[i,0] != 1:
-            #     agents_mask[i,self.actors_way[i, 0]-1] = 1
+        # if self.actors_way[i,0] != 1:
+        #     agents_mask[i,self.actors_way[i, 0]-1] = 1
         return agents_mask
 
     def __init_graph(self):
@@ -161,7 +162,7 @@ class MTSPEnv(gym.Env):
         for agent_id in range(self.actual_agent_num):
             self.__update_agent_state(agent_id)
 
-    def init_fixed_graph(self, fixed_graph, agent_num = 2):
+    def init_fixed_graph(self, fixed_graph, agent_num=2):
         self.actual_city_num = len(fixed_graph[0])
         self.actual_agent_num = agent_num
         self.reset_state()
@@ -171,13 +172,13 @@ class MTSPEnv(gym.Env):
         for agent_id in range(self.actual_agent_num):
             self.__update_agent_state(agent_id)
 
-    def reset_action(self, actions:np.ndarray):
+    def reset_action(self, actions: np.ndarray):
         argsoft = np.argsort(self.actors_cost)
         new_actions = np.zeros_like(actions)
         visited = set()
         agents_way = self.get_agents_way()
         for idx in range(self.actual_agent_num):
-            if actions[idx] == agents_way[idx, -1] and actions[idx] >=1:
+            if actions[idx] == agents_way[idx, -1] and actions[idx] >= 1:
                 actions[idx] = 0
         for idx in argsoft:
             if actions[idx] in visited and actions[idx] > 1:
@@ -231,6 +232,7 @@ class MTSPEnv(gym.Env):
             self.random_state = np.random.get_state()
 
         return self.actors_state, reward, done, info
+
     def one_step(self, agent_id: int, action: int):
         """
         -1: back previous city
@@ -354,12 +356,14 @@ class MTSPEnv(gym.Env):
         special_action_to_chose = np.where(action_mask == 0)[0] - 1
         return np.concatenate((special_action_to_chose, action_to_chose), axis=-1)
 
-    def draw(self, info):
+    def draw(self, graph, cost, trajectory, used_time=0, agent_name="agent"):
         from utils.GraphPlot import GraphPlot as GP
         graph_plot = GP()
-        cost = info["actors_trajectory"]
-        used_time = info.get("used_time", 0)
-        graph_plot.draw_route(graph, info["actors_trajectory"], title=f"agent_cost:{np.max(cost)}_time:{used_time}")
+        if agent_name == "or_tools":
+            one_first = False
+        else:
+            one_first = True
+        graph_plot.draw_route(graph, trajectory, title=f"{agent_name}_cost:{cost:.5f}_time:{used_time:.3f}", one_first=one_first)
 
 
 if __name__ == '__main__':

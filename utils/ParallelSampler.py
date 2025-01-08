@@ -150,9 +150,6 @@ class ParallelSamplerAsync(ParallelSampler):
     def collect(self):
         return self._sample()
 
-
-
-
 if __name__ == '__main__':
     from model.NNN.RandomAgent import RandomAgent
     from utils.GraphPlot import GraphPlot as GP

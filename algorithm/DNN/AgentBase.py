@@ -20,7 +20,7 @@ class AgentBase:
         self._gamma = args.gamma
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
-        self.optim = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
@@ -96,7 +96,7 @@ class AgentBase:
         self.model.init_city(graph_t)
         return loss.item()
 
-    def _run_episode(self, env, graph, agent_num, eval_mode = False):
+    def _run_episode(self, env, graph, agent_num, eval_mode=False):
         env.init_fixed_graph(graph, agent_num)
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
@@ -121,11 +121,11 @@ class AgentBase:
             states, reward, done, info = env.step(actions + 1)
 
             if not eval_mode:
-                last_states_list.append(last_states_t)
-                states_list.append(agents_states_t)
-                masks_list.append(agents_mask_t)
-                actions_list.append(torch.tensor(actions, dtype=torch.float32, device=self.device).unsqueeze(0))
-                reward_list.append(reward)
+                last_states_list.append(last_states_t.cpu().numpy().squeeze(0))
+                states_list.append(agents_states_t.cpu().numpy().squeeze(0))
+                masks_list.append(agents_mask_t.cpu().numpy().squeeze(0))
+                actions_list.append(actions)
+                reward_list.append(np.array(reward))
 
             agents_mask = info["agents_mask"]
             agents_last_states = info["actors_last_states"]
@@ -133,39 +133,66 @@ class AgentBase:
 
         if not eval_mode:
             returns_numpy = self.get_cumulative_returns(reward_list)
-            states_tb = torch.cat(states_list, dim=0)
-            last_states_tb = torch.cat(last_states_list, dim=0)
-            actions_tb = torch.cat(actions_list, dim=0)
-            returns_tb = torch.tensor(np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1), dtype=torch.float32,
-                                      device=self.device)
-            masks_tb = torch.cat(masks_list, dim=0)
-            return [last_states_tb, states_tb], actions_tb, returns_tb, masks_tb
+            states_nb = np.stack(states_list, axis=0)
+            last_states_nb = np.stack(last_states_list, axis=0)
+            actions_nb = np.stack(actions_list, axis=0)
+            returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
+            masks_nb = np.stack(masks_list, axis=0)
+            return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb
         else:
             return info
 
     def eval_episode(self, env, graph, agent_num):
-        eval_info = self._run_episode(env, graph, agent_num, eval_mode = True)
-        return eval_info
+        eval_info = self._run_episode(env, graph, agent_num, eval_mode=True)
+        cost = np.max(eval_info["actors_cost"])
+        trajectory = eval_info["actors_trajectory"]
+        return cost, trajectory
 
     def run_batch(self, env, graph, agent_num, batch_size):
         cur_size = 0
-        last_states_tb_list = []
-        states_tb_list = []
-        actions_tb_list = []
-        returns_tb_list = []
-        masks_tb_list = []
+        last_states_nb_list = []
+        states_nb_list = []
+        actions_nb_list = []
+        returns_nb_list = []
+        masks_nb_list = []
         while cur_size < batch_size:
-            features_tb, actions_tb, returns_tb, masks_tb = self._run_episode(env, graph, agent_num)
-            last_states_tb_list.append(features_tb[0])
-            states_tb_list.append(features_tb[1])
-            actions_tb_list.append(actions_tb)
-            returns_tb_list.append(returns_tb)
-            masks_tb_list.append(masks_tb)
-            cur_size += masks_tb.size(0)
+            features_nb, actions_nb, returns_nb, masks_nb = self._run_episode(env, graph, agent_num)
+            last_states_nb_list.append(features_nb[0])
+            states_nb_list.append(features_nb[1])
+            actions_nb_list.append(actions_nb)
+            returns_nb_list.append(returns_nb)
+            masks_nb_list.append(masks_nb)
+            cur_size += len(masks_nb)
 
         return (
-                [torch.cat(last_states_tb_list, dim=0), torch.cat(states_tb_list, dim=0)],
-                torch.cat(actions_tb_list, dim=0),
-                torch.cat(returns_tb_list, dim=0),
-                torch.cat(masks_tb_list, dim=0),
-                )
+            [np.concatenate(last_states_nb_list, axis=0), np.concatenate(states_nb_list, axis=0)],
+            np.concatenate(actions_nb_list, axis=0),
+            np.concatenate(returns_nb_list, axis=0),
+            np.concatenate(masks_nb_list, axis=0),
+        )
+
+    def state_dict(self):
+        checkpoint = {
+            "model_state_dict": self.model.state_dict(),
+            "model_optim": self.optim.state_dict(),
+        }
+        return checkpoint
+
+    def load_state_dict(self, checkpoint):
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optim.load_state_dict(checkpoint["model_optim"])
+
+    def _save_model(self, model_dir, filename):
+        save_path = f"{model_dir}{filename}.pth"
+        checkpoint = self.state_dict()
+        torch.save(checkpoint, save_path)
+
+    def _load_model(self, model_dir, filename):
+        load_path = f"{model_dir}{filename}.pth"
+        import os
+        if os.path.isfile(load_path):
+            checkpoint = torch.load(load_path, weights_only=False, map_location=self.device)
+            self.load_state_dict(checkpoint)
+            print(f"load {load_path} successfully")
+        else:
+            print("model file doesn't exist")

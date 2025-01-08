@@ -12,17 +12,19 @@ class CityEmbedding(nn.Module):
         self.embed_dim = embed_dim
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.depot_embed = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.embed_dim),
-        )
-
-        self.city_embed = nn.Sequential(
-            nn.Linear(self.input_dim, self.embed_dim),
-            nn.ReLU(),
-            nn.Linear(self.embed_dim, self.embed_dim),
-        )
+        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
+        # self.depot_embed = nn.Sequential(
+        #     nn.Linear(self.input_dim, self.hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(self.hidden_dim, self.embed_dim),
+        # )
+        #
+        # self.city_embed = nn.Sequential(
+        #     nn.Linear(self.input_dim, self.embed_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(self.embed_dim, self.embed_dim),
+        # )
 
     def forward(self, city):
         """
@@ -63,21 +65,22 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.cur_city_embed = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.embed_dim),
-        )
+        self.cur_city_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.last_city_embed = nn.Linear(self.input_dim, self.embed_dim)
+        #
+        # self.cur_city_embed = nn.Sequential(
+        #     nn.Linear(self.input_dim, self.hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(self.hidden_dim, self.embed_dim),
+        # )
+        #
+        # self.last_city_embed = nn.Sequential(
+        #     nn.Linear(self.input_dim, self.hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(self.hidden_dim, self.embed_dim),
+        # )
 
-        self.last_city_embed = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.embed_dim),
-        )
-
-        self.agent_embed = nn.Sequential(
-            nn.Linear(2 * self.embed_dim, self.embed_dim),
-        )
+        self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
 
     def forward(self, agent_state_list):
         """
