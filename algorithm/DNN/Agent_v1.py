@@ -7,97 +7,12 @@ import torch.optim as optim
 import torch
 from utils.TensorTools import _convert_tensor
 import numpy as np
+from algorithm.DNN.AgentBase import AgentBase
 
 
-class Agent:
+class Agent(AgentBase):
     def __init__(self, args):
-        self.args = args
-        self.model = Model(agent_dim=args.agent_dim,
-                           hidden_dim=args.hidden_dim,
-                           embed_dim=args.embed_dim,
-                           num_heads=args.num_heads,
-                           num_layers=args.num_layers)
-        self._gamma = args.gamma
-        self.lr = args.lr
-        self.grad_max_norm = args.grad_max_norm
-        self.optim = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-
-    def reset_graph(self, graph):
-        """
-        :param graph: [B,N,2]
-        :return:
-        """
-        graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
-        self.model.init_city(graph_t)
-        # print(f"city_embed:{self.model.city_embed[0,0,:2]}")
-
-
-    def __get_action_logprob(self, states, masks, mode="greedy"):
-        actions_logits = self.model(states, masks)
-        dist = torch.distributions.Categorical(logits=actions_logits)
-        if mode == "greedy":
-            action = torch.argmax(actions_logits, dim=-1)
-            logprob = dist.log_prob(action)
-        elif mode == "sample":
-            action = dist.sample()
-            logprob = dist.log_prob(action)
-        else:
-            raise NotImplementedError
-        return action, logprob
-
-    def predict(self, states_t, masks_t):
-        self.model.train()
-        actions, _ = self.__get_action_logprob(states_t, masks_t, mode="sample")
-        return actions.cpu().numpy().squeeze(0)
-
-    def exploit(self, states_t, masks_t, mode="greedy"):
-        self.model.eval()
-        actions, _ = self.__get_action_logprob(states_t, masks_t, mode=mode)
-        return actions.cpu().numpy().squeeze(0)
-
-    def get_cumulative_returns(self, reward_list):
-        returns_numpy = np.zeros(len(reward_list))
-        returns_numpy[-1] = reward_list[-1]
-        for idx in range(-2, -len(reward_list) - 1, -1):
-            returns_numpy[idx] = reward_list[idx] + self._gamma * returns_numpy[idx + 1]
-        return returns_numpy
-
-    def __update_net(self, optim, params, loss):
-        optim.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(params, self.grad_max_norm)
-        optim.step()
-
-    def __get_logprob(self, states, masks, actions):
-        actions_logits = self.model(states, masks)
-        dist = torch.distributions.Categorical(logits=actions_logits)
-        entropy = dist.entropy()
-        return dist.log_prob(actions), entropy
-
-    def __get_loss(self, states, masks, actions, returns):
-        actions_logprob, entropy = self.__get_logprob(states, masks, actions)
-
-        if self.args.returns_norm:
-            loss = - (actions_logprob * (returns - returns.mean()) / (returns.std() + 1e-8)).mean()
-        else:
-            loss = - (actions_logprob * returns).mean()
-
-        if self.args.max_ent:
-            loss -= self.args.entropy_coef * entropy.mean()
-
-        return loss
-
-    def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
-        self.model.train()
-        self.model.init_city(graph_t)
-        # print(f"city_embed:{self.model.city_embed[0,0,:2]}")
-        loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb)
-        self.__update_net(self.optim, self.model.parameters(), loss)
-        self.model.init_city(graph_t)
-        # print(f"city_embed:{self.model.city_embed[0, 0, :2]}")
-        return loss.item()
+        super(Agent, self).__init__(args)
 
 
 if __name__ == '__main__':
@@ -107,7 +22,7 @@ if __name__ == '__main__':
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--gamma", type=float, default=0.9)
+    parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
@@ -116,7 +31,10 @@ if __name__ == '__main__':
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     args = parser.parse_args()
 
+
     def eval(env, agent, graph_plot, graph, min_reward):
+        import time
+        st = time.time_ns()
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
         agents_last_states = info["actors_last_states"]
@@ -135,30 +53,45 @@ if __name__ == '__main__':
             agents_last_states = info["actors_last_states"]
             agents_states = states
         print(f"eval {reward}")
+        ed = time.time_ns()
         if reward > min_reward:
-            graph_plot.draw_route(graph, info["actors_trajectory"], title=f"agent_cost:{-reward}_time:{used_time}", one_first=True)
+            graph_plot.draw_route(graph, info["actors_trajectory"],
+                                  title=f"agent_cost:{-reward}_time:{1e-9 * (ed - st)}", one_first=True)
             min_reward = reward
         return min_reward
+
+
     from envs.GraphGenerator import GraphGenerator as GG
 
-    graphG = GG(1, 10, 2)
+    graphG = GG(1, 20, 2)
     graph = graphG.generate()
     from envs.MTSP.MTSP import MTSPEnv
 
     env = MTSPEnv()
-    env.init_fixed_graph(graph, 2)
+    env.init_fixed_graph(graph, 3)
 
     agents_states, info = env.reset({"fixed_graph": True})
     a_num = info["anum"]
 
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
+
     indexs, cost, used_time = ortools_solve_mtsp(graph, a_num, 10000)
     from utils.GraphPlot import GraphPlot as GP
+
     graph_plot = GP()
     graph_plot.draw_route(graph, indexs, title=f"or_tools_cost:{cost}_time:{used_time}")
     print(f"or tools :{cost}")
     agent = Agent(args)
     min_reward = -1000
+    states_tb_list = []
+    states_tb_list = []
+    last_states_tb_list = []
+    actions_tb_list = []
+    returns_tb_list = []
+    masks_tb_list = []
+    sample_len = 0
+    loss = 0
+
     for i in range(100_000_000):
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
@@ -173,7 +106,7 @@ if __name__ == '__main__':
         actions_list = []
         reward_list = []
         masks_list = []
-        reward= 0
+        reward = 0
         while not done:
             agents_states_t = _convert_tensor(agents_states, device=device, target_shape_dim=3)
             last_states_t = _convert_tensor(agents_last_states, device=device, target_shape_dim=3)
@@ -196,9 +129,29 @@ if __name__ == '__main__':
         states_tb = torch.cat(states_list, dim=0)
         last_states_tb = torch.cat(last_states_list, dim=0)
         actions_tb = torch.cat(actions_list, dim=0)
-        returns_tb = torch.tensor(np.repeat(returns_numpy[:, np.newaxis], a_num, axis=1), dtype=torch.float32, device=device)
+        returns_tb = torch.tensor(np.repeat(returns_numpy[:, np.newaxis], a_num, axis=1), dtype=torch.float32,
+                                  device=device)
         masks_tb = torch.cat(masks_list, dim=0)
-        loss = agent.learn(torch.tensor(graph, dtype=torch.float32, device= device), [last_states_tb, states_tb], actions_tb, returns_tb, masks_tb)
+
+        states_tb_list.append(states_tb)
+        last_states_tb_list.append(last_states_tb)
+        actions_tb_list.append(actions_tb)
+        returns_tb_list.append(returns_tb)
+        masks_tb_list.append(masks_tb)
+        sample_len += states_tb.size(0)
+        if sample_len > 1024:
+            loss = agent.learn(torch.tensor(graph, dtype=torch.float32, device=device),
+                               [torch.cat(last_states_tb_list, dim=0), torch.cat(states_tb_list, dim=0)],
+                               torch.cat(actions_tb_list, dim=0),
+                               torch.cat(returns_tb_list, dim=0),
+                               torch.cat(masks_tb_list, dim=0)
+                               )
+            sample_len = 0
+            states_tb_list.clear()
+            actions_tb_list.clear()
+            last_states_tb_list.clear()
+            masks_tb_list.clear()
+            returns_tb_list.clear()
         if i % 100 == 0:
             print(f"loss:{loss}, reward:{reward}")
             eval_reward = eval(env, agent, graph_plot, graph, min_reward)

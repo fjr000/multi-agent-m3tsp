@@ -218,13 +218,13 @@ class MTSPEnv(gym.Env):
             "actors_cost": self.actors_cost,
         }
 
-        # if self.act_step >= self.actual_city_num * 2:
-        #     done = True
-        #     reward = - self.actual_city_num * 2
+        if self.act_step >= self.actual_city_num * 2:
+            done = True
+            reward = - 10 + self.get_reward(done)
 
         if done:
             info.update({
-                "actors_cost": self.actors_cost,
+                # "actors_cost": self.actors_cost,
                 "actors_trajectory": self.actors_trajectory,
                 "actors_action_record": self.actors_action_record,
             })
@@ -354,6 +354,13 @@ class MTSPEnv(gym.Env):
         special_action_to_chose = np.where(action_mask == 0)[0] - 1
         return np.concatenate((special_action_to_chose, action_to_chose), axis=-1)
 
+    def draw(self, info):
+        from utils.GraphPlot import GraphPlot as GP
+        graph_plot = GP()
+        cost = info["actors_trajectory"]
+        used_time = info.get("used_time", 0)
+        graph_plot.draw_route(graph, info["actors_trajectory"], title=f"agent_cost:{np.max(cost)}_time:{used_time}")
+
 
 if __name__ == '__main__':
     cfg = {
@@ -383,7 +390,6 @@ if __name__ == '__main__':
     agent.reset(agent_config)
     while not done:
         actions = agent.predict(states, global_mask, agents_action_mask)
-        # action = np.random.choice(action_to_chose, anum, replace=False)
         state, reward, done, info = env.step(actions)
         global_mask = info["global_mask"]
         agents_action_mask = info["agents_mask"]
