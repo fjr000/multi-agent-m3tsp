@@ -31,6 +31,8 @@ class Agent:
         """
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
         self.model.init_city(graph_t)
+        # print(f"city_embed:{self.model.city_embed[0,0,:2]}")
+
 
     def __get_action_logprob(self, states, masks, mode="greedy"):
         actions_logits = self.model(states, masks)
@@ -78,7 +80,7 @@ class Agent:
         actions_logprob, entropy = self.__get_logprob(states, masks, actions)
 
         if self.args.returns_norm:
-            loss = - (actions_logprob * (returns - returns.mean())).mean()
+            loss = - (actions_logprob * (returns - returns.mean()) / (returns.std() + 1e-8)).mean()
         else:
             loss = - (actions_logprob * returns).mean()
 
@@ -90,17 +92,20 @@ class Agent:
     def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
         self.model.train()
         self.model.init_city(graph_t)
+        # print(f"city_embed:{self.model.city_embed[0,0,:2]}")
         loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb)
         self.__update_net(self.optim, self.model.parameters(), loss)
+        self.model.init_city(graph_t)
+        # print(f"city_embed:{self.model.city_embed[0, 0, :2]}")
         return loss.item()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--embed_dim", type=int, default=256)
-    parser.add_argument("--num_heads", type=int, default=8)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--embed_dim", type=int, default=128)
+    parser.add_argument("--num_heads", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--gamma", type=float, default=0.9)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -111,7 +116,7 @@ if __name__ == '__main__':
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     args = parser.parse_args()
 
-    def eval(env, agent, graph_plot, graph):
+    def eval(env, agent, graph_plot, graph, min_reward):
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
         agents_last_states = info["actors_last_states"]
@@ -130,11 +135,13 @@ if __name__ == '__main__':
             agents_last_states = info["actors_last_states"]
             agents_states = states
         print(f"eval {reward}")
-        # graph_plot.draw_route(graph, info["actors_trajectory"], title=f"agent_cost:{-reward}_time:{used_time}", one_first=True)
-
+        if reward > min_reward:
+            graph_plot.draw_route(graph, info["actors_trajectory"], title=f"agent_cost:{-reward}_time:{used_time}", one_first=True)
+            min_reward = reward
+        return min_reward
     from envs.GraphGenerator import GraphGenerator as GG
 
-    graphG = GG(1, 4, 2)
+    graphG = GG(1, 10, 2)
     graph = graphG.generate()
     from envs.MTSP.MTSP import MTSPEnv
 
@@ -150,12 +157,14 @@ if __name__ == '__main__':
     graph_plot = GP()
     graph_plot.draw_route(graph, indexs, title=f"or_tools_cost:{cost}_time:{used_time}")
     print(f"or tools :{cost}")
-    for i in range(1_000_000):
+    agent = Agent(args)
+    min_reward = -1000
+    for i in range(100_000_000):
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
         agents_last_states = info["actors_last_states"]
         a_num = info["anum"]
-        agent = Agent(args)
+
         done = False
         device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() else "cpu")
         agent.reset_graph(graph)
@@ -192,4 +201,5 @@ if __name__ == '__main__':
         loss = agent.learn(torch.tensor(graph, dtype=torch.float32, device= device), [last_states_tb, states_tb], actions_tb, returns_tb, masks_tb)
         if i % 100 == 0:
             print(f"loss:{loss}, reward:{reward}")
-            eval(env, agent, graph_plot, graph)
+            eval_reward = eval(env, agent, graph_plot, graph, min_reward)
+            min_reward = eval_reward
