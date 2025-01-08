@@ -96,7 +96,7 @@ class AgentBase:
         self.model.init_city(graph_t)
         return loss.item()
 
-    def _run_episode(self, env, graph, agent_num, eval_mode=False):
+    def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode = "sample"):
         env.init_fixed_graph(graph, agent_num)
         agents_states, info = env.reset({"fixed_graph": True})
         agents_mask = info["agents_mask"]
@@ -114,7 +114,7 @@ class AgentBase:
             last_states_t = _convert_tensor(agents_last_states, device=self.device, target_shape_dim=3)
             agents_mask_t = _convert_tensor(agents_mask, device=self.device, target_shape_dim=3)
             if eval_mode:
-                actions = self.exploit([last_states_t, agents_states_t], agents_mask_t)
+                actions = self.exploit([last_states_t, agents_states_t], agents_mask_t, mode=exploit_mode)
             else:
                 actions = self.predict([last_states_t, agents_states_t], agents_mask_t)
 
@@ -142,8 +142,8 @@ class AgentBase:
         else:
             return info
 
-    def eval_episode(self, env, graph, agent_num):
-        eval_info = self._run_episode(env, graph, agent_num, eval_mode=True)
+    def eval_episode(self, env, graph, agent_num, exploit_mode = "sample"):
+        eval_info = self._run_episode(env, graph, agent_num, eval_mode=True, exploit_mode=exploit_mode)
         cost = np.max(eval_info["actors_cost"])
         trajectory = eval_info["actors_trajectory"]
         return cost, trajectory
