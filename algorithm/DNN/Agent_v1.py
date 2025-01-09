@@ -55,7 +55,8 @@ if __name__ == '__main__':
     env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
     print(f"or tools :{cost}")
     agent = AgentV1(args)
-    min_cost = 1000
+    min_greedy_cost = 1000
+    min_sample_cost = 1000
     loss_list = []
     for i in range(100_000_000):
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, args.agent_num, args.batch_size)
@@ -71,9 +72,23 @@ if __name__ == '__main__':
             loss_list.clear()
 
             st =time.time_ns()
-            cost, trajectory = agent.eval_episode(env, graph, args.agent_num)
+            greedy_cost, greedy_trajectory = agent.eval_episode(env, graph, args.agent_num, exploit_mode="greedy")
             ed = time.time_ns()
-            if cost < min_cost:
-                env.draw(graph, cost, trajectory, (ed - st) * 1e-9)
-                min_cost = cost
-            print(f"eval cost:{cost}, min cost:{min_cost}")
+            if greedy_cost < min_greedy_cost:
+                env.draw(graph, greedy_cost, greedy_trajectory, (ed - st) * 1e-9)
+                min_greedy_cost = greedy_cost
+            print(f"eval greedy cost:{greedy_cost}, min greedy cost:{min_greedy_cost}")
+            epoch_min_sample_cost = 1000
+            min_sample_trajectory = None
+            for i in range(32):
+                st = time.time_ns()
+                sample_cost, sample_trajectory = agent.eval_episode(env, graph, args.agent_num)
+                ed = time.time_ns()
+                if sample_cost < epoch_min_sample_cost:
+                    epoch_min_sample_cost = sample_cost
+                    min_sample_trajectory = sample_trajectory
+
+            if epoch_min_sample_cost < min_sample_cost:
+                min_sample_cost = epoch_min_sample_cost
+                env.draw(graph, epoch_min_sample_cost, min_sample_trajectory, (ed - st) * 1e-9)
+            print(f"eval sample cost:{epoch_min_sample_cost}, min sample cost:{min_sample_cost}")
