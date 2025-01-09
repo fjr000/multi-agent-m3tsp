@@ -86,6 +86,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
             writer.add_scalar("greedy_cost", greedy_cost, eval_count)
             writer.add_scalar("min_sample_cost", min_sample_cost, eval_count)
             writer.add_scalar("ortools_cost", ortools_cost, eval_count)
+            print(f"greddy_cost:{greedy_cost}, sample_cost:{min_sample_cost}, ortools_cost:{ortools_cost}")
 
 
 
@@ -135,14 +136,15 @@ class ParallelWorker:
                                     )
 
         trainer_process.start()
-        evaler_process.start()
         for p in worker_processes:
             p.start()
+        evaler_process.start()
 
         trainer_process.join()
-        evaler_process.join()
         for p in worker_processes:
             p.join()
+
+        evaler_process.join()
 
 
 

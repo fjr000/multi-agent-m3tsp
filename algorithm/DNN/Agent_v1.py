@@ -25,7 +25,7 @@ class AgentV1(AgentBase):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
     from envs.GraphGenerator import GraphGenerator as GG
 
-    graphG = GG(1, 20, 2)
+    graphG = GG(1, 50, 2)
     graph = graphG.generate()
     from envs.MTSP.MTSP import MTSPEnv
 
