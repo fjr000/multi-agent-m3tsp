@@ -50,6 +50,28 @@ class GraphPlot:
             fig.show()
         return fig
 
+    def combine_figs(self, figs):
+        # 创建一个新的大画布
+        fig_combined, axs = plt.subplots(1, len(figs),figsize=(5*len(figs), 5))  # 创建 1x3 子图
+
+        # 拷贝每个独立图的内容到新的子图中
+        for i, (source_fig, target_ax) in enumerate(zip(figs, axs), start=1):
+            source_ax = source_fig.axes[0]  # 获取原始图的第一个 Axes
+            for line in source_ax.get_lines():  # 获取线条并复制
+                target_ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label())
+            target_ax.set_title(source_ax.get_title())  # 复制标题
+            target_ax.set_xlabel(source_ax.get_xlabel())  # 复制 X 轴标签
+            target_ax.set_ylabel(source_ax.get_ylabel())  # 复制 Y 轴标签
+            # target_ax.legend()  # 复制图例
+
+        # 显示合并后的大图
+        plt.tight_layout()
+        # plt.show()
+        # 可选：关闭原始图以释放内存
+        for fig in figs:
+            plt.close(fig)
+        return fig_combined
+
     def plot_format(self, ax, title=None):
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])

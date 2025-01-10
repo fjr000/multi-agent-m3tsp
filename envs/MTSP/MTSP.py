@@ -356,15 +356,25 @@ class MTSPEnv(gym.Env):
         special_action_to_chose = np.where(action_mask == 0)[0] - 1
         return np.concatenate((special_action_to_chose, action_to_chose), axis=-1)
 
-    def draw(self, graph, cost, trajectory, used_time=0, agent_name="agent"):
+    def draw(self, graph, cost, trajectory, used_time=0, agent_name="agent", draw = True):
         from utils.GraphPlot import GraphPlot as GP
         graph_plot = GP()
         if agent_name == "or_tools":
             one_first = False
         else:
             one_first = True
-        graph_plot.draw_route(graph, trajectory, title=f"{agent_name}_cost:{cost:.5f}_time:{used_time:.3f}", one_first=one_first)
+        return graph_plot.draw_route(graph, trajectory, draw = draw, title=f"{agent_name}_cost:{cost:.5f}_time:{used_time:.3f}", one_first=one_first)
 
+    def draw_multi(self, graph, costs, trajectorys, used_times=(0,), agent_names=("agents",), draw = True):
+        figs = []
+        for c,t,u,a in zip(costs, trajectorys, used_times, agent_names):
+            figs.append(self.draw(graph,c,t,u,a,False))
+        from utils.GraphPlot import GraphPlot as GP
+        graph_plot = GP()
+        fig = graph_plot.combine_figs(figs)
+        if draw:
+            fig.show()
+        return fig
 
 if __name__ == '__main__':
     cfg = {
@@ -402,3 +412,5 @@ if __name__ == '__main__':
     print(f"trajectory:{EndInfo}")
     gp = GP()
     gp.draw_route(graph, EndInfo["actors_trajectory"], title="random", one_first=True)
+    env.draw_multi(graph,[1,2,3], [ EndInfo["actors_trajectory"], EndInfo["actors_trajectory"],EndInfo["actors_trajectory"]],
+                   [0.1,0.2,0.3],["ss","sw","s22"],True)

@@ -66,9 +66,12 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
 
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, agent_args.agent_num, 10000)
-        env.draw(graph, ortools_cost, ortools_trajectory, used_time, agent_name="or_tools")
-        env.draw(graph, greedy_cost, greedy_trajectory, greedy_time, agent_name="greedy")
-        env.draw(graph, min_sample_cost, min_sample_trajectory, sample_time, agent_name="sample")
+        env.draw_multi(graph,
+                       [ortools_cost, greedy_cost, min_sample_cost],
+                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+                       [used_time, greedy_time, sample_time],
+                       ["or_tools", "greedy", "sample"]
+                       )
 
         send_result_pipe.send((greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
 
@@ -127,7 +130,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
                            )
         writer.add_scalar("loss", loss, train_count)
 
-        if (train_count+1) % 100 == 0:
+        if (train_count+1) % 10 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             model_state_dict = agent.model.state_dict()
@@ -255,6 +258,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=float, default=2048)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
+    parser.add_argument("--model_dir", type=str, default="../pth/")
     args = parser.parse_args()
 
     mp.set_start_method("spawn")
