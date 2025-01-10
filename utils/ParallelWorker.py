@@ -16,25 +16,36 @@ from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP import MTSPEnv
 from algorithm.DNN.Agent_v1 import AgentV1 as Agent
+import tqdm
 
 
 def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, queue):
+    agent_args.use_gpu = False
     agent = agent_class(agent_args)
     env = env_class(env_config)
+    model_state_dict, graph = recv_pipe.recv()
+    agent.model.load_state_dict(model_state_dict)
     while True:
-        model_state_dict, graph = recv_pipe.recv()
-        agent.model.load_state_dict(model_state_dict)
+        if recv_pipe.poll():
+            model_state_dict, graph = recv_pipe.recv()
+            agent.model.load_state_dict(model_state_dict)
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
 
 def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
+    agent_args.use_gpu = False
     agent = agent_class(agent_args)
     env = env_class(env_config)
-
+    model_state_dict, graph = recv_model_pipe.recv()
+    agent.model.load_state_dict(model_state_dict)
     while True:
-        # if recv_pipe.poll():
-        model_state_dict, graph = recv_model_pipe.recv()
-        agent.model.load_state_dict(model_state_dict)
+        while True:
+            if recv_model_pipe.poll():
+                model_state_dict, graph = recv_model_pipe.recv()
+                agent.model.load_state_dict(model_state_dict)
+                break
+            else:
+                time.sleep(2)
         greedy_cost, greedy_trajectory = agent.eval_episode(env, graph, agent_args.agent_num, exploit_mode="greedy")
         min_sample_cost = np.inf
         min_sample_trajectory = None
@@ -61,12 +72,15 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
     eval_count = 0
     train_count = 0
     graphG = GG(1, agent_args.city_nums)
-    while True:
+    for _ in tqdm.tqdm(range(100_000_000)):
+        model_state_dict = agent.model.state_dict()
         for pipe in send_pipes:
             graph = graphG.generate()
-            pipe.send((agent.model.state_dict(), graph))
+            pipe.send((model_state_dict, graph))
 
         for _ in range(agent_args.agent_num):
+            while queue.empty():
+                time.sleep(1)
             graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
             train_count += 1
             loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
@@ -76,7 +90,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
                                _convert_tensor(masks_nb, dtype=torch.float32, device=agent.device)
                                )
             writer.add_scalar("loss", loss, train_count)
-            if train_count % 1000 == 0:
+            if train_count % 10 == 0:
                 eval_count = train_count
                 graph = graphG.generate()
                 eval_model_pipe.send((agent.model.state_dict(), graph))
@@ -99,9 +113,9 @@ class ParallelWorker:
         self.num_worker = num_worker
 
         self.queue = mp.Queue()
-        self.worker_pipes = [mp.Pipe() for _ in range(num_worker)]
-        self.eval_model_pipes = mp.Pipe()
-        self.eval_result_pipes = mp.Pipe()
+        self.worker_pipes = [mp.Pipe(duplex=False) for _ in range(num_worker)]
+        self.eval_model_pipes = mp.Pipe(duplex=False)
+        self.eval_result_pipes = mp.Pipe(duplex=False)
 
     def run(self):
         worker_processes = [mp.Process(target=worker_process,
@@ -109,7 +123,7 @@ class ParallelWorker:
                                            self.agent_args,
                                            self.env_class,
                                            self.env_config,
-                                           self.worker_pipes[worker_id][1],
+                                           self.worker_pipes[worker_id][0],
                                            self.queue))
                           for worker_id in range(self.num_worker)
                           ]
@@ -117,10 +131,10 @@ class ParallelWorker:
         trainer_process = mp.Process(target=train_process,
                                      args=(self.agent_class,
                                            self.agent_args,
-                                           [pipe[0] for pipe in self.worker_pipes],
+                                           [pipe[1] for pipe in self.worker_pipes],
                                            self.queue,
-                                           self.eval_model_pipes[0],
-                                           self.eval_result_pipes[1]
+                                           self.eval_model_pipes[1],
+                                           self.eval_result_pipes[0]
                                            )
                                      )
 
@@ -129,15 +143,17 @@ class ParallelWorker:
                                           self.agent_args,
                                           self.env_class,
                                           self.env_config,
-                                          self.eval_model_pipes[1],
-                                          self.eval_result_pipes[0],
+                                          self.eval_model_pipes[0],
+                                          self.eval_result_pipes[1],
                                           64
                                           )
                                     )
 
         trainer_process.start()
+        time.sleep(10)
         for p in worker_processes:
             p.start()
+        time.sleep(10)
         evaler_process.start()
 
         trainer_process.join()
@@ -151,7 +167,7 @@ class ParallelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -161,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
+    parser.add_argument("--use_gpu", type=bool, default=False)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
@@ -177,5 +194,5 @@ if __name__ == "__main__":
         "agent_nums":(args.agent_num, args.agent_num),
         "allow_back":args.allow_back,
     }
-    PW = ParallelWorker(Agent, args, MTSPEnv, env_config,1)
+    PW = ParallelWorker(Agent, args, MTSPEnv, env_config,2)
     PW.run()

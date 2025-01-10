@@ -80,7 +80,7 @@ if __name__ == '__main__':
             print(f"eval greedy cost:{greedy_cost}, min greedy cost:{min_greedy_cost}")
             epoch_min_sample_cost = 1000
             min_sample_trajectory = None
-            for i in range(32):
+            for i in range(64):
                 st = time.time_ns()
                 sample_cost, sample_trajectory = agent.eval_episode(env, graph, args.agent_num)
                 ed = time.time_ns()

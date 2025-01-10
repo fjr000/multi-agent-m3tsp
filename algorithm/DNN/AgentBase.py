@@ -21,7 +21,8 @@ class AgentBase:
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
-        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
+        # self.device = torch.device("cpu")
         self.model.to(self.device)
 
     def reset_graph(self, graph):
