@@ -110,44 +110,46 @@ class AgentBase:
         actions_list = []
         reward_list = []
         masks_list = []
-        while not done:
-            agents_states_t = _convert_tensor(agents_states, device=self.device, target_shape_dim=3)
-            last_states_t = _convert_tensor(agents_last_states, device=self.device, target_shape_dim=3)
-            agents_mask_t = _convert_tensor(agents_mask, device=self.device, target_shape_dim=3)
-            if eval_mode:
-                actions = self.exploit([last_states_t, agents_states_t], agents_mask_t, mode=exploit_mode)
-            else:
-                actions = self.predict([last_states_t, agents_states_t], agents_mask_t)
+        with torch.no_grad():
+            while not done:
+                agents_states_t = _convert_tensor(agents_states, device=self.device, target_shape_dim=3)
+                last_states_t = _convert_tensor(agents_last_states, device=self.device, target_shape_dim=3)
+                agents_mask_t = _convert_tensor(agents_mask, device=self.device, target_shape_dim=3)
+                if eval_mode:
+                    actions = self.exploit([last_states_t, agents_states_t], agents_mask_t, mode=exploit_mode)
+                else:
+                    actions = self.predict([last_states_t, agents_states_t], agents_mask_t)
 
-            states, reward, done, info = env.step(actions + 1)
+                states, reward, done, info = env.step(actions + 1)
+
+                if not eval_mode:
+                    last_states_list.append(last_states_t.squeeze(0))
+                    states_list.append(agents_states_t.squeeze(0))
+                    masks_list.append(agents_mask_t.squeeze(0))
+                    actions_list.append(actions)
+                    reward_list.append(np.array(reward))
+
+                agents_mask = info["agents_mask"]
+                agents_last_states = info["actors_last_states"]
+                agents_states = states
 
             if not eval_mode:
-                last_states_list.append(last_states_t.cpu().numpy().squeeze(0))
-                states_list.append(agents_states_t.cpu().numpy().squeeze(0))
-                masks_list.append(agents_mask_t.cpu().numpy().squeeze(0))
-                actions_list.append(actions)
-                reward_list.append(np.array(reward))
-
-            agents_mask = info["agents_mask"]
-            agents_last_states = info["actors_last_states"]
-            agents_states = states
-
-        if not eval_mode:
-            returns_numpy = self.get_cumulative_returns(reward_list)
-            states_nb = np.stack(states_list, axis=0)
-            last_states_nb = np.stack(last_states_list, axis=0)
-            actions_nb = np.stack(actions_list, axis=0)
-            returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
-            masks_nb = np.stack(masks_list, axis=0)
-            return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb
-        else:
-            return info
+                returns_numpy = self.get_cumulative_returns(reward_list)
+                states_nb = torch.stack(states_list, dim=0).cpu().numpy()
+                last_states_nb = torch.stack(last_states_list, dim=0).cpu().numpy()
+                actions_nb = np.stack(actions_list, axis=0)
+                returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
+                masks_nb = torch.stack(masks_list, dim=0).cpu().numpy()
+                return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb
+            else:
+                return info
 
     def eval_episode(self, env, graph, agent_num, exploit_mode = "sample"):
-        eval_info = self._run_episode(env, graph, agent_num, eval_mode=True, exploit_mode=exploit_mode)
-        cost = np.max(eval_info["actors_cost"])
-        trajectory = eval_info["actors_trajectory"]
-        return cost, trajectory
+        with torch.no_grad():
+            eval_info = self._run_episode(env, graph, agent_num, eval_mode=True, exploit_mode=exploit_mode)
+            cost = np.max(eval_info["actors_cost"])
+            trajectory = eval_info["actors_trajectory"]
+            return cost, trajectory
 
     def run_batch(self, env, graph, agent_num, batch_size):
         cur_size = 0
@@ -156,15 +158,15 @@ class AgentBase:
         actions_nb_list = []
         returns_nb_list = []
         masks_nb_list = []
-        while cur_size < batch_size:
-            features_nb, actions_nb, returns_nb, masks_nb = self._run_episode(env, graph, agent_num)
-            last_states_nb_list.append(features_nb[0])
-            states_nb_list.append(features_nb[1])
-            actions_nb_list.append(actions_nb)
-            returns_nb_list.append(returns_nb)
-            masks_nb_list.append(masks_nb)
-            cur_size += len(masks_nb)
-
+        with torch.no_grad():
+            while cur_size < batch_size:
+                features_nb, actions_nb, returns_nb, masks_nb = self._run_episode(env, graph, agent_num)
+                last_states_nb_list.append(features_nb[0])
+                states_nb_list.append(features_nb[1])
+                actions_nb_list.append(actions_nb)
+                returns_nb_list.append(returns_nb)
+                masks_nb_list.append(masks_nb)
+                cur_size += len(masks_nb)
         return (
             [np.concatenate(last_states_nb_list, axis=0), np.concatenate(states_nb_list, axis=0)],
             np.concatenate(actions_nb_list, axis=0),
