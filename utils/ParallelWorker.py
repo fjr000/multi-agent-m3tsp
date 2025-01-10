@@ -143,6 +143,8 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
             writer.add_scalar("ortools_cost", ortools_cost, eval_count)
             print(f"greddy_cost:{greedy_cost}, sample_cost:{min_sample_cost}, ortools_cost:{ortools_cost}")
 
+        if (train_count +1 ) %5000 == 0:
+            agent.save_model(train_count+1)
 
 
 class ParallelWorker:
@@ -222,7 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--entropy_coef", type=float, default=5e-2)
     parser.add_argument("--batch_size", type=float, default=2048)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
