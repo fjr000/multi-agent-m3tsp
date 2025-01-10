@@ -80,8 +80,9 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
 
     model_state_dict = agent.model.state_dict()
     model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
+    graph = graphG.generate()
+
     for pipe in send_pipes:
-        graph = graphG.generate()
         pipe.send((model_state_dict_cpu, graph))
 
     for _ in tqdm.tqdm(range(100_000_000)):
@@ -89,7 +90,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
             model_state_dict = agent.model.state_dict()
             model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
             for pipe in send_pipes:
-                graph = graphG.generate()
+                # graph = graphG.generate()
                 pipe.send((model_state_dict_cpu, graph))
 
         graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
@@ -103,7 +104,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
         writer.add_scalar("loss", loss, train_count)
         if train_count % 10 == 0:
             eval_count = train_count
-            graph = graphG.generate()
+            # graph = graphG.generate()
             eval_model_pipe.send((agent.model.state_dict(), graph))
 
         if eval_result_pipe.poll():
@@ -178,7 +179,7 @@ class ParallelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=8)
+    parser.add_argument("--num_worker", type=int, default=1)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)

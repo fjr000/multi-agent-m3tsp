@@ -9,6 +9,7 @@ import torch
 from utils.TensorTools import _convert_tensor
 import numpy as np
 from algorithm.DNN.AgentBase import AgentBase
+import tqdm
 
 
 class AgentV1(AgentBase):
@@ -35,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
+    parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
@@ -58,7 +60,7 @@ if __name__ == '__main__':
     min_greedy_cost = 1000
     min_sample_cost = 1000
     loss_list = []
-    for i in range(100_000_000):
+    for i in tqdm.tqdm(range(100_000_000)):
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, args.agent_num, args.batch_size)
         loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb,dtype = torch.float32, device=agent.device),
