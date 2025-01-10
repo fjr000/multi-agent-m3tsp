@@ -1,11 +1,15 @@
+import sys
 import time
 
 import numpy as np
-
+import sys
+sys.path.append("../")
+sys.path.append("./")
 import envs.MTSP.Config
 from envs.MTSP.MTSP import MTSPEnv
 from typing import Dict
 import cloudpickle
+
 import torch.multiprocessing as mp
 from envs.GraphGenerator import GraphGenerator as GG
 from utils.TensorTools import _convert_tensor
@@ -27,11 +31,11 @@ def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, qu
     agent.model.load_state_dict(model_state_dict)
     agent.model.to(agent.device)
     while True:
-        if recv_pipe.poll():
-            model_state_dict, graph = recv_pipe.recv()
-            agent.model.load_state_dict(model_state_dict)
-            agent.model.to(agent.device)
-        features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size)
+        # if recv_pipe.poll():
+        model_state_dict, graph = recv_pipe.recv()
+        agent.model.load_state_dict(model_state_dict)
+        agent.model.to(agent.device)
+        features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size // agent_args.num_worker)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
 
 def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
@@ -45,18 +49,26 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
         model_state_dict, graph = recv_model_pipe.recv()
         agent.model.load_state_dict(model_state_dict)
         agent.model.to(agent.device)
-
+        st = time.time_ns()
         greedy_cost, greedy_trajectory = agent.eval_episode(env, graph, agent_args.agent_num, exploit_mode="greedy")
+        ed = time.time_ns()
+        greedy_time = (ed - st) / 1e9
         min_sample_cost = np.inf
         min_sample_trajectory = None
+        st = time.time_ns()
         for i in range(sample_times):
             sample_cost, sample_trajectory = agent.eval_episode(env, graph, agent_args.agent_num, exploit_mode="sample")
             if sample_cost < min_sample_cost:
                 min_sample_cost = sample_cost
                 min_sample_trajectory = sample_trajectory
+        ed = time.time_ns()
+        sample_time = (ed - st) / 1e9
+
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, agent_args.agent_num, 10000)
-        # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
+        env.draw(graph, ortools_cost, ortools_trajectory, used_time, agent_name="or_tools")
+        env.draw(graph, greedy_cost, greedy_trajectory, greedy_time, agent_name="greedy")
+        env.draw(graph, min_sample_cost, min_sample_trajectory, sample_time, agent_name="sample")
 
         send_result_pipe.send((greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
 
@@ -83,14 +95,30 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
         pipe.send((model_state_dict_cpu, graph))
 
     for _ in tqdm.tqdm(range(100_000_000)):
+        graph = graphG.generate()
+        # if (train_count+1) % agent_args.num_worker == 0:
+        model_state_dict = agent.model.state_dict()
+        model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
+        for pipe in send_pipes:
+            pipe.send((model_state_dict_cpu, graph))
 
-        if (train_count+1) % agent_args.num_worker == 0:
-            model_state_dict = agent.model.state_dict()
-            model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
-            for pipe in send_pipes:
-                pipe.send((model_state_dict_cpu, graph))
+        last_state_nb_list=[]
+        state_nb_list=[]
+        actions_nb_list=[]
+        returns_nb_list=[]
+        masks_nb_list=[]
 
-        graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
+        for i in range(agent_args.num_worker):
+            graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
+            last_state_nb_list.append(features_nb[0])
+            state_nb_list.append(features_nb[1])
+            actions_nb_list.append(actions_nb)
+            returns_nb_list.append(returns_nb)
+            masks_nb_list.append(masks_nb)
+        features_nb = [np.concatenate(last_state_nb_list, axis=0), np.concatenate(state_nb_list, axis=0)]
+        actions_nb = np.concatenate(actions_nb_list, axis=0)
+        returns_nb = np.concatenate(returns_nb_list, axis=0)
+        masks_nb = np.concatenate(masks_nb_list, axis=0)
         loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb, dtype=torch.float32, device=agent.device),
                            _convert_tensor(actions_nb, dtype=torch.float32, device=agent.device),
@@ -180,7 +208,7 @@ class ParallelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=1)
+    parser.add_argument("--num_worker", type=int, default=8)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -188,14 +216,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_heads", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=1)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--batch_size", type=float, default=256)
+    parser.add_argument("--batch_size", type=float, default=2048)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     args = parser.parse_args()
