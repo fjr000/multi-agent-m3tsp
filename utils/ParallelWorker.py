@@ -27,9 +27,6 @@ def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, qu
     agent_args.use_gpu = False
     agent = agent_class(agent_args)
     env = env_class(env_config)
-    model_state_dict, graph = recv_pipe.recv()
-    agent.model.load_state_dict(model_state_dict)
-    agent.model.to(agent.device)
     while True:
         # if recv_pipe.poll():
         model_state_dict, graph = recv_pipe.recv()
@@ -42,9 +39,6 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
     agent_args.use_gpu = False
     agent = agent_class(agent_args)
     env = env_class(env_config)
-    model_state_dict, graph = recv_model_pipe.recv()
-    agent.model.load_state_dict(model_state_dict)
-    agent.model.to(agent.device)
     while True:
         model_state_dict, graph = recv_model_pipe.recv()
         agent.model.load_state_dict(model_state_dict)
@@ -89,13 +83,6 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
     eval_count = 0
     train_count = 0
     graphG = GG(1, agent_args.city_nums)
-
-    model_state_dict = agent.model.state_dict()
-    model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
-    graph = graphG.generate()
-
-    for pipe in send_pipes:
-        pipe.send((model_state_dict_cpu, graph))
 
     for _ in tqdm.tqdm(range(100_000_000)):
         graph = graphG.generate()
