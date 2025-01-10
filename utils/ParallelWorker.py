@@ -25,10 +25,12 @@ def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, qu
     env = env_class(env_config)
     model_state_dict, graph = recv_pipe.recv()
     agent.model.load_state_dict(model_state_dict)
+    agent.model.to(agent.device)
     while True:
         if recv_pipe.poll():
             model_state_dict, graph = recv_pipe.recv()
             agent.model.load_state_dict(model_state_dict)
+            agent.model.to(agent.device)
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
 
@@ -38,11 +40,13 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
     env = env_class(env_config)
     model_state_dict, graph = recv_model_pipe.recv()
     agent.model.load_state_dict(model_state_dict)
+    agent.model.to(agent.device)
     while True:
         while True:
             if recv_model_pipe.poll():
                 model_state_dict, graph = recv_model_pipe.recv()
                 agent.model.load_state_dict(model_state_dict)
+                agent.model.to(agent.device)
                 break
             else:
                 time.sleep(2)
@@ -63,6 +67,8 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
 
 
 def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, eval_result_pipe):
+    # agent_args.use_gpu = False
+
     agent = agent_class(agent_args)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -74,9 +80,10 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
     graphG = GG(1, agent_args.city_nums)
     for _ in tqdm.tqdm(range(100_000_000)):
         model_state_dict = agent.model.state_dict()
+        model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
         for pipe in send_pipes:
             graph = graphG.generate()
-            pipe.send((model_state_dict, graph))
+            pipe.send((model_state_dict_cpu, graph))
 
         for _ in range(agent_args.agent_num):
             while queue.empty():
@@ -105,15 +112,15 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
 
 
 class ParallelWorker:
-    def __init__(self, agent_class, agent_args, env_class, env_config, num_worker=4):
+    def __init__(self, agent_class, agent_args, env_class, env_config):
         self.agent_class = agent_class
         self.agent_args = agent_args
         self.env_class = env_class
         self.env_config = env_config
-        self.num_worker = num_worker
+        self.num_worker = agent_args.num_worker
 
         self.queue = mp.Queue()
-        self.worker_pipes = [mp.Pipe(duplex=False) for _ in range(num_worker)]
+        self.worker_pipes = [mp.Pipe(duplex=False) for _ in range(self.num_worker)]
         self.eval_model_pipes = mp.Pipe(duplex=False)
         self.eval_result_pipes = mp.Pipe(duplex=False)
 
@@ -167,6 +174,7 @@ class ParallelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--num_worker", type=int, default=1)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -177,7 +185,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
-    parser.add_argument("--use_gpu", type=bool, default=False)
+    parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
@@ -194,5 +202,5 @@ if __name__ == "__main__":
         "agent_nums":(args.agent_num, args.agent_num),
         "allow_back":args.allow_back,
     }
-    PW = ParallelWorker(Agent, args, MTSPEnv, env_config,2)
+    PW = ParallelWorker(Agent, args, MTSPEnv, env_config)
     PW.run()
