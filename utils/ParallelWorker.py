@@ -4,7 +4,6 @@ import time
 import numpy as np
 import sys
 sys.path.append("../")
-sys.path.append("./")
 import envs.MTSP.Config
 from envs.MTSP.MTSP import MTSPEnv
 from typing import Dict
@@ -34,6 +33,7 @@ def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, qu
         agent.model.to(agent.device)
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size // agent_args.num_worker)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
+        del model_state_dict
 
 def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
     agent_args.use_gpu = False
@@ -68,6 +68,7 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
                        )
 
         send_result_pipe.send((greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
+        del model_state_dict
 
 
 

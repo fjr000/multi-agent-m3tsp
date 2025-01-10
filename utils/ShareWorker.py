@@ -28,12 +28,8 @@ torch.set_num_threads(1)
 
 def worker_process(agent, args, env_class, env_config, recv_pipe, queue):
     env = env_class(env_config)
-    graph = recv_pipe.recv()
     while True:
-        # if recv_pipe.poll():
-        model_state_dict, graph = recv_pipe.recv()
-        agent.model.load_state_dict(model_state_dict)
-        agent.model.to(agent.device)
+        graph = recv_pipe.recv()
         features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, args.agent_num,
                                                                         args.batch_size // args.num_worker)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
@@ -41,11 +37,8 @@ def worker_process(agent, args, env_class, env_config, recv_pipe, queue):
 
 def eval_process(agent, args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
     env = env_class(env_config)
-    graph = recv_model_pipe.recv()
     while True:
-        model_state_dict, graph = recv_model_pipe.recv()
-        agent.model.load_state_dict(model_state_dict)
-        agent.model.to(agent.device)
+        graph = recv_model_pipe.recv()
         st = time.time_ns()
         greedy_cost, greedy_trajectory = agent.eval_episode(env, graph, args.agent_num, exploit_mode="greedy")
         ed = time.time_ns()
@@ -73,10 +66,8 @@ def eval_process(agent, args, env_class, env_config, recv_model_pipe, send_resul
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
 
 
-def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, eval_result_pipe):
+def train_process(agent, agent_args, send_pipes, queue, eval_model_pipe, eval_result_pipe):
     # agent_args.use_gpu = False
-
-    agent = agent_class(agent_args)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
@@ -86,20 +77,11 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
     train_count = 0
     graphG = GG(1, agent_args.city_nums)
 
-    model_state_dict = agent.model.state_dict()
-    model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
-    graph = graphG.generate()
-
-    for pipe in send_pipes:
-        pipe.send((model_state_dict_cpu, graph))
-
     for _ in tqdm.tqdm(range(100_000_000)):
         graph = graphG.generate()
         # if (train_count+1) % agent_args.num_worker == 0:
-        model_state_dict = agent.model.state_dict()
-        model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
         for pipe in send_pipes:
-            pipe.send((model_state_dict_cpu, graph))
+            pipe.send(graph)
 
         last_state_nb_list = []
         state_nb_list = []
@@ -129,9 +111,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
         if (train_count + 1) % 100 == 0:
             eval_count = train_count
             # graph = graphG.generate()
-            model_state_dict = agent.model.state_dict()
-            model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
-            eval_model_pipe.send((model_state_dict_cpu, graph))
+            eval_model_pipe.send( graph)
 
         train_count += 1
 
@@ -162,12 +142,13 @@ class SharelWorker:
         self.worker_pipes = [mp.Pipe(duplex=False) for _ in range(self.num_worker)]
         self.eval_model_pipes = mp.Pipe(duplex=False)
         self.eval_result_pipes = mp.Pipe(duplex=False)
-        self.share_agent = agent_class(args)
-        self.share_agent.share_memory()
+        self.share_agent = agent_class(args).to(torch.device("cpu"))
+        self.share_agent.model.share_memory()
+        self.train_agent = agent_class(args)
 
     def run(self):
         worker_processes = [mp.Process(target=worker_process,
-                                       args=(self.agent_class,
+                                       args=(self.share_agent,
                                              self.agent_args,
                                              self.env_class,
                                              self.env_config,
@@ -177,7 +158,7 @@ class SharelWorker:
                             ]
 
         trainer_process = mp.Process(target=train_process,
-                                     args=(self.agent_class,
+                                     args=(self.share_agent,
                                            self.agent_args,
                                            [pipe[1] for pipe in self.worker_pipes],
                                            self.queue,
@@ -187,7 +168,7 @@ class SharelWorker:
                                      )
 
         evaler_process = mp.Process(target=eval_process,
-                                    args=(self.agent_class,
+                                    args=(self.share_agent,
                                           self.agent_args,
                                           self.env_class,
                                           self.env_config,
@@ -240,7 +221,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=8)
+    parser.add_argument("--num_worker", type=int, default=2)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
