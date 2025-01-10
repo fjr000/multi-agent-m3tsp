@@ -15,6 +15,7 @@ import tqdm
 class AgentV1(AgentBase):
     def __init__(self, args):
         super(AgentV1, self).__init__(args)
+        self.model.to(self.device)
 
     def save_model(self, id):
         filename = f"AgentV1_{id}"
