@@ -199,12 +199,39 @@ class ParallelWorker:
         # time.sleep(10)
         evaler_process.start()
 
+        import signal
+
+        # 自定义的信号处理函数
+        def signal_handler(sig, frame):
+            trainer_process.terminate()
+            trainer_process.join()
+            evaler_process.terminate()
+            evaler_process.join()
+            for task in worker_processes:
+                task.terminate()
+                task.join()
+            print("Received signal to terminate the program.")
+            # 执行必要的清理操作
+
+
+        # 注册信号处理器
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)  # 也可以处理Ctrl+C终止
+
         trainer_process.join()
         for p in worker_processes:
             p.join()
 
         evaler_process.join()
+        for pipe in self.worker_pipes:
+            pipe[0].close()
+            pipe[1].close()
+        self.eval_model_pipes[0].close()
+        self.eval_model_pipes[1].close()
+        self.eval_result_pipes[0].close()
+        self.eval_result_pipes[1].close()
 
+        sys.exit(0)  # 正常退出程序
 
 
 
