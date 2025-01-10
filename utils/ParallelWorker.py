@@ -130,7 +130,7 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
                            )
         writer.add_scalar("loss", loss, train_count)
 
-        if (train_count+1) % 10 == 0:
+        if (train_count+1) % 100 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             model_state_dict = agent.model.state_dict()
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=5e-2)
+    parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--batch_size", type=float, default=2048)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
