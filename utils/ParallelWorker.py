@@ -42,13 +42,10 @@ def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe
     agent.model.load_state_dict(model_state_dict)
     agent.model.to(agent.device)
     while True:
-            # if recv_model_pipe.poll():
         model_state_dict, graph = recv_model_pipe.recv()
         agent.model.load_state_dict(model_state_dict)
         agent.model.to(agent.device)
-                # break
-            # else:
-            #     time.sleep(2)
+
         greedy_cost, greedy_trajectory = agent.eval_episode(env, graph, agent_args.agent_num, exploit_mode="greedy")
         min_sample_cost = np.inf
         min_sample_trajectory = None
@@ -86,15 +83,14 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
         pipe.send((model_state_dict_cpu, graph))
 
     for _ in tqdm.tqdm(range(100_000_000)):
-        if (train_count+1)%10 == 0:
+
+        if (train_count+1) % agent_args.num_worker == 0:
             model_state_dict = agent.model.state_dict()
             model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
             for pipe in send_pipes:
-                # graph = graphG.generate()
                 pipe.send((model_state_dict_cpu, graph))
 
         graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
-        train_count += 1
         loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb, dtype=torch.float32, device=agent.device),
                            _convert_tensor(actions_nb, dtype=torch.float32, device=agent.device),
@@ -102,10 +98,15 @@ def train_process(agent_class, agent_args, send_pipes, queue, eval_model_pipe, e
                            _convert_tensor(masks_nb, dtype=torch.float32, device=agent.device)
                            )
         writer.add_scalar("loss", loss, train_count)
-        if train_count % 10 == 0:
+
+        if (train_count+1) % 100 == 0:
             eval_count = train_count
             # graph = graphG.generate()
-            eval_model_pipe.send((agent.model.state_dict(), graph))
+            model_state_dict = agent.model.state_dict()
+            model_state_dict_cpu = {k: v.cpu() for k, v in model_state_dict.items()}
+            eval_model_pipe.send((model_state_dict_cpu, graph))
+
+        train_count += 1
 
         if eval_result_pipe.poll():
             greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory = eval_result_pipe.recv()
@@ -196,7 +197,6 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=256)
     parser.add_argument("--city_nums", type=int, default=50)
-    parser.add_argument("--agent_nums", type=int, default=5)
     parser.add_argument("--allow_back", type=bool, default=False)
     args = parser.parse_args()
 
