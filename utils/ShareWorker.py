@@ -20,7 +20,8 @@ from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP import MTSPEnv
-from algorithm.DNN.Agent_v1 import AgentV1 as Agent
+from algorithm.DNN.Agent_v2 import AgentV2 as Agent
+# from algorithm.DNN.Agent_v1 import AgentV1 as Agent
 import tqdm
 
 torch.set_num_threads(1)
