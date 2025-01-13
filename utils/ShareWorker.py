@@ -62,12 +62,12 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
         sample_time = (ed - st) / 1e9
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-        env.draw_multi(graph,
-                       [ortools_cost, greedy_cost, min_sample_cost],
-                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
-                       [used_time, greedy_time, sample_time],
-                       ["or_tools", "greedy", "sample"]
-                       )
+        # env.draw_multi(graph,
+        #                [ortools_cost, greedy_cost, min_sample_cost],
+        #                [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+        #                [used_time, greedy_time, sample_time],
+        #                ["or_tools", "greedy", "sample"]
+        #                )
 
         send_result_pipe.send(
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
@@ -158,6 +158,7 @@ class SharelWorker:
         self.eval_result_pipes = mp.Pipe(duplex=False)
         args.use_gpu = False
         self.share_agent = agent_class(args)
+        self.share_agent.load_model(args.agent_id)
         self.share_agent.model.share_memory()
         args.use_gpu = True
 
@@ -242,10 +243,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=2)
-    parser.add_argument("--num_layers", type=int, default=1)
+    parser.add_argument("--hidden_dim", type=int, default=256)
+    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--num_heads", type=int, default=8)
+    parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
@@ -253,11 +254,12 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-3)
-    parser.add_argument("--batch_size", type=float, default=2048)
+    parser.add_argument("--entropy_coef", type=float, default=5e-3)
+    parser.add_argument("--batch_size", type=float, default=4096)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
+    parser.add_argument("--agent_id", type=int, default=0)
     args = parser.parse_args()
 
     mp.set_start_method("spawn")

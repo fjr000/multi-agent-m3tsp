@@ -80,7 +80,8 @@ class AgentBase:
         actions_logprob, entropy = self.__get_logprob(states, masks, actions)
 
         if self.args.returns_norm:
-            loss = - (actions_logprob * (returns - returns.mean())).mean()
+            loss = - (actions_logprob * (returns - returns.mean
+            ())).mean()
         else:
             loss = - (actions_logprob * returns).mean()
 
