@@ -117,7 +117,7 @@ class SingleHeadAttention(nn.Module):
         self.embedding_dim = embedding_dim
         self.value_dim = self.embedding_dim
         self.key_dim = self.value_dim
-        self.tanh_clipping = embedding_dim
+        self.tanh_clipping = 10
         self.norm_factor = 1 / math.sqrt(self.key_dim)
 
         self.w_query = nn.Parameter(torch.Tensor(self.input_dim, self.key_dim))
