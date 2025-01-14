@@ -30,10 +30,10 @@ torch.set_num_threads(1)
 def worker_process(share_agent, agent_class, args, env_class, env_config, recv_pipe, queue):
     env = env_class(env_config)
     work_agent = share_agent
-    work_agent = agent_class(args)
+    # work_agent = agent_class(args)
     while True:
         graph = recv_pipe.recv()
-        work_agent.model.load_state_dict(share_agent.model.state_dict())
+        # work_agent.model.load_state_dict(share_agent.model.state_dict())
         features_nb, actions_nb, returns_nb, masks_nb = work_agent.run_batch(env, graph, args.agent_num,
                                                                               args.batch_size // args.num_worker)
         queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
@@ -42,11 +42,11 @@ def worker_process(share_agent, agent_class, args, env_class, env_config, recv_p
 def eval_process(share_agent, agent_class, args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
     env = env_class(env_config)
     eval_agent = share_agent
-    eval_agent = agent_class(args)
+    # eval_agent = agent_class(args)
     print(eval_agent.device)
     while True:
         graph = recv_model_pipe.recv()
-        eval_agent.model.load_state_dict(share_agent.model.state_dict())
+        # eval_agent.model.load_state_dict(share_agent.model.state_dict())
         st = time.time_ns()
         greedy_cost, greedy_trajectory = eval_agent.eval_episode(env, graph, args.agent_num, exploit_mode="greedy")
         ed = time.time_ns()
