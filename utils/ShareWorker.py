@@ -241,11 +241,11 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=16)
+    parser.add_argument("--num_worker", type=int, default=2)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=2)
     parser.add_argument("--num_layers", type=int, default=1)
     parser.add_argument("--gamma", type=float, default=1)

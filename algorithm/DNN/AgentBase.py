@@ -64,6 +64,13 @@ class AgentBase:
             returns_numpy[idx] = reward_list[idx] + self._gamma * returns_numpy[idx + 1]
         return returns_numpy
 
+    def get_cumulative_returns_batch(self, reward_multi_list):
+        returns_numpy = np.zeros((len(reward_multi_list),len(reward_multi_list[0])))
+        returns_numpy[-1] = reward_multi_list[-1]
+        for idx in range(-2, -len(reward_multi_list) - 1, -1):
+            returns_numpy[idx] = reward_multi_list[idx] + self._gamma * returns_numpy[idx + 1]
+        return returns_numpy
+
     def __update_net(self, optim, params, loss):
         optim.zero_grad()
         loss.backward()
@@ -121,25 +128,26 @@ class AgentBase:
                 else:
                     actions = self.predict([last_states_t, agents_states_t], agents_mask_t)
 
-                states, reward, done, info = env.step(actions + 1)
+                states, rewards, done, info = env.step(actions + 1)
 
                 if not eval_mode:
                     last_states_list.append(last_states_t.squeeze(0))
                     states_list.append(agents_states_t.squeeze(0))
                     masks_list.append(agents_mask_t.squeeze(0))
                     actions_list.append(actions)
-                    reward_list.append(np.array(reward))
+                    reward_list.append(rewards)
 
                 agents_mask = info["agents_mask"]
                 agents_last_states = info["actors_last_states"]
                 agents_states = states
 
             if not eval_mode:
-                returns_numpy = self.get_cumulative_returns(reward_list)
+                returns_nb = self.get_cumulative_returns_batch(reward_list)
+                # returns_numpy = self.get_cumulative_returns(reward_list)
                 states_nb = torch.stack(states_list, dim=0).cpu().numpy()
                 last_states_nb = torch.stack(last_states_list, dim=0).cpu().numpy()
                 actions_nb = np.stack(actions_list, axis=0)
-                returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
+                # returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
                 masks_nb = torch.stack(masks_list, dim=0).cpu().numpy()
                 return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb
             else:

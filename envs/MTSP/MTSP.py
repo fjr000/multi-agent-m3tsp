@@ -205,7 +205,7 @@ class MTSPEnv(gym.Env):
             self.one_step(agent_id, action)
 
         done = self.is_done()
-        reward = self.get_reward(done)
+        reward = self.get_reward(new_actions, done)
         if self.to_end and not done:
             self.global_mask[0] = 1
 
@@ -221,7 +221,7 @@ class MTSPEnv(gym.Env):
 
         if self.act_step >= self.actual_city_num * 2:
             done = True
-            reward = - 10 + self.get_reward(done)
+            reward = - 10
 
         if done:
             info.update({
@@ -324,11 +324,16 @@ class MTSPEnv(gym.Env):
             return True
         return False
 
-    def get_reward(self, is_done: bool = False):
+    def get_reward(self, actions, is_done: bool = False):
         if is_done:
-            return -np.max(self.actors_cost)
+            max_cost = np.max(self.actors_cost)
+            return -(0.67 * max_cost + 0.33 * self.actors_cost)
         else:
-            return 0
+            rewards = np.zeros(self.actual_agent_num)
+            for i in range(self.actual_agent_num):
+                if actions[i] == 0 and self.actors_way[i][-1] != 1:
+                    rewards[i] = -0.001
+            return rewards
 
     def __update_agent_back_mask(self, agent_id: int):
         if self.allow_back:
@@ -410,6 +415,7 @@ if __name__ == '__main__':
         if done:
             EndInfo.update(info)
     print(f"trajectory:{EndInfo}")
+
     gp = GP()
     gp.draw_route(graph, EndInfo["actors_trajectory"], title="random", one_first=True)
     env.draw_multi(graph,[1,2,3], [ EndInfo["actors_trajectory"], EndInfo["actors_trajectory"],EndInfo["actors_trajectory"]],
