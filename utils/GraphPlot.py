@@ -52,8 +52,11 @@ class GraphPlot:
 
     def combine_figs(self, figs):
         # 创建一个新的大画布
-        fig_combined, axs = plt.subplots(len(figs), 1, figsize=(5, 5*len(figs)))  # 创建 1x3 子图
-
+        row = int(np.sqrt(len(figs)))
+        if not np.isclose(np.sqrt(len(figs)), row):
+            row += 1
+        fig_combined, axs = plt.subplots(row, row, figsize=(5 * row, 5*row))  # 创建 1x3 子图
+        axs = axs.flatten().tolist()
         # 拷贝每个独立图的内容到新的子图中
         for i, (source_fig, target_ax) in enumerate(zip(figs, axs), start=1):
             source_ax = source_fig.axes[0]  # 获取原始图的第一个 Axes

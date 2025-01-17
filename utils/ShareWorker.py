@@ -63,12 +63,12 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
         sample_time = (ed - st) / 1e9
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-        # env.draw_multi(graph,
-        #                [ortools_cost, greedy_cost, min_sample_cost],
-        #                [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
-        #                [used_time, greedy_time, sample_time],
-        #                ["or_tools", "greedy", "sample"]
-        #                )
+        env.draw_multi(graph,
+                       [ortools_cost, greedy_cost, min_sample_cost],
+                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+                       [used_time, greedy_time, sample_time],
+                       ["or_tools", "greedy", "sample"]
+                       )
 
         send_result_pipe.send(
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
@@ -130,7 +130,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
 
         train_count += 1
 
-        if eval_result_pipe.poll():
+        if (train_count +1)% 100 == 0 and eval_result_pipe.poll():
             greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory = eval_result_pipe.recv()
             writer.add_scalar("greedy_cost", greedy_cost, eval_count)
             writer.add_scalar("min_sample_cost", min_sample_cost, eval_count)
@@ -241,7 +241,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=2)
+    parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -255,8 +255,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=4096)
+    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--batch_size", type=float, default=1024)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
