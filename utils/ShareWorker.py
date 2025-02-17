@@ -120,7 +120,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
                            _convert_tensor(masks_nb, dtype=torch.float32, device=train_agent.device)
                            )
         writer.add_scalar("loss", loss, train_count)
-
+        torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
         if (train_count + 1) % 100 == 0:
@@ -138,7 +138,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             print(f"greddy_cost:{greedy_cost}, sample_cost:{min_sample_cost}, ortools_cost:{ortools_cost}")
 
         if (train_count + 1) % 5000 == 0:
-            train_agent.save_model(train_count + 1)
+            train_agent.save_model(train_count + 1 + agent_args.agent_id)
 
 
 class SharelWorker:
@@ -244,19 +244,19 @@ if __name__ == "__main__":
     parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=2)
-    parser.add_argument("--num_layers", type=int, default=1)
+    parser.add_argument("--hidden_dim", type=int, default=256)
+    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--num_heads", type=int, default=4)
+    parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--grad_max_norm", type=float, default=1.0)
+    parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--batch_size", type=float, default=1024)
+    parser.add_argument("--batch_size", type=float, default=8192)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")

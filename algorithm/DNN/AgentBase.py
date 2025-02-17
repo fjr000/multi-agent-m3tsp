@@ -97,12 +97,27 @@ class AgentBase:
 
         return loss
 
+    def __get_loss2(self, states, masks, actions, returns):
+        actions_logprob, entropy = self.__get_logprob(states, masks, actions)
+
+
+
     def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
         self.model.train()
         self.model.init_city(graph_t)
         loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb)
         self.__update_net(self.optim, self.model.parameters(), loss)
         self.model.init_city(graph_t)
+        # del states_tb, actions_tb, returns_tb, masks_tb
+        return loss.item()
+
+    def learn2(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
+        self.model.train()
+        self.model.init_city(graph_t)
+        loss = self.__get_loss2(states_tb, masks_tb, actions_tb, returns_tb)
+        self.__update_net(self.optim, self.model.parameters(), loss)
+        self.model.init_city(graph_t)
+        # del states_tb, actions_tb, returns_tb, masks_tb
         return loss.item()
 
     def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode = "sample"):
@@ -143,6 +158,7 @@ class AgentBase:
 
             if not eval_mode:
                 returns_nb = self.get_cumulative_returns_batch(reward_list)
+                # rewards_nb = np.array(reward_list)
                 # returns_numpy = self.get_cumulative_returns(reward_list)
                 states_nb = torch.stack(states_list, dim=0).cpu().numpy()
                 last_states_nb = torch.stack(last_states_list, dim=0).cpu().numpy()

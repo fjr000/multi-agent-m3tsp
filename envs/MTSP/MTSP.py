@@ -327,7 +327,7 @@ class MTSPEnv(gym.Env):
     def get_reward(self, actions, is_done: bool = False):
         if is_done:
             max_cost = np.max(self.actors_cost)
-            return -(0.67 * max_cost + 0.33 * self.actors_cost)
+            return -(0.75 * max_cost + 0.25 * self.actors_cost)
         else:
             rewards = np.zeros(self.actual_agent_num)
             for i in range(self.actual_agent_num):
