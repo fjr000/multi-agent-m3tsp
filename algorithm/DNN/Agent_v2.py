@@ -54,20 +54,21 @@ if __name__ == '__main__':
     env = MTSPEnv()
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 
-    indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-    env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
-    print(f"or tools :{cost}")
+    # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
+    # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
+    # print(f"or tools :{cost}")
     agent = AgentV2(args)
     min_greedy_cost = 1000
     min_sample_cost = 1000
     loss_list = []
     for i in tqdm.tqdm(range(100_000_000)):
-        features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, args.agent_num, args.batch_size)
+        features_nb, actions_nb, returns_nb, masks_nb, dones_nb = agent.run_batch(env, graph, args.agent_num, args.batch_size)
         loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb,dtype = torch.float32, device=agent.device),
                            _convert_tensor(actions_nb,dtype = torch.float32, device=agent.device),
                            _convert_tensor(returns_nb,dtype = torch.float32, device=agent.device),
-                           _convert_tensor(masks_nb,dtype = torch.float32, device=agent.device)
+                           _convert_tensor(masks_nb,dtype = torch.float32, device=agent.device),
+                           dones_nb,
                            )
         loss_list.append(loss)
         if i % 10 == 0:

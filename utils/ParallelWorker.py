@@ -31,8 +31,8 @@ def worker_process(agent_class, agent_args, env_class, env_config, recv_pipe, qu
         model_state_dict, graph = recv_pipe.recv()
         agent.model.load_state_dict(model_state_dict)
         agent.model.to(agent.device)
-        features_nb, actions_nb, returns_nb, masks_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size // agent_args.num_worker)
-        queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
+        features_nb, actions_nb, returns_nb, masks_nb, dones_nb = agent.run_batch(env, graph, agent_args.agent_num, agent_args.batch_size // agent_args.num_worker)
+        queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb, dones_nb))
         del model_state_dict
 
 def eval_process(agent_class, agent_args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):

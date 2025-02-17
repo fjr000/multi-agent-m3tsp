@@ -34,9 +34,9 @@ def worker_process(share_agent, agent_class, args, env_class, env_config, recv_p
     while True:
         graph = recv_pipe.recv()
         # work_agent.model.load_state_dict(share_agent.model.state_dict())
-        features_nb, actions_nb, returns_nb, masks_nb = work_agent.run_batch(env, graph, args.agent_num,
+        features_nb, actions_nb, returns_nb, masks_nb, dones_nb = work_agent.run_batch(env, graph, args.agent_num,
                                                                               args.batch_size // args.num_worker)
-        queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb))
+        queue.put((graph, features_nb, actions_nb, returns_nb, masks_nb, dones_nb))
 
 
 def eval_process(share_agent, agent_class, args, env_class, env_config, recv_model_pipe, send_result_pipe, sample_times):
@@ -100,24 +100,28 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         actions_nb_list = []
         returns_nb_list = []
         masks_nb_list = []
+        dones_nb_list = []
 
         for i in range(agent_args.num_worker):
-            graph, features_nb, actions_nb, returns_nb, masks_nb = queue.get()
+            graph, features_nb, actions_nb, returns_nb, masks_nb, dones_nb = queue.get()
             last_state_nb_list.append(features_nb[0])
             state_nb_list.append(features_nb[1])
             actions_nb_list.append(actions_nb)
             returns_nb_list.append(returns_nb)
             masks_nb_list.append(masks_nb)
+            dones_nb_list.append(dones_nb)
         features_nb = [np.concatenate(last_state_nb_list, axis=0), np.concatenate(state_nb_list, axis=0)]
         actions_nb = np.concatenate(actions_nb_list, axis=0)
         returns_nb = np.concatenate(returns_nb_list, axis=0)
         masks_nb = np.concatenate(masks_nb_list, axis=0)
+        dones_nb = np.concatenate(dones_nb_list,axis = 0)
         train_agent.model.load_state_dict(share_agent.model.state_dict())
         loss = train_agent.learn(_convert_tensor(graph, dtype=torch.float32, device=train_agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb, dtype=torch.float32, device=train_agent.device),
                            _convert_tensor(actions_nb, dtype=torch.float32, device=train_agent.device),
                            _convert_tensor(returns_nb, dtype=torch.float32, device=train_agent.device),
-                           _convert_tensor(masks_nb, dtype=torch.float32, device=train_agent.device)
+                           _convert_tensor(masks_nb, dtype=torch.float32, device=train_agent.device),
+                            dones_nb
                            )
         writer.add_scalar("loss", loss, train_count)
         torch.cuda.empty_cache()  # 清理未使用的缓存

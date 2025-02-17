@@ -83,38 +83,35 @@ class AgentBase:
         entropy = dist.entropy()
         return dist.log_prob(actions), entropy
 
-    def __get_loss(self, states, masks, actions, returns):
-        actions_logprob, entropy = self.__get_logprob(states, masks, actions)
+    def __get_likelihood(self, actions_logprob, dones):
+        indice = dones.nonzero()[0]
+        likeilihood = torch.empty((indice.shape[0],actions_logprob.size(1)), device=self.device)
+        pre = 0
+        for i in range(indice.shape[0]):
+            clipSum = torch.sum(actions_logprob[pre:indice[i]], dim = 0)
+            likeilihood[i] = clipSum
+            pre = indice[i]+1
+        return likeilihood
 
+    def __get_loss(self, states, masks, actions, returns, dones):
+        actions_logprob, entropy = self.__get_logprob(states, masks, actions)
+        likelihood = self.__get_likelihood(actions_logprob, dones);
+        Rs = returns[dones.nonzero()[0]]
         if self.args.returns_norm:
-            loss = - (actions_logprob * (returns - returns.mean
+            loss = - (likelihood * (Rs - Rs.mean
             ())).mean()
         else:
-            loss = - (actions_logprob * returns).mean()
+            loss = - (likelihood * returns).mean()
 
         if self.args.max_ent:
             loss -= self.args.entropy_coef * entropy.mean()
 
         return loss
 
-    def __get_loss2(self, states, masks, actions, returns):
-        actions_logprob, entropy = self.__get_logprob(states, masks, actions)
-
-
-
-    def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
+    def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb, done_nb):
         self.model.train()
         self.model.init_city(graph_t)
-        loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb)
-        self.__update_net(self.optim, self.model.parameters(), loss)
-        self.model.init_city(graph_t)
-        # del states_tb, actions_tb, returns_tb, masks_tb
-        return loss.item()
-
-    def learn2(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb):
-        self.model.train()
-        self.model.init_city(graph_t)
-        loss = self.__get_loss2(states_tb, masks_tb, actions_tb, returns_tb)
+        loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
         self.__update_net(self.optim, self.model.parameters(), loss)
         self.model.init_city(graph_t)
         # del states_tb, actions_tb, returns_tb, masks_tb
@@ -133,6 +130,7 @@ class AgentBase:
         actions_list = []
         reward_list = []
         masks_list = []
+        done_list = []
         with torch.no_grad():
             while not done:
                 agents_states_t = _convert_tensor(agents_states, device=self.device, target_shape_dim=3)
@@ -151,6 +149,7 @@ class AgentBase:
                     masks_list.append(agents_mask_t.squeeze(0))
                     actions_list.append(actions)
                     reward_list.append(rewards)
+                    done_list.append(done)
 
                 agents_mask = info["agents_mask"]
                 agents_last_states = info["actors_last_states"]
@@ -165,7 +164,8 @@ class AgentBase:
                 actions_nb = np.stack(actions_list, axis=0)
                 # returns_nb = np.repeat(returns_numpy[:, np.newaxis], agent_num, axis=1)
                 masks_nb = torch.stack(masks_list, dim=0).cpu().numpy()
-                return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb
+                done_nb = np.stack(done_list, axis=0)
+                return [last_states_nb, states_nb], actions_nb, returns_nb, masks_nb, done_nb
             else:
                 return info
 
@@ -183,20 +183,23 @@ class AgentBase:
         actions_nb_list = []
         returns_nb_list = []
         masks_nb_list = []
+        done_nb_list = []
         with torch.no_grad():
             while cur_size < batch_size:
-                features_nb, actions_nb, returns_nb, masks_nb = self._run_episode(env, graph, agent_num)
+                features_nb, actions_nb, returns_nb, masks_nb, done_nb = self._run_episode(env, graph, agent_num)
                 last_states_nb_list.append(features_nb[0])
                 states_nb_list.append(features_nb[1])
                 actions_nb_list.append(actions_nb)
                 returns_nb_list.append(returns_nb)
                 masks_nb_list.append(masks_nb)
+                done_nb_list.append(done_nb)
                 cur_size += len(masks_nb)
         return (
             [np.concatenate(last_states_nb_list, axis=0), np.concatenate(states_nb_list, axis=0)],
             np.concatenate(actions_nb_list, axis=0),
             np.concatenate(returns_nb_list, axis=0),
             np.concatenate(masks_nb_list, axis=0),
+            np.concatenate(done_nb_list, axis=0),
         )
 
     def state_dict(self):
