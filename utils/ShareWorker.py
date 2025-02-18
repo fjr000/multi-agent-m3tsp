@@ -139,7 +139,9 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             writer.add_scalar("greedy_cost", greedy_cost, eval_count)
             writer.add_scalar("min_sample_cost", min_sample_cost, eval_count)
             writer.add_scalar("ortools_cost", ortools_cost, eval_count)
-            print(f"greddy_cost:{greedy_cost}, sample_cost:{min_sample_cost}, ortools_cost:{ortools_cost}")
+            greedy_gap = (greedy_cost - ortools_cost) / ortools_cost * 100
+            sample_gap = (min_sample_cost - ortools_cost) / ortools_cost * 100
+            print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
 
         if (train_count + 1) % 5000 == 0:
             train_agent.save_model(train_count + 1 + agent_args.agent_id)
