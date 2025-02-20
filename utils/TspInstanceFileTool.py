@@ -70,26 +70,74 @@ class TspInstanceFileTool(object):
         except FileNotFoundError:
             print(f"File \"{filename}\" not found")
 
+    @staticmethod
+    def writeLKH3MTSPPar(filename,tsp_filename, salesmen = 1, depot = 1, output_filename=None):
+        if output_filename is None:
+            output_filename = tsp_filename.split(".")[0] + ".tour"
+        with open(filename, 'w') as f:
+            f.write("SPECIAL\n")
+            f.write(f"PROBLEM_FILE = {tsp_filename}\n")
+            f.write("STOP_AT_OPTIMUM = NO\n")
+            f.write("RUNS = 1\n")
+            f.write("SEED = 0\n")
+            f.write(f"SALESMEN = {salesmen}\n")
+            f.write(f"DEPOT = {depot}\n")
+            f.write(f"INITIAL_TOUR_ALGORITHM = MTSP\n")
+            f.write("MTSP_OBJECTIVE = MINMAX\n")
+            f.write(f"MTSP_SOLUTION_FILE = {output_filename}\n")
+
+
+    @staticmethod
+    def readLKH3Route(filename, scale = 100_000):
+        with open(filename, 'r') as f:
+            cost_line = f.readline().strip()
+            num_line = f.readline().strip()
+            cost_line = cost_line.replace('_','.')
+            min_cost = eval(cost_line.split(':')[1]) / scale
+            salesmen = eval(num_line.split(' ')[5])
+            trajectory = [[]for i in range(salesmen)]
+            for idx, line in enumerate(f.readlines()):
+                if idx >= salesmen:
+                    break
+                line = line.strip()
+                line_split = line.split(" ")
+                for pos in line_split:
+                    if not pos.startswith("("):
+                        trajectory[idx].append(eval(pos))
+                    else:
+                        break
+
+        return min_cost, salesmen, trajectory
 
 
 
 if __name__ == "__main__":
     import envs.GraphGenerator as GG
     gg = GG.GraphGenerator()
-    graph = gg.generate(1,100,2)
+    graph = gg.generate(1,50,2)
     graph = graph[0]
-    depots = (1,2,3,4)
-    filename = "../envs/Instance/TSP.tsp"
-    TspInstanceFileTool.writeTSPInstanceToFile(filename, graph, depot = depots, instance_name = "TSP")
+    depots = (1,)
+    filename = "TSP.tsp"
+    # TspInstanceFileTool.writeTSPInstanceToFile(filename, graph, depot = depots, instance_name = "TSP")
 
     load_graph, load_depots = TspInstanceFileTool.readTSPInstanceFromFile(filename)
+    import algorithm.OR_Tools.mtsp as ORT
+    # a = ORT.ortools_solve_mtsp(load_graph[np.newaxis,],5,100000)
+    # print(a[1])
+    from utils.GraphPlot import GraphPlot as GP
+    gp = GP()
+    # gp.draw_route(load_graph[np.newaxis,], a[0], title=f"or_tools_cost:{a[1]}_time:{a[2]}")
+    #
+    # for p,l in zip(graph,load_graph):
+    #     for d,dd in zip(p,l):
+    #         if not np.isclose(d,dd):
+    #             assert False
+    #
+    # for d,dd in zip(depots,load_depots):
+    #     if d != dd:
+    #         assert False
 
-    for p,l in zip(graph,load_graph):
-        for d,dd in zip(p,l):
-            if not np.isclose(d,dd):
-                assert False
+    TspInstanceFileTool.writeLKH3MTSPPar("TSP.par",filename,5,1,"TSP_route.par")
+    min_cost, salesmen, trajectory = TspInstanceFileTool.readLKH3Route("TSP_route.par")
 
-    for d,dd in zip(depots,load_depots):
-        if d != dd:
-            assert False
-
+    gp.draw_route(load_graph[np.newaxis,], trajectory, title=f"LKH3:{min_cost}_time:?", one_first=True)

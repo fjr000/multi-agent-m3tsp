@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from model.model_v1 import Model
+from model.model_v2 import Model
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -14,7 +14,7 @@ import tqdm
 
 class AgentV2(AgentBase):
     def __init__(self, args):
-        super(AgentV2, self).__init__(args)
+        super(AgentV2, self).__init__(args,Model)
         self.model.to(self.device)
 
     def save_model(self, id):

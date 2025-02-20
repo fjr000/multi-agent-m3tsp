@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from model.model_v1 import Model
+from model.model_v3 import Model
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -12,18 +12,18 @@ from algorithm.DNN.AgentBase import AgentBase
 import tqdm
 
 
-class AgentV1(AgentBase):
+class AgentV3(AgentBase):
     def __init__(self, args):
-        super(AgentV1, self).__init__(args,Model)
+        super(AgentV3, self).__init__(args,Model)
         self.model.to(self.device)
 
     def save_model(self, id):
-        filename = f"AgentV1_{id}"
-        super(AgentV1, self)._save_model(self.args.model_dir, filename)
+        filename = f"AgentV3_{id}"
+        super(AgentV3, self)._save_model(self.args.model_dir, filename)
 
     def load_model(self, id):
-        filename = f"AgentV1_{id}"
-        super(AgentV1, self)._load_model(self.args.model_dir, filename)
+        filename = f"AgentV3_{id}"
+        super(AgentV3, self)._load_model(self.args.model_dir, filename)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -54,10 +54,10 @@ if __name__ == '__main__':
     env = MTSPEnv()
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 
-    indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-    env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
-    print(f"or tools :{cost}")
-    agent = AgentV1(args)
+    # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
+    # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
+    # print(f"or tools :{cost}")
+    agent = AgentV3(args)
     min_greedy_cost = 1000
     min_sample_cost = 1000
     loss_list = []
@@ -68,7 +68,7 @@ if __name__ == '__main__':
                            _convert_tensor(actions_nb,dtype = torch.float32, device=agent.device),
                            _convert_tensor(returns_nb,dtype = torch.float32, device=agent.device),
                            _convert_tensor(masks_nb,dtype = torch.float32, device=agent.device),
-                           dones_nb
+                           dones_nb,
                            )
         loss_list.append(loss)
         if i % 10 == 0:

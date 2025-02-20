@@ -10,9 +10,9 @@ import numpy as np
 
 
 class AgentBase:
-    def __init__(self, args):
+    def __init__(self, args, model_class):
         self.args = args
-        self.model = Model(agent_dim=args.agent_dim,
+        self.model = model_class(agent_dim=args.agent_dim,
                            hidden_dim=args.hidden_dim,
                            embed_dim=args.embed_dim,
                            num_heads=args.num_heads,

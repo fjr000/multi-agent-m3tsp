@@ -127,7 +127,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
-        if (train_count + 1) % 100 == 0:
+        if (train_count + 1) % 400 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             eval_model_pipe.send(graph)
@@ -141,6 +141,9 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             writer.add_scalar("ortools_cost", ortools_cost, eval_count)
             greedy_gap = (greedy_cost - ortools_cost) / ortools_cost * 100
             sample_gap = (min_sample_cost - ortools_cost) / ortools_cost * 100
+            writer.add_scalar("greedy_gap", greedy_gap, eval_count)
+            writer.add_scalar("sample_gap", sample_gap, eval_count)
+
             print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
 
         if (train_count + 1) % 5000 == 0:
@@ -255,14 +258,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--batch_size", type=float, default=8192)
+    parser.add_argument("--batch_size", type=float, default=512)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
