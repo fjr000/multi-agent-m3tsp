@@ -66,7 +66,7 @@ class EmbeddingNet(nn.Module):
         super(EmbeddingNet, self).__init__()
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
-        self.embedding = MLP([input_dim, 256, embedding_dim], nonlinear_layer_last=False)
+        self.embedding = MLP([input_dim, embedding_dim], nonlinear_layer_last=False)
 
     def forward(self, x):
         return self.embedding(x)
@@ -82,9 +82,8 @@ class MultiHeadAttention(nn.Module):
         return out
 
 class MultiHeadAttentionLayer(nn.Module):
-    def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='batch'):
+    def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='layer'):
         super(MultiHeadAttentionLayer, self).__init__()
-        normalization = []
         if normalization == 'batch':
             normalization = [nn.BatchNorm1d(embedding_dim)]
         elif normalization == 'layer':
@@ -196,10 +195,10 @@ class SelfAttentionLayer(nn.Module):
         assert x.shape[-1] == self.embedding_dim, \
             f"q.shape == k.shape == v.shape  is [B,S,{self.embedding_dim}]"
         shape = x.shape
-        input_ln = self.normalization1(x.view(-1, self.embedding_dim)).view(*shape)
+        input_ln = self.normalization1(x.reshape(-1, self.embedding_dim)).reshape(*shape)
         att_out, _ = self.multiHeadAttention(input_ln, input_ln, input_ln, attn_mask=attn_mask)
         hidden = att_out + x
-        hidden_ln = self.normalization2(hidden.view(-1, self.embedding_dim)).view(*shape)
+        hidden_ln = self.normalization2(hidden.reshape(-1, self.embedding_dim)).reshape(*shape)
         if self.use_FFN:
             fn_out = self.feedForward(hidden_ln)
             out = fn_out + hidden
@@ -230,11 +229,11 @@ class CrossAttentionLayer(nn.Module):
         att_out, _ = self.multiHeadAttention(q, k, v, attn_mask=attn_mask)
         hidden = att_out + q
         shape = hidden.shape
-        hidden_ln = self.normalization1(hidden.view(-1,self.embedding_dim)).view(*shape)
+        hidden_ln = self.normalization1(hidden.reshape(-1,self.embedding_dim)).reshape(*shape)
         if self.use_FFN:
             fn_out = self.feedForward(hidden_ln)
             out = fn_out + hidden_ln
-            out = self.normalization2(out.view(-1, self.embedding_dim)).view(*shape)
+            out = self.normalization2(out.reshape(-1, self.embedding_dim)).reshape(*shape)
         else:
             out = hidden_ln
         return out
@@ -352,20 +351,9 @@ class AgentEmbedding(nn.Module):
         self.cur_city_embed = nn.Linear(self.input_dim, self.embed_dim)
         self.last_city_embed = nn.Linear(self.input_dim, self.embed_dim)
         self.global_graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
-        #
-        # self.cur_city_embed = nn.Sequential(
-        #     nn.Linear(self.input_dim, self.hidden_dim),
-        #     nn.ReLU(),
-        #     nn.Linear(self.hidden_dim, self.embed_dim),
-        # )
-        #
-        # self.last_city_embed = nn.Sequential(
-        #     nn.Linear(self.input_dim, self.hidden_dim),
-        #     nn.ReLU(),
-        #     nn.Linear(self.hidden_dim, self.embed_dim),
-        # )
-
-        self.agent_embed = nn.Linear(3 * self.embed_dim, self.embed_dim)
+        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.distance_embed = nn.Linear(3, self.embed_dim)
+        self.agent_embed = nn.Linear(5 * self.embed_dim, self.embed_dim)
 
     def forward(self, graph_embed, agent_state_list):
         """

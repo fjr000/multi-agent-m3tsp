@@ -20,7 +20,7 @@ from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP import MTSPEnv
-from algorithm.DNN.Agent_v2 import AgentV2 as Agent
+from algorithm.DNN.Agent_V3 import AgentV3 as Agent
 # from algorithm.DNN.Agent_v1 import AgentV1 as Agent
 import tqdm
 
@@ -127,7 +127,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
-        if (train_count + 1) % 400 == 0:
+        if (train_count + 1) % 100 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             eval_model_pipe.send(graph)
@@ -250,7 +250,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=16)
+    parser.add_argument("--num_worker", type=int, default=4)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
