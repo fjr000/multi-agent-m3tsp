@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from model.nModel.model_v2 import Model
+from model.nModel.model_v3 import Model
 import torch
 from utils.TensorTools import _convert_tensor
 import numpy as np
@@ -9,18 +9,18 @@ from algorithm.DNN2.AgentBase import AgentBase
 import tqdm
 
 
-class AgentV2(AgentBase):
+class AgentV3(AgentBase):
     def __init__(self, args):
-        super(AgentV2, self).__init__(args,Model)
+        super(AgentV3, self).__init__(args, Model)
         self.model.to(self.device)
 
     def save_model(self, id):
-        filename = f"nAgentV2_{id}"
-        super(AgentV2, self)._save_model(self.args.model_dir, filename)
+        filename = f"nAgentV3_{id}"
+        super(AgentV3, self)._save_model(self.args.model_dir, filename)
 
     def load_model(self, id):
-        filename = f"nAgentV2_{id}"
-        super(AgentV2, self)._load_model(self.args.model_dir, filename)
+        filename = f"nAgentV3_{id}"
+        super(AgentV3, self)._load_model(self.args.model_dir, filename)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
     env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
     print(f"or tools :{cost}")
-    agent = AgentV2(args)
+    agent = AgentV3(args)
     min_greedy_cost = 1000
     min_sample_cost = 1000
     loss_list = []

@@ -45,7 +45,7 @@ class Model(nn.Module):
         """
         self.city_embed = self.city_encoder(city)
 
-    def forward(self, agent, mask):
+    def forward(self, agent, mask, info = None):
         batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
         ori_expand_graph = self.city_embed.expand(*batch_mask.shape)
         mask_expand_graph = ori_expand_graph * batch_mask

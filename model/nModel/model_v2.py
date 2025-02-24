@@ -47,7 +47,7 @@ class Model(nn.Module):
 
     def forward(self, agent, mask):
         graph = torch.mean(self.city_embed, dim=1)
-        expand_graph = graph.unsqueeze(0).expand(agent.size(0), agent.size(1), -1)
+        expand_graph = graph.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         agent_embed = self.agent_encoder(expand_graph, agent)
         actions_logits = self.agent_decoder(agent_embed, self.city_embed, mask)
 
