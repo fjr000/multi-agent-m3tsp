@@ -1,117 +1,19 @@
 import argparse
-
 import numpy as np
-import torch
-import torch.nn as nn
+from torch import inference_mode
 
-import model.Base.Net as Net
-from model.Base.Net import MultiHeadAttentionLayer, SingleHeadAttention, CrossAttentionLayer
-
-
-class CityEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(CityEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
-        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
-        # self.depot_embed = nn.Sequential(
-        #     nn.Linear(self.input_dim, self.hidden_dim),
-        #     nn.ReLU(),
-        #     nn.Linear(self.hidden_dim, self.embed_dim),
-        # )
-        #
-        # self.city_embed = nn.Sequential(
-        #     nn.Linear(self.input_dim, self.embed_dim),
-        #     nn.ReLU(),
-        #     nn.Linear(self.embed_dim, self.embed_dim),
-        # )
-
-    def forward(self, city):
-        """
-        :param city: [B,N,2]
-        :return:
-        """
-        depot_embed = self.depot_embed(city[:, 0:1])
-        city_embed = self.city_embed(city[:, 1:])
-        cities_embed = torch.cat([depot_embed, city_embed], dim=1)
-        return cities_embed
-
-
-class CityEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
-        super(CityEncoder, self).__init__()
-        self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
-        self.city_self_att = nn.Sequential(
-            *[
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
-                for _ in range(num_layers)
-            ]
-        )
-
-    def forward(self, city):
-        """
-        :param city: [B,N,2]
-        :return:
-        """
-        city_embed = self.city_embed(city)
-        city_self_att = self.city_self_att(city_embed)
-        return city_self_att
-
-class AgentEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(AgentEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-
-        self.depot_embed = nn.Linear(2, self.embed_dim)
-        self.cur_city_embed = nn.Linear(2, self.embed_dim)
-        self.distance_embed = nn.Linear(2, self.embed_dim)
-        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
-
-        self.agent_embed = nn.Linear(4 * self.embed_dim, self.embed_dim)
-
-    def forward(self, graph_embed, agent_state):
-        """
-        :param graph_embed
-        :param agent_state: [B,M,2]
-        :return:
-        """
-        global_graph_embed = self.graph_embed(graph_embed)
-        depot_embed = self.depot_embed(agent_state[:,:,0:2])
-        cur_city_embed = self.cur_city_embed(agent_state[:,:,2:4])
-        distance_embed = self.distance_embed(agent_state[:,:,4:6])
-        context = torch.cat([depot_embed, cur_city_embed, distance_embed, global_graph_embed], dim=-1)
-        agent_embed = self.agent_embed(context)
-        return agent_embed
-
-
-class AgentEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
-        super(AgentEncoder, self).__init__()
-        self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.Sequential(
-            *[
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
-                for _ in range(num_layers)
-            ]
-        )
-
-    def forward(self, graph, agent):
-        """
-        :param agent: [B,N,2]
-        :return:
-        """
-        agent_embed = self.agent_embed(graph, agent)
-        agent_self_att = self.agent_self_att(agent_embed)
-        return agent_self_att
+from model.nModel.model_v1 import CityEncoder, AgentEncoder
+from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
+import  torch
+import  torch.nn as nn
 
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(ActionDecoder, self).__init__()
-        self.agent_city_att = CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim)
+        self.agent_city_att = nn.ModuleList([
+            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim)
+            for _ in range(num_layers)
+        ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.action = SingleHeadAttention(embed_dim)
         self.num_heads = num_heads
@@ -120,11 +22,12 @@ class ActionDecoder(nn.Module):
         expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
         expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1)
         expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
-        aca = self.agent_city_att(agent_embed, expand_city_embed, expand_city_embed, expand_masks)
+        aca = agent_embed
+        for model in self.agent_city_att:
+            aca = model(aca, expand_city_embed, expand_city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
         action_logits = self.action(aca, expand_city_embed, masks)
         return action_logits
-
 
 class Model(nn.Module):
     def __init__(self, agent_dim=6, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):

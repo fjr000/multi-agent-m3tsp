@@ -6,10 +6,6 @@ import sys
 
 sys.path.append("../")
 sys.path.append("./")
-import envs.MTSP.Config
-from envs.MTSP.MTSP import MTSPEnv
-from typing import Dict
-import cloudpickle
 
 import torch.multiprocessing as mp
 from envs.GraphGenerator import GraphGenerator as GG
@@ -19,9 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
-from envs.MTSP.MTSP import MTSPEnv
-from algorithm.DNN.Agent_V3 import AgentV3 as Agent
-# from algorithm.DNN.Agent_v1 import AgentV1 as Agent
+from envs.MTSP.MTSP2 import MTSPEnv
+from algorithm.DNN2.AgentV2 import AgentV2 as Agent
 import tqdm
 
 torch.set_num_threads(1)
@@ -63,12 +58,12 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
         sample_time = (ed - st) / 1e9
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-        env.draw_multi(graph,
-                       [ortools_cost, greedy_cost, min_sample_cost],
-                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
-                       [used_time, greedy_time, sample_time],
-                       ["or_tools", "greedy", "sample"]
-                       )
+        # env.draw_multi(graph,
+        #                [ortools_cost, greedy_cost, min_sample_cost],
+        #                [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+        #                [used_time, greedy_time, sample_time],
+        #                ["or_tools", "greedy", "sample"]
+        #                )
 
         send_result_pipe.send(
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
@@ -95,7 +90,6 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         for pipe in send_pipes:
             pipe.send(graph)
 
-        last_state_nb_list = []
         state_nb_list = []
         actions_nb_list = []
         returns_nb_list = []
@@ -104,13 +98,12 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
 
         for i in range(agent_args.num_worker):
             graph, features_nb, actions_nb, returns_nb, masks_nb, dones_nb = queue.get()
-            last_state_nb_list.append(features_nb[0])
-            state_nb_list.append(features_nb[1])
+            state_nb_list.append(features_nb)
             actions_nb_list.append(actions_nb)
             returns_nb_list.append(returns_nb)
             masks_nb_list.append(masks_nb)
             dones_nb_list.append(dones_nb)
-        features_nb = [np.concatenate(last_state_nb_list, axis=0), np.concatenate(state_nb_list, axis=0)]
+        features_nb = np.concatenate(state_nb_list, axis=0)
         actions_nb = np.concatenate(actions_nb_list, axis=0)
         returns_nb = np.concatenate(returns_nb_list, axis=0)
         masks_nb = np.concatenate(masks_nb_list, axis=0)
@@ -156,10 +149,10 @@ class SharelWorker:
         self.agent_args = args
         self.env_class = env_class
         self.env_config = {
-
-            "city_nums": (args.city_nums, args.city_nums),
-            "agent_nums": (args.agent_num, args.agent_num),
-            "allow_back": args.allow_back,
+            "salesmen": args.agent_num,
+            "cities": args.city_nums,
+            "seed": None,
+            "mode": 'rand'
         }
         self.num_worker = args.num_worker
 
@@ -251,16 +244,16 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=4)
+    parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=5e-5)
-    parser.add_argument("--grad_max_norm", type=float, default=0.5)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)

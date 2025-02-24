@@ -49,7 +49,12 @@ class MTSPEnv:
 
     def __init(self, graph = None):
         if graph is not None:
-            self.graph = graph
+            if len(graph.shape) ==2:
+                self.graph = graph
+            elif len(graph.shape) == 3:
+                self.graph = graph[0]
+            else:
+                assert False
         elif self.graph is None or self.mode == "rand":
             self.graph = self.GG.generate(1,self.cities,2)[0]
 

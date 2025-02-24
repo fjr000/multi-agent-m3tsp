@@ -98,7 +98,7 @@ class AgentBase:
         Rs = returns[dones.nonzero()[0]]
         if self.args.returns_norm:
             loss = - (likelihood * (Rs - Rs.mean
-            ())).mean()
+            ()) / Rs.std()).mean()
         else:
             loss = - (likelihood * returns).mean()
 
@@ -117,7 +117,7 @@ class AgentBase:
         return loss.item()
 
     def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode = "sample"):
-        agents_states, info = env.reset({"mode": "fixed"}, graph = graph)
+        agents_states, info = env.reset({"mode": "fixed"}, graph = graph[0])
         agents_mask = info["mask"][np.newaxis].repeat(agent_num, axis=0)
         done = False
         self.reset_graph(graph)
@@ -166,7 +166,6 @@ class AgentBase:
 
     def run_batch(self, env, graph, agent_num, batch_size):
         cur_size = 0
-        last_states_nb_list = []
         states_nb_list = []
         actions_nb_list = []
         returns_nb_list = []
@@ -175,15 +174,14 @@ class AgentBase:
         with torch.no_grad():
             while cur_size < batch_size:
                 features_nb, actions_nb, returns_nb, masks_nb, done_nb = self._run_episode(env, graph, agent_num)
-                last_states_nb_list.append(features_nb[0])
-                states_nb_list.append(features_nb[1])
+                states_nb_list.append(features_nb)
                 actions_nb_list.append(actions_nb)
                 returns_nb_list.append(returns_nb)
                 masks_nb_list.append(masks_nb)
                 done_nb_list.append(done_nb)
                 cur_size += len(masks_nb)
         return (
-            [np.concatenate(last_states_nb_list, axis=0), np.concatenate(states_nb_list, axis=0)],
+            np.concatenate(states_nb_list, axis=0),
             np.concatenate(actions_nb_list, axis=0),
             np.concatenate(returns_nb_list, axis=0),
             np.concatenate(masks_nb_list, axis=0),
