@@ -36,6 +36,8 @@ class MTSPEnv:
         self.mask = None
 
         self.dim = 6
+        self.step_count = 0
+        self.step_limit = -1
 
     def __parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
@@ -62,6 +64,8 @@ class MTSPEnv:
         self.costs = np.zeros(self.salesmen)
         self.mask = np.ones((self.cities,), dtype=np.float32)
         self.mask[0] = 0
+        self.step_count = 0
+        self.step_limit = self.cities // self.salesmen * 3
 
     def _get_salesman(self, idx):
         state = np.empty((self.dim,), dtype=np.float32)
@@ -81,6 +85,17 @@ class MTSPEnv:
     def _get_distance(self, id1, id2):
         return np.sqrt(np.sum(np.square(self.graph[id1-1] - self.graph[id2-1])))
 
+    def _get_salesmen_masks(self):
+
+        repeat_masks = self.mask[np.newaxis,].repeat(self.salesmen,axis=0)
+
+        for i in range(self.salesmen):
+            cur_pos = self.trajectories[i][-1]
+            if cur_pos != 1:
+                repeat_masks[i, cur_pos-1] = 1
+
+        return repeat_masks
+
     def reset(self, config = None, graph = None):
         if config is not None:
             self.__parse_config(config)
@@ -90,7 +105,8 @@ class MTSPEnv:
             "graph": self.graph,
             "salesmen": self.salesmen,
             "cities": self.cities,
-            "mask": self.mask
+            "mask": self.mask,
+            "salesmen_masks": self._get_salesmen_masks()
         }
 
         return self._get_salesmen(), env_info
@@ -114,14 +130,25 @@ class MTSPEnv:
                 done = False
                 break
 
-        if not done:
-            return 0
-        else:
-            return -np.max(self.costs)
+        reward = 0
+
+        if done:
+            reward = -np.max(self.costs)
+
+        if self.step_count >= self.step_limit:
+            reward = -self.cities
+
+        return reward
 
     def deal_conflict(self, actions:np.ndarray):
         mp = {}
         new_actions = np.zeros_like(actions)
+
+        for idx in range(self.salesmen):
+            cur_pos = self.trajectories[idx][-1]
+            if cur_pos == actions[idx]:
+                actions[idx] = 0
+
         for idx, act in enumerate(actions):
             if act != 1:
                 if act in mp:
@@ -130,6 +157,8 @@ class MTSPEnv:
                     mp.update({act: [idx]})
             else:
                 new_actions[idx] = act
+
+
 
         for act, idxs in mp.items():
             min_idx = idxs[0]
@@ -161,7 +190,9 @@ class MTSPEnv:
 
         info = {
             "mask": self.mask,
+            "salesmen_masks": self._get_salesmen_masks()
         }
+
         if done:
             info.update(
                 {
@@ -169,6 +200,8 @@ class MTSPEnv:
                     "costs": self.costs,
                 }
             )
+
+        self.step_count+=1
 
         return self._get_salesmen(), reward, done, info
 
