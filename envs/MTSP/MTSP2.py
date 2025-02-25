@@ -184,8 +184,8 @@ class MTSPEnv:
 
         reward = self._get_reward()
         done = reward != 0
-        if reward < -np.max(self.costs):
-            self.costs = np.array(reward).repeat(self.salesmen, axis=0)
+        if done and reward < -np.max(self.costs):
+            self.costs = np.array(-reward).repeat(self.salesmen, axis=0)
 
         if done:
             self.mask = np.zeros((self.cities,), dtype=np.float32)
