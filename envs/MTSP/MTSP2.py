@@ -38,6 +38,8 @@ class MTSPEnv:
         self.dim = 6
         self.step_count = 0
         self.step_limit = -1
+        self.stay_still_limit = 3
+        self.remain_stay_still_log = None
 
     def __parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
@@ -66,6 +68,7 @@ class MTSPEnv:
         self.mask[0] = 0
         self.step_count = 0
         self.step_limit = self.cities // self.salesmen * 3
+        self.remain_stay_still_log = np.zeros(self.salesmen, dtype=np.int32)
 
     def _get_salesman(self, idx):
         state = np.empty((self.dim,), dtype=np.float32)
@@ -91,8 +94,11 @@ class MTSPEnv:
 
         for i in range(self.salesmen):
             cur_pos = self.trajectories[i][-1]
-            if cur_pos != 1:
-                repeat_masks[i, cur_pos-1] = 1
+            if self.remain_stay_still_log[i] < self.stay_still_limit:
+                if cur_pos != 1 :
+                    repeat_masks[i, cur_pos-1] = 1
+            else:
+                self.remain_stay_still_log[i] = 0
 
         return repeat_masks
 
@@ -144,11 +150,6 @@ class MTSPEnv:
         mp = {}
         new_actions = np.zeros_like(actions)
 
-        for idx in range(self.salesmen):
-            cur_pos = self.trajectories[idx][-1]
-            if cur_pos == actions[idx]:
-                actions[idx] = 0
-
         for idx, act in enumerate(actions):
             if act != 1:
                 if act in mp:
@@ -157,8 +158,6 @@ class MTSPEnv:
                     mp.update({act: [idx]})
             else:
                 new_actions[idx] = act
-
-
 
         for act, idxs in mp.items():
             min_idx = idxs[0]
@@ -169,6 +168,12 @@ class MTSPEnv:
                     min_cost = nxt_cost
                     min_idx = idx
             new_actions[min_idx] = act
+
+        for idx in range(self.salesmen):
+            cur_pos = self.trajectories[idx][-1]
+            if cur_pos == new_actions[idx]:
+                self.remain_stay_still_log[idx]+=1
+                new_actions[idx] = 0
 
         return new_actions
 
