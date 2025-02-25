@@ -97,8 +97,6 @@ class MTSPEnv:
             if self.remain_stay_still_log[i] < self.stay_still_limit:
                 if cur_pos != 1 :
                     repeat_masks[i, cur_pos-1] = 1
-            else:
-                self.remain_stay_still_log[i] = 0
 
         return repeat_masks
 
@@ -150,6 +148,14 @@ class MTSPEnv:
         mp = {}
         new_actions = np.zeros_like(actions)
 
+        for idx in range(self.salesmen):
+            cur_pos = self.trajectories[idx][-1]
+            if cur_pos == actions[idx]:
+                self.remain_stay_still_log[idx] += 1
+                actions[idx] = 0
+            else:
+                self.remain_stay_still_log[idx] = 0
+
         for idx, act in enumerate(actions):
             if act != 1:
                 if act in mp:
@@ -169,11 +175,6 @@ class MTSPEnv:
                     min_idx = idx
             new_actions[min_idx] = act
 
-        for idx in range(self.salesmen):
-            cur_pos = self.trajectories[idx][-1]
-            if cur_pos == new_actions[idx]:
-                self.remain_stay_still_log[idx]+=1
-                new_actions[idx] = 0
 
         return new_actions
 
