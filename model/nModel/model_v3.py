@@ -44,6 +44,7 @@ class Model(nn.Module):
         :return: None
         """
         self.city_embed = self.city_encoder(city)
+        self.mean_city = torch.mean(self.city_embed, dim=1)
 
     def forward(self, agent, mask):
         batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])

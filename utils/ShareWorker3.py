@@ -16,7 +16,7 @@ from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP2 import MTSPEnv
-from algorithm.DNN3_GRPO.AgentV1 import AgentV1 as Agent
+from algorithm.DNN3_GRPO.AgentV2 import AgentV2 as Agent
 import tqdm
 
 torch.set_num_threads(1)
