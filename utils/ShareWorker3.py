@@ -252,7 +252,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=2)
+    parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--grad_max_norm", type=float, default=1.0)
+    parser.add_argument("--grad_max_norm", type=float, default=10)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
