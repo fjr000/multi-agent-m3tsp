@@ -152,17 +152,10 @@ class Model(nn.Module):
 
         agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
 
-        agents_dist = torch.distributions.Categorical(logits=agents_logits)
-        agents = None
-        if mode == "greedy":
-            agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
-        elif mode == "sample":
-            agents = agents_dist.sample()
-        else:
-            raise NotImplementedError
+        agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
 
         pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
-        masks = agents == pos
+        masks = torch.logical_or(agents == pos, acts == 0)
 
         acts_no_conflict = torch.where(masks, acts, -1)
 

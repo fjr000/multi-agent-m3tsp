@@ -180,7 +180,7 @@ class MTSPEnv:
 
     def step(self, actions: np.ndarray):
 
-        actions = self.deal_conflict(actions)
+        # actions = self.deal_conflict(actions)
 
         for i in range(self.salesmen):
             self.__one_step(i, actions[i])
