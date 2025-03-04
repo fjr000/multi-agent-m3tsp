@@ -281,7 +281,7 @@ class MTSPEnv:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=2)
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -296,9 +296,9 @@ if __name__ == '__main__':
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=10)
+    parser.add_argument("--city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
-    parser.add_argument("--model_dir", type=str, default="../pth/")
+    parser.add_argument("--model_dir", type=str, default="../../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
     args = parser.parse_args()
 
@@ -320,10 +320,10 @@ if __name__ == '__main__':
     from model.n4Model.config import Config
 
     agent = AgentV1(args, Config)
-
-    eval_info = agent.run_batch(env, graph, env_config["salesmen"], args.batch_size)
+    agent.load_model(195000)
+    eval_info = agent._run_episode(env, graph, env_config["salesmen"], True, "sample")
 
     gp = GP()
-    gp.draw_route(graph, eval_info["trajectories"], title="random", one_first=True)
+    gp.draw_route(graph, eval_info["trajectories"], title=f"costs:{eval_info['costs']}", one_first=True)
     # env.draw_multi(graph,[1,2,3], [ EndInfo["trajectories"], EndInfo["trajectories"],EndInfo["trajectories"]],
     #                [0.1,0.2,0.3],["ss","sw","s22"],True)
