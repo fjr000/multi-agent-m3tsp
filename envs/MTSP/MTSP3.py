@@ -1,4 +1,5 @@
 import argparse
+import copy
 import math
 
 import numpy as np
@@ -46,6 +47,9 @@ class MTSPEnv:
         self.remain_stay_still_log = None
 
         self.traj_stages = None
+        self.salesmen_masks = None
+        self.actions = None
+        self.ori_actions = None
 
     def __parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
@@ -76,6 +80,11 @@ class MTSPEnv:
         self.step_limit = self.cities
         self.remain_stay_still_log = np.zeros(self.salesmen, dtype=np.int32)
         self.traj_stages = np.zeros(self.salesmen, dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished
+
+        self.salesmen_masks = None
+        self.actions = None
+        self.ori_actions = None
+
 
     def _get_salesman(self, idx):
         state = np.empty((self.dim,), dtype=np.float32)
@@ -109,10 +118,10 @@ class MTSPEnv:
 
         # set traj finished mask [1,0,...]
         for i in range(self.salesmen):
-            if self.traj_stages[i] >=1:
-                repeat_masks[i,0] = 1
             if self.traj_stages[i] >= 2:
                 repeat_masks[i] = np.zeros((self.cities,), dtype=np.float32)
+            if self.traj_stages[i] >=1:
+                repeat_masks[i,0] = 1
 
         # decide whether salesmen can return depot
         if np.any(self.mask):
@@ -120,6 +129,8 @@ class MTSPEnv:
             costs = np.where(self.traj_stages == 2, np.inf, self.costs)
             min_cost_id = np.argmin(costs)
             repeat_masks[min_cost_id, 0] = 0
+
+        self.salesmen_masks = repeat_masks
 
         return repeat_masks
 
@@ -142,6 +153,9 @@ class MTSPEnv:
 
         if act == 0:
             return
+
+        if not (self.mask[act - 1] == 1 or act == 1):
+            pass
 
         assert self.mask[act - 1] == 1 or act == 1, f"reach city '{act}' twice!"
 
@@ -208,15 +222,15 @@ class MTSPEnv:
         return actions
 
     def step(self, actions: np.ndarray):
-
+        self.ori_actions = copy.deepcopy(actions)
         actions = self.reset_actions(actions)
         # actions = self.deal_conflict(actions)
-
+        self.actions = actions
         for i in range(self.salesmen):
             self.__one_step(i, actions[i])
 
-        if np.all(self.mask == 0):
-            self.mask[0] = 1
+        # if np.all(self.mask == 0):
+        #     self.mask[0] = 1
 
         reward = self._get_reward()
         done = reward != 0
@@ -243,10 +257,31 @@ class MTSPEnv:
 
         return self._get_salesmen(), reward, done, info
 
+    def draw(self, graph, cost, trajectory, used_time=0, agent_name="agent", draw = True):
+        from utils.GraphPlot import GraphPlot as GP
+        graph_plot = GP()
+        if agent_name == "or_tools":
+            one_first = False
+        else:
+            one_first = True
+        return graph_plot.draw_route(graph, trajectory, draw = draw, title=f"{agent_name}_cost:{cost:.5f}_time:{used_time:.3f}", one_first=one_first)
+
+    def draw_multi(self, graph, costs, trajectorys, used_times=(0,), agent_names=("agents",), draw = True):
+        figs = []
+        for c,t,u,a in zip(costs, trajectorys, used_times, agent_names):
+            figs.append(self.draw(graph,c,t,u,a,False))
+        from utils.GraphPlot import GraphPlot as GP
+        graph_plot = GP()
+        fig = graph_plot.combine_figs(figs)
+        if draw:
+            fig.show()
+        return fig
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=2)
-    parser.add_argument("--agent_num", type=int, default=5)
+    parser.add_argument("--agent_num", type=int, default=3)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -261,7 +296,7 @@ if __name__ == '__main__':
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=50)
+    parser.add_argument("--city_nums", type=int, default=10)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
@@ -286,7 +321,7 @@ if __name__ == '__main__':
 
     agent = AgentV1(args, Config)
 
-    eval_info = agent._run_episode(env, graph, env_config["salesmen"], True, "greedy")
+    eval_info = agent.run_batch(env, graph, env_config["salesmen"], args.batch_size)
 
     gp = GP()
     gp.draw_route(graph, eval_info["trajectories"], title="random", one_first=True)
