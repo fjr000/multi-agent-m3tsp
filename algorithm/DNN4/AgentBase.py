@@ -115,7 +115,7 @@ class AgentBase:
 
     def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode="sample"):
         agents_states, info = env.reset({"mode": "fixed"}, graph=graph[0])
-        agents_mask = info["mask"][np.newaxis].repeat(agent_num, axis=0)
+        agents_mask = info["salesmen_masks"]
         done = False
         self.reset_graph(graph)
         states_list = []
@@ -143,7 +143,7 @@ class AgentBase:
                     reward_list.append(rewards)
                     done_list.append(done)
 
-                agents_mask = info["mask"][np.newaxis].repeat(agent_num, axis=0)
+                agents_mask = info["salesmen_masks"]
                 agents_states = states
 
             if not eval_mode:
