@@ -89,13 +89,13 @@ class AgentBase:
 
     def __get_loss(self, states, masks, actions, returns, dones):
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
-        likelihood = self.__get_likelihood(actions_logprob, dones);
-        Rs = returns[dones.nonzero()[0]]
+        # likelihood = self.__get_likelihood(actions_logprob, dones);
+        # Rs = returns[dones.nonzero()[0]]
         if self.args.returns_norm:
-            loss = - (likelihood * (Rs - Rs.mean
-            ()) / Rs.std()).mean()
+            loss = - (actions_logprob * (returns - returns.mean
+            ()) / returns.std() + 1e-8).mean()
         else:
-            loss = - (likelihood * returns).mean()
+            loss = - (actions_logprob * returns).mean()
 
         if self.args.max_ent:
             loss -= self.args.entropy_coef * entropy.mean()
