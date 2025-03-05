@@ -43,7 +43,7 @@ class MTSPEnv:
         self.dim = 6
         self.step_count = 0
         self.step_limit = -1
-        self.stay_still_limit = 0
+        self.stay_still_limit = -1
         self.remain_stay_still_log = None
 
         self.traj_stages = None

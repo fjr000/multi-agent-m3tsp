@@ -167,7 +167,7 @@ class AgentBase:
         logp = self.__align_trajectories(actions_logprob, torch.tensor(dones, dtype=torch.bool,device=self.device))
         align_returns = self.__align_trajectories(returns,torch.tensor(dones, dtype=torch.bool,device=self.device))
         as_logp = self.__align_trajectories(agents_logp, torch.tensor(dones, dtype=torch.bool,device=self.device))
-        adv = align_returns - bs.unsqueeze(1).expand(-1, align_returns.size(1))
+        adv = (align_returns - bs.unsqueeze(1).expand(-1, align_returns.size(1)))
         # adv = returns - returns.mean()
         # if self.args.returns_norm:
         #     adv = adv / (returns.std() + 1e-8)
