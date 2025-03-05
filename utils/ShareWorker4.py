@@ -16,7 +16,7 @@ from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP3 import MTSPEnv
-from algorithm.DNN4.AgentV1 import AgentV1 as Agent
+from algorithm.DNN4.AgentV2 import AgentV2 as Agent
 import tqdm
 
 torch.set_num_threads(1)
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=200)
+    parser.add_argument("--city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=000000000)

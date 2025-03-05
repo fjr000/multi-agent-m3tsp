@@ -1,5 +1,5 @@
 class Config(object):
-    agent_dim = 6
+    agent_dim = 10
     embed_dim = 128
 
     city_encoder_hidden_dim = 256
