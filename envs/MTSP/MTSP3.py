@@ -190,6 +190,13 @@ class MTSPEnv:
         self.individual_rewards = rewards
         return rewards
 
+    def _get_individual_rewards2(self, actions):
+        rewards = np.zeros(self.salesmen, dtype=np.float32)
+        if np.all(self.traj_stages >= 2):
+            rewards = -(self.costs + np.max(self.costs))
+        self.individual_rewards = rewards
+        return rewards
+
     def _get_reward(self):
         done = True
         for t in self.trajectories:
@@ -257,7 +264,7 @@ class MTSPEnv:
 
         # if np.all(self.mask == 0):
         #     self.mask[0] = 1
-        individual_rewards = self._get_individual_rewards(actions)
+        individual_rewards = self._get_individual_rewards2(actions)
         reward = self._get_reward()
         done = reward != 0
         if done and reward < -np.max(self.costs):

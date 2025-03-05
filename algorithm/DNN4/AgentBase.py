@@ -196,7 +196,7 @@ class AgentBase:
     def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb, done_nb):
         self.model.train()
         self.model.init_city(graph_t)
-        loss = self.__get_loss(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
+        loss = self.__get_loss_reinforce(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
         self.__update_net(self.optim, self.model.parameters(), loss)
         self.model.init_city(graph_t)
         # del states_tb, actions_tb, returns_tb, masks_tb
@@ -240,18 +240,18 @@ class AgentBase:
             if not eval_mode:
                 returns_nb = self.get_cumulative_returns_batch(
                     np.array(reward_list)[:, np.newaxis].repeat(agent_num, axis=1))
-                individual_returns_nb = returns_nb
                 individual_returns_nb = np.array(individual_rewards_list)
-                dones_step = info["dones_step"]
-                costs = info["costs"]
-                max_cost_id = np.argmax(info["costs"])
-                max_cost = costs[max_cost_id]
-                min_cost = np.min(costs)
-                for i in range(agent_num):
-                    individual_returns_nb[dones_step[i]-1,i] += (costs[i] - max_cost)
-
-                individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
-
+                # individual_returns_nb = np.array(individual_rewards_list)
+                # dones_step = info["dones_step"]
+                # costs = info["costs"]
+                # max_cost_id = np.argmax(info["costs"])
+                # max_cost = costs[max_cost_id]
+                # min_cost = np.min(costs)
+                # for i in range(agent_num):
+                #     individual_returns_nb[dones_step[i]-1,i] += (costs[i] - max_cost)
+                #
+                # individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
+                #
                 individual_returns_nb = self.get_cumulative_returns_batch(
                     individual_returns_nb
                 )
