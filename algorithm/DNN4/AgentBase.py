@@ -91,16 +91,16 @@ class AgentBase:
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
         # likelihood = self.__get_likelihood(actions_logprob, dones);
         # Rs = returns[dones.nonzero()[0]]
+
+        adv = returns - returns.mean()
         if self.args.returns_norm:
-            loss = - (actions_logprob * (returns - returns.mean
-            ()) / returns.std() + 1e-8).mean()
-        else:
-            loss = - (actions_logprob * returns).mean()
+            adv = adv / (returns.std() + 1e-8)
+        loss = - (actions_logprob * adv).mean()
 
         if self.args.max_ent:
             loss -= self.args.entropy_coef * entropy.mean()
 
-        loss += -(agents_logp * (returns - returns.mean())/(returns.std() + 1e-8)).mean()
+        loss += -(agents_logp * adv).mean()
 
         return loss
 
@@ -122,6 +122,7 @@ class AgentBase:
         actions_list = []
         actions_no_conflict_list = []
         reward_list = []
+        individual_rewards_list = []
         masks_list = []
         done_list = []
         with torch.no_grad():
@@ -141,6 +142,7 @@ class AgentBase:
                     actions_list.append(actions)
                     actions_no_conflict_list.append(actions_no_conflict)
                     reward_list.append(rewards)
+                    individual_rewards_list.append(info["individual_rewards"])
                     done_list.append(done)
 
                 agents_mask = info["salesmen_masks"]
@@ -149,12 +151,28 @@ class AgentBase:
             if not eval_mode:
                 returns_nb = self.get_cumulative_returns_batch(
                     np.array(reward_list)[:, np.newaxis].repeat(agent_num, axis=1))
+                individual_returns_nb = returns_nb
+                # individual_returns_nb = np.array(individual_rewards_list)
+                # # dones_step = info["dones_step"]
+                # # costs = info["costs"]
+                # # max_cost_id = np.argmax(info["costs"])
+                # # max_cost = costs[max_cost_id]
+                # # min_cost = np.min(costs)
+                # # for i in range(agent_num):
+                # #     individual_returns_nb[dones_step[i]-1,i] += (costs[i] - max_cost)
+                # #
+                # # individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
+                #
+                # individual_returns_nb = self.get_cumulative_returns_batch(
+                #     individual_returns_nb
+                # )
+
                 states_nb = torch.stack(states_list, dim=0).cpu().numpy()
                 actions_nb = np.stack(actions_list, axis=0)
                 actions_no_conflict_nb = np.stack(actions_no_conflict_list, axis=0)
                 masks_nb = torch.stack(masks_list, dim=0).cpu().numpy()
                 done_nb = np.stack(done_list, axis=0)
-                return states_nb, actions_nb, actions_no_conflict_nb, returns_nb, masks_nb, done_nb
+                return states_nb, actions_nb, actions_no_conflict_nb, returns_nb, individual_returns_nb, masks_nb, done_nb
             else:
                 return info
 
@@ -171,15 +189,17 @@ class AgentBase:
         actions_nb_list = []
         actions_no_conflict_nb_list = []
         returns_nb_list = []
+        individual_returns_nb_list = []
         masks_nb_list = []
         done_nb_list = []
         with torch.no_grad():
             while cur_size < batch_size:
-                features_nb, actions_nb, actions_no_conflict_nb, returns_nb, masks_nb, done_nb = self._run_episode(env, graph, agent_num)
+                features_nb, actions_nb, actions_no_conflict_nb, returns_nb, individual_returns_nb, masks_nb, done_nb = self._run_episode(env, graph, agent_num)
                 states_nb_list.append(features_nb)
                 actions_nb_list.append(actions_nb)
                 actions_no_conflict_nb_list.append(actions_no_conflict_nb)
                 returns_nb_list.append(returns_nb)
+                individual_returns_nb_list.append(individual_returns_nb)
                 masks_nb_list.append(masks_nb)
                 done_nb_list.append(done_nb)
                 cur_size += len(masks_nb)
@@ -188,6 +208,7 @@ class AgentBase:
             np.concatenate(actions_nb_list, axis=0),
             np.concatenate(actions_no_conflict_nb_list, axis=0),
             np.concatenate(returns_nb_list, axis=0),
+            np.concatenate(individual_returns_nb_list, axis=0),
             np.concatenate(masks_nb_list, axis=0),
             np.concatenate(done_nb_list, axis=0),
         )

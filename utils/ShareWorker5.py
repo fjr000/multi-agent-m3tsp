@@ -262,7 +262,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=16)
+    parser.add_argument("--num_worker", type=int, default=8)
     parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=256)
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=6e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=10)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
@@ -278,10 +278,10 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=20)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=130000)
+    parser.add_argument("--agent_id", type=int, default=0)
     args = parser.parse_args()
 
     mp.set_start_method("spawn")

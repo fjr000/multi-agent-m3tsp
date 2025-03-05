@@ -47,9 +47,12 @@ class MTSPEnv:
         self.remain_stay_still_log = None
 
         self.traj_stages = None
+        self.dones_step = None
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
+
+        self.distance_scale = np.sqrt(2)
 
     def __parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
@@ -79,11 +82,15 @@ class MTSPEnv:
         self.step_count = 0
         self.step_limit = self.cities
         self.remain_stay_still_log = np.zeros(self.salesmen, dtype=np.int32)
-        self.traj_stages = np.zeros(self.salesmen, dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished
+        self.traj_stages = np.zeros(self.salesmen, dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
+        self.dones_step = np.zeros(self.salesmen, dtype=np.int32)
+
 
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
+
+        self.distance_scale = np.sqrt(2) * self.cities / self.salesmen
 
 
     def _get_salesman(self, idx):
@@ -91,8 +98,8 @@ class MTSPEnv:
         pos = self.trajectories[idx][-1]
         state[:2] = self.graph[0]
         state[2:4] = self.graph[pos-1]
-        state[4] = self.costs[idx]
-        state[5] = self._get_distance(1, pos)
+        state[4] = self.costs[idx] / self.distance_scale
+        state[5] = self._get_distance(1, pos) 
         return state
 
     def _get_salesmen(self):
@@ -126,7 +133,7 @@ class MTSPEnv:
         # decide whether salesmen can return depot
         if np.any(self.mask):
             # allow return depot instead of the min cost trajectory
-            costs = np.where(self.traj_stages == 2, np.inf, self.costs)
+            costs = np.where(self.traj_stages >= 2, np.inf, self.costs)
             min_cost_id = np.argmin(costs)
             repeat_masks[min_cost_id, 0] = 0
 
@@ -165,7 +172,23 @@ class MTSPEnv:
             self.traj_stages[idx] = 1
         else:
             self.traj_stages[idx] = 2
+            self.dones_step[idx] = self.step_count
         self.costs[idx] += self._get_distance(self.trajectories[idx][-1], self.trajectories[idx][-2])
+
+    def _get_individual_rewards(self, actions):
+        rewards = np.zeros(self.salesmen, dtype=np.float32)
+        for i in range(self.salesmen):
+            if actions[i] == 0:
+                rewards[i] = -0.001
+                if self.traj_stages[i] >= 2:
+                    rewards[i] = 0
+            else :
+                rewards[i] = -self._get_distance(self.trajectories[i][-1], self.trajectories[i][-2])
+                if self.traj_stages[i] >= 2:
+                    self.traj_stages[i]+=1
+
+        self.individual_rewards = rewards
+        return rewards
 
     def _get_reward(self):
         done = True
@@ -179,7 +202,7 @@ class MTSPEnv:
         if done:
             reward = -np.max(self.costs)
 
-        if self.step_count >= self.step_limit:
+        if self.step_count > self.step_limit:
             reward = -self.cities
 
         return reward
@@ -222,6 +245,9 @@ class MTSPEnv:
         return actions
 
     def step(self, actions: np.ndarray):
+
+        self.step_count+=1
+
         self.ori_actions = copy.deepcopy(actions)
         actions = self.reset_actions(actions)
         # actions = self.deal_conflict(actions)
@@ -231,7 +257,7 @@ class MTSPEnv:
 
         # if np.all(self.mask == 0):
         #     self.mask[0] = 1
-
+        individual_rewards = self._get_individual_rewards(actions)
         reward = self._get_reward()
         done = reward != 0
         if done and reward < -np.max(self.costs):
@@ -242,7 +268,9 @@ class MTSPEnv:
 
         info = {
             "mask": self.mask,
-            "salesmen_masks": self._get_salesmen_masks()
+            "salesmen_masks": self._get_salesmen_masks(),
+            "individual_rewards": individual_rewards,
+            "dones_step": self.dones_step,
         }
 
         if done:
@@ -252,8 +280,6 @@ class MTSPEnv:
                     "costs": self.costs,
                 }
             )
-
-        self.step_count+=1
 
         return self._get_salesmen(), reward, done, info
 
@@ -296,10 +322,10 @@ if __name__ == '__main__':
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=100)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=300000)
     args = parser.parse_args()
 
     env_config = {
@@ -320,10 +346,10 @@ if __name__ == '__main__':
     from model.n4Model.config import Config
 
     agent = AgentV1(args, Config)
-    agent.load_model(195000)
-    eval_info = agent._run_episode(env, graph, env_config["salesmen"], True, "sample")
+    agent.load_model(args.agent_id)
+    eval_info = agent.eval_episode(env, graph, env_config["salesmen"],  "greedy")
 
     gp = GP()
-    gp.draw_route(graph, eval_info["trajectories"], title=f"costs:{eval_info['costs']}", one_first=True)
+    gp.draw_route(graph, eval_info[1], title=f"costs:{np.max(eval_info[0])},{np.min(eval_info[0])}", one_first=True)
     # env.draw_multi(graph,[1,2,3], [ EndInfo["trajectories"], EndInfo["trajectories"],EndInfo["trajectories"]],
     #                [0.1,0.2,0.3],["ss","sw","s22"],True)
