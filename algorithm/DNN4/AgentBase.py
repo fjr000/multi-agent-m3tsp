@@ -159,6 +159,19 @@ class AgentBase:
 
         return aligned_x
 
+    def __get_loss_reinforce(self, states, masks, actions, returns, dones):
+        actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
+        adv = returns - returns.mean()
+        if self.args.returns_norm:
+            adv = adv / (returns.std() + 1e-8)
+        loss = -(actions_logprob * adv).mean()
+        if self.args.max_ent:
+            loss -= self.args.entropy_coef * entropy.mean()
+
+        loss += -(agents_logp * adv).mean()
+
+        return loss
+
     def __get_loss(self, states, masks, actions, returns, dones):
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
         # likelihood = self.__get_likelihood(actions_logprob, dones);

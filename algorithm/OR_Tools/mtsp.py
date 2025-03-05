@@ -63,6 +63,7 @@ def ortools_solve_mtsp(graph, M = 5, C = 100000):
 
     # 设置搜索参数
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.time_limit.seconds = 60  # 限制为60秒
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
 
