@@ -240,7 +240,7 @@ class AgentBase:
             if not eval_mode:
                 returns_nb = self.get_cumulative_returns_batch(
                     np.array(reward_list)[:, np.newaxis].repeat(agent_num, axis=1))
-                individual_returns_nb = np.array(individual_rewards_list)
+                individual_rewards_nb = np.array(individual_rewards_list)
                 # individual_returns_nb = np.array(individual_rewards_list)
                 # dones_step = info["dones_step"]
                 # costs = info["costs"]
@@ -253,7 +253,7 @@ class AgentBase:
                 # individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
                 #
                 individual_returns_nb = self.get_cumulative_returns_batch(
-                    individual_returns_nb
+                    individual_rewards_nb
                 )
 
                 states_nb = torch.stack(states_list, dim=0).cpu().numpy()
