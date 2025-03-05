@@ -37,6 +37,7 @@ class MTSPEnv:
 
         self.graph = None
         self.trajectories = None
+        self.last_costs = None
         self.costs = None
         self.mask = None
 
@@ -76,6 +77,7 @@ class MTSPEnv:
             self.graph = self.GG.generate(1,self.cities,2)[0]
 
         self.trajectories = [[1] for _ in range(self.salesmen)]
+        self.last_costs = np.zeros(self.salesmen)
         self.costs = np.zeros(self.salesmen)
         self.mask = np.ones((self.cities,), dtype=np.float32)
         self.mask[0] = 0
@@ -193,7 +195,12 @@ class MTSPEnv:
     def _get_individual_rewards2(self, actions):
         rewards = np.zeros(self.salesmen, dtype=np.float32)
         if np.all(self.traj_stages >= 2):
-            rewards = -(self.costs + np.max(self.costs))
+            rewards += -np.max(self.costs)
+        else:
+            max_cost = np.max(self.costs)
+            last_max_cost = np.max(self.last_costs)
+            for i in range(self.salesmen):
+                rewards[i] += (last_max_cost - self.last_costs[i]) - (max_cost - self.costs[i])
         self.individual_rewards = rewards
         return rewards
 
@@ -254,6 +261,7 @@ class MTSPEnv:
     def step(self, actions: np.ndarray):
 
         self.step_count+=1
+        self.last_costs = copy.deepcopy(self.costs)
 
         self.ori_actions = copy.deepcopy(actions)
         actions = self.reset_actions(actions)
