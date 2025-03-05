@@ -199,8 +199,7 @@ class MTSPEnv:
         else:
             max_cost = np.max(self.costs)
             last_max_cost = np.max(self.last_costs)
-            for i in range(self.salesmen):
-                rewards[i] += 0.1 * ((last_max_cost - self.last_costs[i]) - (max_cost - self.costs[i]))
+            rewards += 0.1 * (( - self.last_costs + last_max_cost) - (- self.costs + max_cost))
         self.individual_rewards = rewards
         return rewards
 
