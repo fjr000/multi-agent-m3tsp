@@ -347,9 +347,21 @@ if __name__ == '__main__':
 
     agent = AgentV1(args, Config)
     agent.load_model(args.agent_id)
-    eval_info = agent.eval_episode(env, graph, env_config["salesmen"],  "greedy")
-
-    gp = GP()
-    gp.draw_route(graph, eval_info[1], title=f"costs:{np.max(eval_info[0])},{np.min(eval_info[0])}", one_first=True)
-    # env.draw_multi(graph,[1,2,3], [ EndInfo["trajectories"], EndInfo["trajectories"],EndInfo["trajectories"]],
-    #                [0.1,0.2,0.3],["ss","sw","s22"],True)
+    features_nb, actions_nb,actions_no_conflict_nb, returns_nb, individual_returns_nb, masks_nb, dones_nb = agent.run_batch(env, graph, env_config["salesmen"],  32)
+    from utils.TensorTools import _convert_tensor
+    import numpy as np
+    import torch
+    loss = agent.learn(_convert_tensor(graph, dtype=torch.float32, device=agent.device, target_shape_dim=3),
+                             _convert_tensor(features_nb, dtype=torch.float32, device=agent.device),
+                             _convert_tensor(actions_nb, dtype=torch.float32, device=agent.device),
+                             # _convert_tensor(returns_nb, dtype=torch.float32, device=train_agent.device),
+                             _convert_tensor(individual_returns_nb, dtype=torch.float32, device=agent.device),
+                             # rewards_nb,
+                             _convert_tensor(masks_nb, dtype=torch.float32, device=agent.device),
+                             dones_nb,
+                             # _convert_tensor(logp_nb, dtype=torch.float32, device=train_agent.device),
+                             )
+    # gp = GP()
+    # gp.draw_route(graph, eval_info[1], title=f"costs:{np.max(eval_info[0])},{np.min(eval_info[0])}", one_first=True)
+    # # env.draw_multi(graph,[1,2,3], [ EndInfo["trajectories"], EndInfo["trajectories"],EndInfo["trajectories"]],
+    # #                [0.1,0.2,0.3],["ss","sw","s22"],True)

@@ -87,20 +87,96 @@ class AgentBase:
             pre = indice[i] + 1
         return likeilihood
 
+    def __get_baseline(self, returns, dones):
+        # 步骤1：根据dones拆分轨迹
+        indices = dones.nonzero()[0]
+        trajectories = []
+        start = 0
+        returns_nb = returns.cpu().numpy()
+        for end in indices:
+            trajectories.append(returns_nb[start:end + 1, :])  # 提取轨迹片段（包含结束时间步）
+            start = end + 1
+
+        # 步骤2：确定最大轨迹长度
+        max_length = max([traj.shape[0] for traj in trajectories])
+
+        # 步骤3：初始化基线数组（一维，按时间步）
+        baseline_t = np.zeros(max_length)
+        counts_t = np.zeros(max_length, dtype=np.int32)
+
+        # 步骤4：向量化计算每个时间步的累积回报和计数
+        for traj in trajectories:
+            T = traj.shape[0]  # 当前轨迹的时间步数
+            # 计算每个时间步所有智能体的回报总和
+            sum_per_timestep = traj.sum(axis=1)  # 形状 [T]
+            # 更新基线累积和计数
+            baseline_t[:T] += sum_per_timestep
+            counts_t[:T] += np.count_nonzero(traj, axis=1)
+
+        # 步骤5：计算最终基线（处理除零）
+        baseline_t = np.divide(
+            baseline_t,
+            counts_t,
+            out=np.zeros_like(baseline_t),
+            where=counts_t != 0
+        )
+
+        return torch.tensor(baseline_t, dtype=torch.float32, device=self.device)
+
+    def __align_trajectories(self, x: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
+        """
+        将形状 [B, A] 的张量切割为 [max_T, traj_num*A]，保留梯度
+        Args:
+            x: 输入张量，形状 [B, A]
+            dones: 轨迹终止标记，形状 [B]
+        Returns:
+            aligned_x: 对齐后的张量，形状 [max_T, traj_num*A]
+        """
+        # 步骤1：确定轨迹的结束位置
+        end_indices = torch.nonzero(dones).squeeze(-1)
+
+        # 计算轨迹分割点（每条轨迹的长度）
+        split_indices = []
+        start = 0
+        for end in end_indices:
+            split_indices.append(end - start + 1)  # 当前轨迹长度
+            start = end + 1
+
+        # 步骤2：按轨迹分割张量
+        trajectories = torch.split(x, split_indices, dim=0)  # 列表，每个元素形状 [T_i, 5]
+
+        # 步骤3：填充轨迹到统一长度 max_T
+        import torch.nn.utils.rnn as rnn_utils
+        padded_trajectories = rnn_utils.pad_sequence(
+            trajectories,
+            batch_first=False,  # 输出形状 [max_T, traj_num, 5]
+            padding_value=0.0
+        )  # 形状 [max_T, traj_num, 5]
+
+        # 步骤4：合并轨迹和智能体维度 [max_T, traj_num*5]
+        max_T, traj_num, A = padded_trajectories.shape
+        aligned_x = padded_trajectories.reshape(max_T, traj_num * A)
+
+        return aligned_x
+
     def __get_loss(self, states, masks, actions, returns, dones):
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
         # likelihood = self.__get_likelihood(actions_logprob, dones);
         # Rs = returns[dones.nonzero()[0]]
-
-        adv = returns - returns.mean()
-        if self.args.returns_norm:
-            adv = adv / (returns.std() + 1e-8)
-        loss = - (actions_logprob * adv).mean()
+        bs = self.__get_baseline(returns, dones)
+        logp = self.__align_trajectories(actions_logprob, torch.tensor(dones, dtype=torch.bool,device=self.device))
+        align_returns = self.__align_trajectories(returns,torch.tensor(dones, dtype=torch.bool,device=self.device))
+        as_logp = self.__align_trajectories(agents_logp, torch.tensor(dones, dtype=torch.bool,device=self.device))
+        adv = align_returns - bs.unsqueeze(1).expand(-1, align_returns.size(1))
+        # adv = returns - returns.mean()
+        # if self.args.returns_norm:
+        #     adv = adv / (returns.std() + 1e-8)
+        loss = - (logp * adv).mean()
 
         if self.args.max_ent:
             loss -= self.args.entropy_coef * entropy.mean()
 
-        loss += -(agents_logp * adv).mean()
+        loss += -(as_logp * adv).mean()
 
         return loss
 
@@ -152,20 +228,20 @@ class AgentBase:
                 returns_nb = self.get_cumulative_returns_batch(
                     np.array(reward_list)[:, np.newaxis].repeat(agent_num, axis=1))
                 individual_returns_nb = returns_nb
-                # individual_returns_nb = np.array(individual_rewards_list)
-                # # dones_step = info["dones_step"]
-                # # costs = info["costs"]
-                # # max_cost_id = np.argmax(info["costs"])
-                # # max_cost = costs[max_cost_id]
-                # # min_cost = np.min(costs)
-                # # for i in range(agent_num):
-                # #     individual_returns_nb[dones_step[i]-1,i] += (costs[i] - max_cost)
-                # #
-                # # individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
-                #
-                # individual_returns_nb = self.get_cumulative_returns_batch(
-                #     individual_returns_nb
-                # )
+                individual_returns_nb = np.array(individual_rewards_list)
+                dones_step = info["dones_step"]
+                costs = info["costs"]
+                max_cost_id = np.argmax(info["costs"])
+                max_cost = costs[max_cost_id]
+                min_cost = np.min(costs)
+                for i in range(agent_num):
+                    individual_returns_nb[dones_step[i]-1,i] += (costs[i] - max_cost)
+
+                individual_returns_nb[ dones_step[max_cost_id]-1, max_cost_id] -= (max_cost - min_cost)
+
+                individual_returns_nb = self.get_cumulative_returns_batch(
+                    individual_returns_nb
+                )
 
                 states_nb = torch.stack(states_list, dim=0).cpu().numpy()
                 actions_nb = np.stack(actions_list, axis=0)
