@@ -121,7 +121,7 @@ class MTSPEnv:
         state[11] = remain_salesmen_num / (remain_cities_num + 1e-8)
 
         state[12] = np.argsort(self.costs)[idx] / self.salesmen  # rank
-        state[13] = np.sum(self.costs - self.costs[idx]) / (self.salesmen-1) / self.distance_scale
+        state[13] = np.sum(self.costs - self.costs[idx]) / max(self.salesmen-1,1) / self.distance_scale
 
         return state
 

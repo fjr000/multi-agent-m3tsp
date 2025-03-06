@@ -27,9 +27,9 @@ def worker_process(share_agent, agent_class, args, env_class, env_config, recv_p
     work_agent = share_agent
     # work_agent = agent_class(args)
     while True:
-        graph = recv_pipe.recv()
+        graph, agent_num = recv_pipe.recv()
         # work_agent.model.load_state_dict(share_agent.model.state_dict())
-        features_nb, actions_nb, actions_no_conflict_nb, returns_nb, individual_returns_nb, masks_nb, dones_nb = work_agent.run_batch(env, graph, args.agent_num,
+        features_nb, actions_nb, actions_no_conflict_nb, returns_nb, individual_returns_nb, masks_nb, dones_nb = work_agent.run_batch(env, graph, agent_num,
                                                                               args.batch_size // args.num_worker)
         queue.put((graph, features_nb, actions_nb, actions_no_conflict_nb, returns_nb,individual_returns_nb, masks_nb, dones_nb))
 
@@ -40,24 +40,24 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
     # eval_agent = agent_class(args)
     print(eval_agent.device)
     while True:
-        graph = recv_model_pipe.recv()
+        graph, agent_num = recv_model_pipe.recv()
         # eval_agent.model.load_state_dict(share_agent.model.state_dict())
         st = time.time_ns()
-        greedy_cost, greedy_trajectory = eval_agent.eval_episode(env, graph, args.agent_num, exploit_mode="greedy")
+        greedy_cost, greedy_trajectory = eval_agent.eval_episode(env, graph, agent_num, exploit_mode="greedy")
         ed = time.time_ns()
         greedy_time = (ed - st) / 1e9
         min_sample_cost = np.inf
         min_sample_trajectory = None
         st = time.time_ns()
         for i in range(sample_times):
-            sample_cost, sample_trajectory = eval_agent.eval_episode(env, graph, args.agent_num, exploit_mode="sample")
+            sample_cost, sample_trajectory = eval_agent.eval_episode(env, graph, agent_num, exploit_mode="sample")
             if sample_cost < min_sample_cost:
                 min_sample_cost = sample_cost
                 min_sample_trajectory = sample_trajectory
         ed = time.time_ns()
         sample_time = (ed - st) / 1e9
 
-        ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
+        ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, agent_num, 10000)
         env.draw_multi(graph,
                        [ortools_cost, greedy_cost, min_sample_cost],
                        [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
@@ -86,10 +86,12 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
     train_agent.model.load_state_dict(model_state_dict)
 
     for _ in tqdm.tqdm(range(100_000_000)):
-        graph = graphG.generate()
+        cur_city_nums = np.random.randint(agent_args.city_nums, agent_args.max_city_nums)
+        graph = graphG.generate(num = cur_city_nums)
+        cur_agents_num = np.random.randint(agent_args.agent_num, agent_args.max_agent_num)
         # if (train_count+1) % agent_args.num_worker == 0:
         for pipe in send_pipes:
-            pipe.send(graph)
+            pipe.send((graph, cur_agents_num))
 
         state_nb_list = []
         actions_nb_list = []
@@ -137,7 +139,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         if (train_count + 1) % 100 == 0:
             eval_count = train_count
             # graph = graphG.generate()
-            eval_model_pipe.send(graph)
+            eval_model_pipe.send((graph, cur_agents_num))
 
         train_count += 1
 
@@ -263,11 +265,11 @@ class SharelWorker:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=5)
-    parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=4)
+    parser.add_argument("--agent_num", type=int, default=1)
+    parser.add_argument("--max_agent_num", type=int, default=5)
+    parser.add_argument("--hidden_dim", type=int, default=512)
+    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=8e-5)
@@ -278,7 +280,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=100)
+    parser.add_argument("--city_nums", type=int, default=20)
+    parser.add_argument("--max_city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=000000000)

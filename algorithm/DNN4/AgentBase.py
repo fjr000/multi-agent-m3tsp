@@ -203,7 +203,7 @@ class AgentBase:
         return loss.item()
 
     def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode="sample"):
-        agents_states, info = env.reset({"mode": "fixed"}, graph=graph[0])
+        agents_states, info = env.reset({"mode": "fixed","cities":graph.shape[1],"salesmen":agent_num}, graph=graph[0])
         agents_mask = info["salesmen_masks"]
         done = False
         self.reset_graph(graph)
