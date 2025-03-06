@@ -218,11 +218,18 @@ class MTSPEnv:
     def _get_individual_rewards2(self, actions):
         rewards = np.zeros(self.salesmen, dtype=np.float32)
         if np.all(self.traj_stages >= 2):
-            rewards += -np.max(self.costs)
-        else:
             max_cost = np.max(self.costs)
-            last_max_cost = np.max(self.last_costs)
-            rewards += 0.1 * ((- self.last_costs + last_max_cost) - (- self.costs + max_cost))
+            rewards += - max_cost               * 1.0
+            rewards += (max_cost - self.costs)  * 0.05
+            rewards += - self.costs             * 0.05
+            rewards /= max_cost
+        else:
+            remain_city_num = np.count_nonzero(self.mask)
+            rewards += np.where( np.logical_and(self.traj_stages>=2 , actions == 1), -remain_city_num / self.cities, 0)
+        # else:
+        #     max_cost = np.max(self.costs)
+        #     last_max_cost = np.max(self.last_costs)
+        #     rewards += 0.1 * ((- self.last_costs + last_max_cost) - (- self.costs + max_cost))
         self.individual_rewards = rewards
         return rewards
 
