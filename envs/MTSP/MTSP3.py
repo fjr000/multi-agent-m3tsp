@@ -225,7 +225,7 @@ class MTSPEnv:
             rewards += - max_cost               * 1.0
             # rewards += (max_cost - self.costs)  * 0.05
             # rewards += - self.costs             * 0.05
-            rewards /= max_cost
+            # rewards /= max_cost
         # else:
         #     remain_city_num = np.count_nonzero(self.mask)
         #     rewards += np.where( np.logical_and(self.traj_stages>=2 , actions == 1), -remain_city_num / self.cities, 0)

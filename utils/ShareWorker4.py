@@ -286,7 +286,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--batch_size", type=float, default=512)
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--max_city_nums", type=int, default=100)
