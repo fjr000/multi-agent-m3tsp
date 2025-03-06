@@ -20,7 +20,7 @@ class CourseController(object):
 
     def update_result(self, gap):
         self.q.append(gap)
-        if_next = np.count_nonzero(np.array(list(self.q)) < 0.1) > 8
+        if_next = np.count_nonzero(np.array(list(self.q)) < 0.1) >= 8
         if if_next:
             self.q.clear()
             self.course = (self.course+1)%len(self.course_list)
