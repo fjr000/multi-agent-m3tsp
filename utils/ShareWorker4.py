@@ -50,21 +50,21 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
         min_sample_cost = np.inf
         min_sample_trajectory = None
         st = time.time_ns()
-        for i in range(sample_times):
-            sample_cost, sample_trajectory = eval_agent.eval_episode(env, graph, agent_num, exploit_mode="sample")
-            if sample_cost < min_sample_cost:
-                min_sample_cost = sample_cost
-                min_sample_trajectory = sample_trajectory
+        # for i in range(sample_times):
+        #     sample_cost, sample_trajectory = eval_agent.eval_episode(env, graph, agent_num, exploit_mode="sample")
+        #     if sample_cost < min_sample_cost:
+        #         min_sample_cost = sample_cost
+        #         min_sample_trajectory = sample_trajectory
         ed = time.time_ns()
         sample_time = (ed - st) / 1e9
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, agent_num, 10000)
-        env.draw_multi(graph,
-                       [ortools_cost, greedy_cost, min_sample_cost],
-                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
-                       [used_time, greedy_time, sample_time],
-                       ["or_tools", "greedy", "sample"]
-                       )
+        # env.draw_multi(graph,
+        #                [ortools_cost, greedy_cost, min_sample_cost],
+        #                [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+        #                [used_time, greedy_time, sample_time],
+        #                ["or_tools", "greedy", "sample"]
+        #                )
 
         send_result_pipe.send(
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
@@ -139,14 +139,14 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
-        if (train_count + 1) % 100 == 0:
+        if (train_count + 1) % 1 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             eval_model_pipe.send((graph, cur_agents_num))
 
         train_count += 1
 
-        if (train_count +1)% 100 == 0 and eval_result_pipe.poll():
+        if (train_count +1)% 1 == 0 and eval_result_pipe.poll():
             greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory = eval_result_pipe.recv()
             writer.add_scalar("greedy_cost", greedy_cost, eval_count)
             writer.add_scalar("min_sample_cost", min_sample_cost, eval_count)
@@ -158,7 +158,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
 
             print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
             last_course = CC.course
-            CC.update_result(greedy_gap)
+            CC.update_result(greedy_gap/100)
             if CC.course != last_course:
                 print(f"next course: {CC.course}")
 
