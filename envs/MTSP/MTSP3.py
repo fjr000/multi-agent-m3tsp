@@ -310,7 +310,7 @@ class MTSPEnv:
         if done:
             for i in range(self.salesmen):
                 if len(self.trajectories[i]) == 1:
-                    self.trajectories[i] = self.trajectories[i].append(1)
+                    self.trajectories[i].append(1)
                     self.traj_stages[i] = 2
 
         if done and reward < -np.max(self.costs):
