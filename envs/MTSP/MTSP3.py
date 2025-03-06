@@ -235,12 +235,11 @@ class MTSPEnv:
         return rewards
 
     def _get_reward(self):
-
-        done = np.all(self.mask == 0)
-        # for t in self.trajectories:
-        #     if not (len(t) > 1 and t[-1] == 1):
-        #         done = False
-        #         break
+        done = True
+        for t in self.trajectories:
+            if not (len(t) > 1 and t[-1] == 1):
+                done = False
+                break
 
         reward = 0
 
@@ -307,7 +306,7 @@ class MTSPEnv:
         done = reward != 0
 
         # 所有城市访问完成，但是有一个旅行商未出仓库的处理
-        if done:
+        if np.all(self.mask == 0):
             for i in range(self.salesmen):
                 if len(self.trajectories[i]) == 1:
                     self.trajectories[i].append(1)
