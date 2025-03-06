@@ -157,7 +157,10 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             writer.add_scalar("sample_gap", sample_gap, eval_count)
 
             print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
+            last_course = CC.course
             CC.update_result(greedy_gap)
+            if CC.course != last_course:
+                print(f"next course: {CC.course}")
 
         if (train_count + 1) % 5000 == 0:
             train_agent.save_model(train_count + 1 + agent_args.agent_id)
