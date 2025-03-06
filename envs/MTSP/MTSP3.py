@@ -77,6 +77,8 @@ class MTSPEnv:
         elif self.graph is None or self.mode == "rand":
             self.graph = self.GG.generate(1, self.cities, 2)[0]
 
+        self.graph = self.graph - self.graph[0]
+
         self.trajectories = [[1] for _ in range(self.salesmen)]
         self.last_costs = np.zeros(self.salesmen)
         self.costs = np.zeros(self.salesmen)

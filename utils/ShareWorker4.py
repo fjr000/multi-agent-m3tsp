@@ -124,6 +124,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         dones_nb = np.concatenate(dones_nb_list,axis = 0)
         # logp_nb = np.concatenate(logp_nb_list,axis = 0)
         train_agent.model.load_state_dict(share_agent.model.state_dict())
+        graph = graph - graph[0,0]
         loss = train_agent.learn(_convert_tensor(graph, dtype=torch.float32, device=train_agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb, dtype=torch.float32, device=train_agent.device),
                            _convert_tensor(actions_nb, dtype=torch.float32, device=train_agent.device),
@@ -287,7 +288,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=000000000)
+    parser.add_argument("--agent_id", type=int, default=0)
     args = parser.parse_args()
 
     mp.set_start_method("spawn")
