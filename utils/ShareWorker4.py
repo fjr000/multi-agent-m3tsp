@@ -86,9 +86,9 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
     train_agent.model.load_state_dict(model_state_dict)
 
     for _ in tqdm.tqdm(range(100_000_000)):
-        cur_city_nums = np.random.randint(agent_args.city_nums, agent_args.max_city_nums)
+        cur_city_nums = np.random.randint(agent_args.city_nums, agent_args.max_city_nums+1)
         graph = graphG.generate(num = cur_city_nums)
-        cur_agents_num = np.random.randint(agent_args.agent_num, agent_args.max_agent_num)
+        cur_agents_num = np.random.randint(agent_args.agent_num, agent_args.max_agent_num+1)
         # if (train_count+1) % agent_args.num_worker == 0:
         for pipe in send_pipes:
             pipe.send((graph, cur_agents_num))
