@@ -164,13 +164,13 @@ class AgentBase:
         adv = returns - returns.mean()
         if self.args.returns_norm:
             adv = adv / (returns.std() + 1e-8)
-        loss = -(actions_logprob * adv).mean()
+        act_loss = -(actions_logprob * adv).mean()
         if self.args.max_ent:
-            loss -= self.args.entropy_coef * entropy.mean()
+            act_loss -= self.args.entropy_coef * entropy.mean()
 
-        loss += -(agents_logp * adv).mean()
+        conflict_loss = -(agents_logp * adv).mean()
 
-        return loss
+        return act_loss, conflict_loss
 
     def __get_loss(self, states, masks, actions, returns, dones):
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
@@ -196,11 +196,12 @@ class AgentBase:
     def learn(self, graph_t, states_tb, actions_tb, returns_tb, masks_tb, done_nb):
         self.model.train()
         self.model.init_city(graph_t)
-        loss = self.__get_loss_reinforce(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
-        self.__update_net(self.optim, self.model.parameters(), loss)
+        act_loss, conflict_loss = self.__get_loss_reinforce(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
+        self.__update_net(self.optim, self.model.actions_model.parameters(), act_loss)
+        self.__update_net(self.optim, self.model.conflict_model.parameters(), conflict_loss)
         self.model.init_city(graph_t)
         # del states_tb, actions_tb, returns_tb, masks_tb
-        return loss.item()
+        return act_loss.item(),conflict_loss.item()
 
     def _run_episode(self, env, graph, agent_num, eval_mode=False, exploit_mode="sample"):
         agents_states, info = env.reset({"mode": "fixed","cities":graph.shape[1],"salesmen":agent_num}, graph=graph[0])

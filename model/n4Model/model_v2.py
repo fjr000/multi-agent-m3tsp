@@ -205,7 +205,7 @@ class Model(nn.Module):
         else:
             raise NotImplementedError
 
-        agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
+        agents_logits = self.conflict_model(agents_embed.detach(), self.actions_model.city_embed.detach(), acts, info)
 
         agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
 

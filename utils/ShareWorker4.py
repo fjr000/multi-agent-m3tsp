@@ -125,7 +125,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         # logp_nb = np.concatenate(logp_nb_list,axis = 0)
         train_agent.model.load_state_dict(share_agent.model.state_dict())
         graph = graph - graph[0,0]
-        loss = train_agent.learn(_convert_tensor(graph, dtype=torch.float32, device=train_agent.device, target_shape_dim=3),
+        act_loss, conflict_loss = train_agent.learn(_convert_tensor(graph, dtype=torch.float32, device=train_agent.device, target_shape_dim=3),
                            _convert_tensor(features_nb, dtype=torch.float32, device=train_agent.device),
                            _convert_tensor(actions_nb, dtype=torch.float32, device=train_agent.device),
                            # _convert_tensor(returns_nb, dtype=torch.float32, device=train_agent.device),
@@ -135,7 +135,8 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
                             dones_nb,
                             # _convert_tensor(logp_nb, dtype=torch.float32, device=train_agent.device),
                            )
-        writer.add_scalar("loss", loss, train_count)
+        writer.add_scalar("act_loss", act_loss, train_count)
+        writer.add_scalar("conflict_loss", conflict_loss, train_count)
         torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
