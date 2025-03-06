@@ -113,6 +113,7 @@ class MTSPEnv:
              for i in range(self.cities)
              if self.salesmen_masks[idx,i] > 0.5]
         )/self.distance_scale
+        # state[8]= 0 if np.isnan(state[8]) else state[8]
 
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2)
         remain_cities_num = np.count_nonzero(self.salesmen_masks[idx])
@@ -234,11 +235,12 @@ class MTSPEnv:
         return rewards
 
     def _get_reward(self):
-        done = True
-        for t in self.trajectories:
-            if not (len(t) > 1 and t[-1] == 1):
-                done = False
-                break
+
+        done = np.all(self.mask == 0)
+        # for t in self.trajectories:
+        #     if not (len(t) > 1 and t[-1] == 1):
+        #         done = False
+        #         break
 
         reward = 0
 
@@ -293,16 +295,24 @@ class MTSPEnv:
 
         self.ori_actions = copy.deepcopy(actions)
         actions = self.reset_actions(actions)
+
         # actions = self.deal_conflict(actions)
         self.actions = actions
         for i in range(self.salesmen):
             self.__one_step(i, actions[i])
-
         # if np.all(self.mask == 0):
         #     self.mask[0] = 1
         individual_rewards = self._get_individual_rewards2(actions)
         reward = self._get_reward()
         done = reward != 0
+
+        # 所有城市访问完成，但是有一个旅行商未出仓库的处理
+        if done:
+            self.traj_stages = 2
+            for i in range(self.salesmen):
+                if len(self.trajectories[i]) == 1:
+                    self.trajectories[i] = self.trajectories[i].append(1)
+
         if done and reward < -np.max(self.costs):
             self.costs = np.array(-reward).repeat(self.salesmen, axis=0)
 

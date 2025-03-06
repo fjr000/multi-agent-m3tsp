@@ -264,7 +264,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=8)
+    parser.add_argument("--num_worker", type=int, default=1)
     parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--max_agent_num", type=int, default=5)
     parser.add_argument("--hidden_dim", type=int, default=512)
