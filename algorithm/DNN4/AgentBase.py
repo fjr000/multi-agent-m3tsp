@@ -161,7 +161,8 @@ class AgentBase:
 
     def __get_loss_reinforce(self, states, masks, actions, returns, dones):
         actions_logprob, entropy, agents_logp = self.__get_logprob(states, masks, actions)
-        adv = returns - returns.mean()
+        Rs = (returns[dones.nonzero()[0]]).mean()
+        adv = returns - Rs
         if self.args.returns_norm:
             adv = adv / (returns.std() + 1e-8)
         act_loss = -(actions_logprob * adv).mean()
