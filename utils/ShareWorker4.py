@@ -18,6 +18,7 @@ import argparse
 from envs.MTSP.MTSP3 import MTSPEnv
 from algorithm.DNN4.AgentV2 import AgentV2 as Agent
 import tqdm
+from CourseController import CourseController
 
 torch.set_num_threads(1)
 
@@ -84,11 +85,12 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
     train_agent = agent_class(agent_args, Config)
     model_state_dict = share_agent.model.state_dict()
     train_agent.model.load_state_dict(model_state_dict)
-
+    CC = CourseController()
     for _ in tqdm.tqdm(range(100_000_000)):
-        cur_city_nums = np.random.randint(agent_args.city_nums, agent_args.max_city_nums+1)
+        # cur_city_nums = np.random.randint(agent_args.city_nums, agent_args.max_city_nums+1)
+        # cur_agents_num = np.random.randint(agent_args.agent_num, agent_args.max_agent_num+1)
+        cur_agents_num, cur_city_nums = CC.get_course()
         graph = graphG.generate(num = cur_city_nums)
-        cur_agents_num = np.random.randint(agent_args.agent_num, agent_args.max_agent_num+1)
         # if (train_count+1) % agent_args.num_worker == 0:
         for pipe in send_pipes:
             pipe.send((graph, cur_agents_num))
@@ -154,6 +156,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             writer.add_scalar("sample_gap", sample_gap, eval_count)
 
             print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
+            CC.update_result(greedy_gap)
 
         if (train_count + 1) % 5000 == 0:
             train_agent.save_model(train_count + 1 + agent_args.agent_id)
