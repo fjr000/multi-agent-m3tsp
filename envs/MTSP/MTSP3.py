@@ -308,10 +308,10 @@ class MTSPEnv:
 
         # 所有城市访问完成，但是有一个旅行商未出仓库的处理
         if done:
-            self.traj_stages = 2
             for i in range(self.salesmen):
                 if len(self.trajectories[i]) == 1:
                     self.trajectories[i] = self.trajectories[i].append(1)
+                    self.traj_stages[i] = 2
 
         if done and reward < -np.max(self.costs):
             self.costs = np.array(-reward).repeat(self.salesmen, axis=0)
