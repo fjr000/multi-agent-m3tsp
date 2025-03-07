@@ -17,7 +17,8 @@ class AgentBase:
         self._gamma = args.gamma
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
-        self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
+        self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
+        self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         # self.device = torch.device("cpu")
         self.model.to(self.device)
@@ -198,8 +199,8 @@ class AgentBase:
         self.model.train()
         self.model.init_city(graph_t)
         act_loss, conflict_loss = self.__get_loss_reinforce(states_tb, masks_tb, actions_tb, returns_tb, done_nb)
-        self.__update_net(self.optim, self.model.actions_model.parameters(), act_loss)
-        self.__update_net(self.optim, self.model.conflict_model.parameters(), conflict_loss)
+        self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss)
+        self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss)
         self.model.init_city(graph_t)
         # del states_tb, actions_tb, returns_tb, masks_tb
         return act_loss.item(),conflict_loss.item()
@@ -307,13 +308,15 @@ class AgentBase:
     def state_dict(self):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            "model_optim": self.optim.state_dict(),
+            "model_act_optim": self.act_optim.state_dict(),
+            "model_conf_optim": self.conf_optim.state_dict(),
         }
         return checkpoint
 
     def load_state_dict(self, checkpoint):
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optim.load_state_dict(checkpoint["model_optim"])
+        self.act_optim.load_state_dict(checkpoint["model_act_optim"])
+        self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
 
     def _save_model(self, model_dir, filename):
         save_path = f"{model_dir}{filename}.pth"
