@@ -23,11 +23,11 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=1)
+    parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=256)
+    parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=4)
+    parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -63,7 +63,8 @@ if __name__ == "__main__":
     for i in tqdm.tqdm(range(100_000_000)):
         graph = graphG.generate()
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-        act_logp, agents_logp, costs = agent.run_batch_episode(env, graph_8, args.agent_num, eval_mode=False)
+        agent_num = np.random.randint(1, args.agent_num+1)
+        act_logp, agents_logp, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         act_loss, agents_loss = agent.learn(act_logp, agents_logp, costs)
         writer.add_scalar("train/act_loss", act_loss, i)
         writer.add_scalar("train/agents_loss", agents_loss, i)
@@ -71,8 +72,8 @@ if __name__ == "__main__":
         if (i%10) == 0:
             eval_graph = graphG.generate(1,args.city_nums)
             ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(eval_graph, args.agent_num, 10000)
-            cost,trajectory =  agent.eval_episode(env, eval_graph,args.agent_num, "greedy")
-            print(f"act_loss:{act_loss:.5f},"
+            cost,trajectory =  agent.eval_episode(env, eval_graph,agent_num, "greedy")
+            print(f"agent_num:{agent_num}, act_loss:{act_loss:.5f},"
                   f" agents_loss:{agents_loss:.5f},"
-                  f" costs:{np.mean(np.max(costs, axis=-1)).item():.5f},"
+                  f" costs:{cost.item():.5f},"
                   f"gap:{((cost - ortools_cost) / ortools_cost).item()*100 :.5f}%")
