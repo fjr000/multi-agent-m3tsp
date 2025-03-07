@@ -1,4 +1,6 @@
 import argparse
+from lib2to3.fixes.fix_input import context
+
 import numpy as np
 from torch import inference_mode
 from model.Base.Net import MultiHeadAttentionLayer, SingleHeadAttention, CrossAttentionLayer
@@ -7,7 +9,7 @@ from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 import torch
 import torch.nn as nn
 from model.n4Model.config import Config
-
+from model.Base.Net import initialize_weights
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
@@ -22,7 +24,7 @@ class AgentEmbedding(nn.Module):
         self.co_embed = nn.Linear(2, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
-        self.agent_embed = nn.Linear(5 * self.embed_dim, self.embed_dim)
+        # self.agent_embed = nn.Linear(5 * self.embed_dim, self.embed_dim)
 
     def forward(self,cities_embed, graph_embed, agent_state):
         """
@@ -39,8 +41,9 @@ class AgentEmbedding(nn.Module):
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:9])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,9:12])
         co_embed = self.co_embed(agent_state[:,:,12:14])
-        context = torch.cat([global_graph_embed, depot_pos_embed, distance_cost_embed, problem_scale_embed, co_embed], dim=-1)
-        agent_embed = self.agent_embed(context)
+        agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed + co_embed
+        # context = torch.cat([global_graph_embed, depot_pos_embed, distance_cost_embed, problem_scale_embed, co_embed], dim=-1)
+        # agent_embed = self.agent_embed(context)
         return agent_embed
 
 class AgentEncoder(nn.Module):
@@ -189,6 +192,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.actions_model = ActionsModel(config)
         self.conflict_model = ConflictModel(config)
+        initialize_weights(self)
 
     def init_city(self, city):
         self.actions_model.init_city(city)

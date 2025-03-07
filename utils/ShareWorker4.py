@@ -1,6 +1,8 @@
+import collections
 import sys
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
@@ -40,6 +42,7 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
     eval_agent = share_agent
     # eval_agent = agent_class(args)
     print(eval_agent.device)
+    fig_q = collections.deque(maxlen=20)
     while True:
         graph, agent_num = recv_model_pipe.recv()
         # eval_agent.model.load_state_dict(share_agent.model.state_dict())
@@ -59,15 +62,19 @@ def eval_process(share_agent, agent_class, args, env_class, env_config, recv_mod
         sample_time = (ed - st) / 1e9
 
         ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(graph, agent_num, 10000)
-        env.draw_multi(graph,
-                       [ortools_cost, greedy_cost, min_sample_cost],
-                       [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
-                       [used_time, greedy_time, sample_time],
-                       ["or_tools", "greedy", "sample"]
-                       )
+        # fig = env.draw_multi(graph,
+        #                [ortools_cost, greedy_cost, min_sample_cost],
+        #                [ortools_trajectory, greedy_trajectory, min_sample_trajectory],
+        #                [used_time, greedy_time, sample_time],
+        #                ["or_tools", "greedy", "sample"]
+        #                )
 
         send_result_pipe.send(
             (greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory))
+
+        # if len(fig_q) >= 20:
+        #     plt.close(fig_q.popleft())
+        # fig_q.append(fig)
 
 
 def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_model_pipe, eval_result_pipe):
@@ -140,14 +147,14 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
         torch.cuda.empty_cache()  # 清理未使用的缓存
         share_agent.model.load_state_dict(train_agent.model.state_dict())
 
-        if (train_count + 1) % 100 == 0:
+        if (train_count + 1) % 10 == 0:
             eval_count = train_count
             # graph = graphG.generate()
             eval_model_pipe.send((graph, cur_agents_num))
 
         train_count += 1
 
-        if (train_count +1)% 100 == 0 and eval_result_pipe.poll():
+        if eval_result_pipe.poll():
             greedy_cost, greedy_trajectory, min_sample_cost, min_sample_trajectory, ortools_cost, ortools_trajectory = eval_result_pipe.recv()
             writer.add_scalar("greedy_cost", greedy_cost, eval_count)
             writer.add_scalar("min_sample_cost", min_sample_cost, eval_count)
@@ -157,7 +164,7 @@ def train_process(share_agent, agent_class, agent_args, send_pipes, queue, eval_
             writer.add_scalar("greedy_gap", greedy_gap, eval_count)
             writer.add_scalar("sample_gap", sample_gap, eval_count)
 
-            print(f"greddy_cost:{greedy_cost},{greedy_gap}%, sample_cost:{min_sample_cost},{sample_gap}%, ortools_cost:{ortools_cost}")
+            print(f"course:{CC.get_course()},greddy_cost:{greedy_cost:.5f},{greedy_gap:.5f}%, sample_cost:{min_sample_cost:.5f},{sample_gap:.5f}%, ortools_cost:{ortools_cost:.5f}")
             last_course = CC.course
             CC.update_result(greedy_gap/100)
             if CC.course != last_course:
@@ -275,19 +282,19 @@ if __name__ == "__main__":
     parser.add_argument("--num_worker", type=int, default=16)
     parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--max_agent_num", type=int, default=5)
-    parser.add_argument("--hidden_dim", type=int, default=512)
-    parser.add_argument("--embed_dim", type=int, default=256)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=8e-5)
-    parser.add_argument("--grad_max_norm", type=float, default=0.5)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-3)
-    parser.add_argument("--batch_size", type=float, default=512)
+    parser.add_argument("--entropy_coef", type=float, default=5e-3)
+    parser.add_argument("--batch_size", type=float, default=2048)
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--max_city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
