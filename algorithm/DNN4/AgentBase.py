@@ -42,7 +42,7 @@ class AgentBase:
     def predict(self, states_t, masks_t):
         self.model.train()
         actions, actions_no_conflict, _, _ = self.__get_action_logprob(states_t, masks_t, mode="sample")
-        return actions.cpu().numpy().squeeze(0), actions_no_conflict.cpu().numpy().squeeze(0)
+        return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def exploit(self, states_t, masks_t, mode="greedy"):
         self.model.eval()

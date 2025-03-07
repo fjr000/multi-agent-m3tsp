@@ -55,6 +55,29 @@ class GraphGenerator:
                         matrix[b, i, j] = distance
         return matrix
 
+    def augment_xy_data_by_8_fold_numpy(self,batch_graph):
+        # problems.shape: (batch, problem, 2)
+
+        x = batch_graph[:, :, [0]]  # 提取 x 坐标
+        y = batch_graph[:, :, [1]]  # 提取 y 坐标
+        # x,y shape: (batch, problem, 1)
+
+        # 生成 8 种对称变换
+        dat1 = np.concatenate((x, y), axis=2)  # 原始数据
+        dat2 = np.concatenate((1 - x, y), axis=2)  # x 轴翻转
+        dat3 = np.concatenate((x, 1 - y), axis=2)  # y 轴翻转
+        dat4 = np.concatenate((1 - x, 1 - y), axis=2)  # xy 轴同时翻转
+        dat5 = np.concatenate((y, x), axis=2)  # 交换 x 和 y
+        dat6 = np.concatenate((1 - y, x), axis=2)  # y 轴翻转并交换 x 和 y
+        dat7 = np.concatenate((y, 1 - x), axis=2)  # x 轴翻转并交换 x 和 y
+        dat8 = np.concatenate((1 - y, 1 - x), axis=2)  # xy 轴同时翻转并交换 x 和 y
+
+        # 沿 batch 维度拼接所有变换后的数据
+        aug_problems = np.concatenate((dat1, dat2, dat3, dat4, dat5, dat6, dat7, dat8), axis=0)
+        # shape: (8*batch, problem, 2)
+
+        return aug_problems
+
     def test(self):
         return self.generate(self.batch_size, self.num, self.dim)
 
