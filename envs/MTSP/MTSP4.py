@@ -152,7 +152,7 @@ class MTSPEnv:
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask==1, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
-        remain_city_ratio = (remain_cities_num / self.cities).repeat(A,axis = -1)  # remain city ratio
+        remain_city_ratio = (remain_cities_num / self.cities)  # remain city ratio
         remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + remain_salesmen_num)
 
         rank = np.argsort(self.costs, axis=1) / self.salesmen
@@ -171,8 +171,8 @@ class MTSPEnv:
         self.states[..., 5] = diff_min_cost
         self.states[..., 6] = diff_cost
         # self.states[..., 6] = avg_dist_remain
-        self.states[..., 7] = remain_city_ratio
-        self.states[..., 8] = remain_salesmen_city_ratio
+        self.states[..., 7] = remain_city_ratio.repeat(A,axis = -1)
+        self.states[..., 8] = remain_salesmen_city_ratio.repeat(A,axis = -1)
         self.states[..., 9] = 1 - rank
 
         return self.states
