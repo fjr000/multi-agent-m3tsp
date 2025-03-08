@@ -37,17 +37,17 @@ class AgentBase:
         agents_dist = torch.distributions.Categorical(logits=agents_logits)
         act_logp = actions_dist.log_prob(acts)
         agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
-        return acts, acts_no_conflict, act_logp, agents_logp
+        return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agents_dist.entropy()
 
     def predict(self, states_t, masks_t):
         self.model.train()
-        actions, actions_no_conflict, act_logp, agents_logp = self.__get_action_logprob(states_t, masks_t,
+        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.__get_action_logprob(states_t, masks_t,
                                                                                         mode="sample")
-        return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp
+        return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy
 
     def exploit(self, states_t, masks_t, mode="greedy"):
         self.model.eval()
-        actions, actions_no_conflict, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode)
+        actions, actions_no_conflict, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __update_net(self, optim, params, loss):
@@ -76,24 +76,66 @@ class AgentBase:
         return likeilihood
 
     def __get_loss(self, act_logp, agents_logp, costs):
-        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
-        act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)
-        agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)
-        max_costs = -np.max(costs_8,keepdims=True, axis=-1)
-        max_costs = max_costs.mean(keepdims=True, axis=1)
-        adv = -costs_8 - max_costs
+
+        # 智能体间平均， 组间最小化最大
+        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
+        act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
+        agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
+
+        agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
+        agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
+        # 智能体间优势
+        agents_adv = np.abs(costs_8 - agents_avg_cost)
+        # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        # 实例间优势
+        group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
+        # 组合优势
+        adv = 0.3*agents_adv + group_adv
+
+        # 转换为tensor并放到指定的device上
         adv = _convert_tensor(adv, device=self.device)
-        act_loss = - (act_logp_8 * adv).mean()
-        agents_loss = - (agents_logp_8 * adv).mean()
+
+        # 对动作概率为零的样本进行掩码
+        mask_ = (act_logp_8 != 0)
+
+        # 计算动作网络的损失，mask之后加权平均
+        act_loss = (act_logp_8[mask_] * adv[mask_]).mean()
+
+        # 对智能体的动作概率进行掩码
+        mask_ = (agents_logp_8 != 0)
+
+        # 计算智能体的损失，mask之后加权平均
+        agents_loss = (agents_logp_8[mask_] * adv[mask_]).mean()
+
         return act_loss, agents_loss
 
-    def learn(self, act_logp, agents_logp, costs):
+        # costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
+        # act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)
+        # agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)
+        # max_costs = np.max(costs_8,keepdims=True, axis=-1)
+        # mean_max_costs = max_costs.mean(keepdims=True, axis=1)
+        # adv = costs_8 - mean_max_costs
+        # adv = _convert_tensor(adv, device=self.device)
+        # mask_ = (act_logp_8 != 0)
+        # act_loss = (act_logp_8[mask_] * adv[mask_]).mean()
+        # mask_ = (agents_logp_8 != 0)
+        # agents_loss = (agents_logp_8[mask_] * adv[mask_]).mean()
+        # return act_loss, agents_loss
+
+    def learn(self, act_logp, agents_logp,act_ent, agt_ent, costs):
         self.model.train()
         act_loss, conflict_loss = self.__get_loss(act_logp, agents_logp, costs)
-        self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss)
-        self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss)
+        act_ent_loss = act_ent.mean()
+        self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss + act_ent_loss * self.args.entropy_coef)
+        if not torch.any(torch.isnan(conflict_loss)):
+            agt_ent_loss = agt_ent.mean()
+            self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss + agt_ent_loss * self.args.entropy_coef)
+        else:
+            conflict_loss = np.array([0])
+            agt_ent_loss = np.array([0])
         # del states_tb, actions_tb, returns_tb, masks_tb
-        return act_loss.item(), conflict_loss.item()
+        return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample"):
         states, info = env.reset(
@@ -109,6 +151,9 @@ class AgentBase:
         self.reset_graph(batch_graph)
         act_logp_list = []
         agents_logp_list = []
+        act_ent_list = []
+        agt_ent_list = []
+
         done = False
         info = None
         while not done:
@@ -117,20 +162,43 @@ class AgentBase:
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode)
             else:
-                acts, acts_no_conflict, act_logp, agents_logp = self.predict(states_t, salesmen_masks_t)
+                acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.predict(states_t, salesmen_masks_t)
                 act_logp_list.append(act_logp.unsqueeze(-1))
                 agents_logp_list.append(agents_logp.unsqueeze(-1))
+                act_ent_list.append(act_entropy.unsqueeze(-1))
+                agt_ent_list.append(agt_entropy.unsqueeze(-1))
             states, r, done, info = env.step(acts_no_conflict + 1)
             salesmen_masks = info["salesmen_masks"]
 
         if eval_mode:
             return info
         else:
-            act_looklihood = torch.sum(torch.cat(act_logp_list, dim=-1), dim=-1)
-            agents_looklihood = torch.sum(torch.cat(agents_logp_list, dim=-1), dim=-1)
+            act_logp = torch.cat(act_logp_list, dim=-1)
+            agents_logp = torch.cat(agents_logp_list, dim=-1)
+            act_ent = torch.cat(act_ent_list, dim=-1)
+            agt_ent = torch.cat(agt_ent_list, dim=-1)
+
+            # 将logp为0的部分权重为0
+            act_logp = torch.where(act_logp == 0, torch.zeros_like(act_logp), act_logp)  # logp为0时置为0
+            agents_logp = torch.where(agents_logp == 0, torch.zeros_like(agents_logp), agents_logp)
+
+            # # 计算非零元素的数量（在置零操作之后）
+            # act_nonzero_count = torch.count_nonzero(act_logp, dim=-1)
+            # agents_nonzero_count = torch.count_nonzero(agents_logp, dim=-1)
+            #
+            # # 计算总的logp，并避免除以0
+            # act_likelihood = torch.where(act_nonzero_count > 0, torch.sum(act_logp, dim=-1) / act_nonzero_count,
+            #                              torch.sum(act_logp, dim=-1))
+            # agents_likelihood = torch.where(agents_nonzero_count > 0,
+            #                                 torch.sum(agents_logp, dim=-1) / agents_nonzero_count,
+            #                                 torch.sum(agents_logp, dim=-1))
+            act_likelihood = torch.sum(act_logp, dim=-1)
+            agents_likelihood = torch.sum(agents_logp, dim=-1)
             return (
-                act_looklihood,
-                agents_looklihood,
+                act_likelihood,
+                agents_likelihood,
+                act_ent,
+                agt_ent,
                 info["costs"]
             )
 

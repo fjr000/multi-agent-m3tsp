@@ -43,7 +43,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 14
+        self.dim = 10
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -88,7 +88,7 @@ class MTSPEnv:
         self.graph_matrix = self.GG.nodes_to_matrix(self.graph)
         # self.graph = self.graph - self.graph[0]
 
-        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+1), dtype=np.int32)
+        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+2), dtype=np.int32)
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
@@ -114,8 +114,6 @@ class MTSPEnv:
         N = self.cities
         A = self.salesmen
 
-        states = np.zeros((B, A, self.dim), np.float32) # [B, A, 14]
-
         pos = self.trajectories[:,:,self.step_count] # [B,A]
         depot_idx = 0
         cur_pos = pos-1
@@ -129,33 +127,33 @@ class MTSPEnv:
         min_cost = np.min(self.costs, keepdims=True, axis=1).repeat(A,axis = 1) / self.distance_scale # [B,A]
         diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
 
-        # 直接选取当前节点对应的距离行 [B, A, N]
-        selected_dists = self.graph_matrix[batch_indices, cur_pos, :]
-
-        # 生成布尔掩码：提前将 mask 转换为布尔类型
-        mask_bool = self.mask.astype(bool)
-        mask_expanded = mask_bool[:, None, :]  # [B, 1, N]
-
-        # 生成排除当前节点的掩码 [B, A, N]
-        current_expanded = cur_pos[..., None]  # [B, A, 1]
-        valid_mask = mask_expanded & (np.arange(N) != current_expanded)
-
-        # 计算总和及有效节点数（向量化操作）
-        sum_dist = np.sum(selected_dists * valid_mask, axis=-1)
-        count = np.sum(valid_mask, axis=-1)
-
-        # 计算平均值，避免除以零
-        avg_dist_remain = np.divide(
-            sum_dist, count,
-            where=count != 0,
-            out=np.zeros_like(sum_dist, dtype=np.float64)
-        ) / self.distance_scale
+        # # 直接选取当前节点对应的距离行 [B, A, N]
+        # selected_dists = self.graph_matrix[batch_indices, cur_pos, :]
+        #
+        # # 生成布尔掩码：提前将 mask 转换为布尔类型
+        # mask_bool = self.mask.astype(bool)
+        # mask_expanded = mask_bool[:, None, :]  # [B, 1, N]
+        #
+        # # 生成排除当前节点的掩码 [B, A, N]
+        # current_expanded = cur_pos[..., None]  # [B, A, 1]
+        # valid_mask = mask_expanded & (np.arange(N) != current_expanded)
+        #
+        # # 计算总和及有效节点数（向量化操作）
+        # sum_dist = np.sum(selected_dists * valid_mask, axis=-1)
+        # count = np.sum(valid_mask, axis=-1)
+        #
+        # # 计算平均值，避免除以零
+        # avg_dist_remain = np.divide(
+        #     sum_dist, count,
+        #     where=count != 0,
+        #     out=np.zeros_like(sum_dist, dtype=np.float64)
+        # ) / self.distance_scale
 
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask==1, keepdims=True,axis=1)
-        remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
+        # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
         remain_city_ratio = (remain_cities_num / self.cities).repeat(A,axis = -1)  # remain city ratio
-        remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + 1e-8)
+        remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + remain_salesmen_num)
 
         rank = np.argsort(self.costs, axis=1) / self.salesmen
         sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
@@ -167,49 +165,18 @@ class MTSPEnv:
         self.states[..., 1] = cur_pos
         self.states[..., 2] = dis_depot
         self.states[..., 3] = cur_cost
-        self.states[..., 4] = max_cost
-        self.states[..., 5] = diff_max_cost
-        self.states[..., 6] = min_cost
-        self.states[..., 7] = diff_min_cost
-        self.states[..., 8] = avg_dist_remain
-        self.states[..., 9] = remain_salesmen_ratio
-        self.states[..., 10] = remain_city_ratio
-        self.states[..., 11] = remain_salesmen_city_ratio
-        self.states[..., 12] = rank
-        self.states[..., 13] = diff_cost
+        # self.states[..., 4] = max_cost
+        self.states[..., 4] = diff_max_cost
+        # self.states[..., 6] = min_cost
+        self.states[..., 5] = diff_min_cost
+        self.states[..., 6] = diff_cost
+        # self.states[..., 6] = avg_dist_remain
+        self.states[..., 7] = remain_city_ratio
+        self.states[..., 8] = remain_salesmen_city_ratio
+        self.states[..., 9] = 1 - rank
 
         return self.states
 
-    def _get_salesman(self, idx):
-        state = np.empty((self.dim,), dtype=np.float32)
-        pos = self.trajectories[idx][-1]
-
-        state[0] = 0  # depot indice
-        state[1] = pos - 1  # cur indice
-
-        state[2] = self._get_distance(1, pos) / self.distance_scale  # distance from depot
-        state[3] = self.costs[idx] / self.distance_scale  # cur cost scale
-        state[4] = np.max(self.costs) / self.distance_scale  # max cost
-        state[5] = (state[4] - state[3]) / (state[4] + 1e-8) # diff cost from max cost
-        state[6] = np.min(self.costs) / self.distance_scale # min cost
-        state[7] = (state[6] - state[3]) / (state[4] + 1e-8) # diff cost from min cost
-        state[8] = np.mean(
-            [self._get_distance(pos, i+1)
-             for i in range(self.cities)
-             if self.salesmen_masks[idx,i] > 0.5]
-        )/self.distance_scale
-        # state[8]= 0 if np.isnan(state[8]) else state[8]
-
-        remain_salesmen_num = np.count_nonzero(self.traj_stages < 2)
-        remain_cities_num = np.count_nonzero(self.salesmen_masks[idx])
-        state[9] = remain_salesmen_num / self.salesmen  # remain agents ratio
-        state[10] = remain_cities_num / self.cities  # remain city ratio
-        state[11] = remain_salesmen_num / (remain_cities_num + 1e-8)
-
-        state[12] = np.argsort(self.costs)[idx] / self.salesmen  # rank
-        state[13] = np.sum(self.costs - self.costs[idx]) / max(self.salesmen-1,1) / self.distance_scale
-
-        return state
 
     def _get_salesmen(self):
         states = np.empty((self.salesmen, self.dim), dtype=np.float32)
@@ -330,10 +297,27 @@ class MTSPEnv:
 
     def step(self, actions: np.ndarray):
 
-        actions = self.reset_actions(actions)
-        self.actions = actions
-        self.step_count += 1
-        self.trajectories[..., self.step_count] = actions
+        try:
+            actions = self.reset_actions(actions)
+            self.actions = actions
+            self.step_count += 1
+            self.trajectories[..., self.step_count] = actions
+        except Exception as e:
+            np.set_printoptions(threshold=np.inf)
+            print(f"trajectories:{self.trajectories} ")
+            print(f"mask:{self.mask} ")
+            print(f"traj_stages:{self.traj_stages} ")
+            with open("error log", 'w') as f:
+                print(f"trajectories:{self.trajectories} ", file=f)
+                print(f"mask:{self.mask} ", file=f)
+                print(f"traj_stages:{self.traj_stages} ",file=f)
+                print(f"actions:{actions} ", file=f)
+                idx = np.argwhere(~ self.dones)
+                print(f"idx:{idx}")
+                print(f"tra:{self.trajectories[idx]}", file=f)
+                print(f"mask:{self.mask[idx]}", file=f)
+                print(f"traj_stages:{self.traj_stages[idx]}", file=f)
+                print(f"actions:{self.actions[idx]}", file=f)
         # 生成行索引 [B*A]
         batch_indices = np.repeat(np.arange(self.problem_size), self.salesmen)
 
@@ -352,7 +336,7 @@ class MTSPEnv:
         ]
         self._get_reward()
 
-        batch_complete = np.all(self.mask == 0, axis=1)
+        batch_complete = np.all(~self.mask, axis=1)
         # 判断哪些批次所有城市已访问完成 [B]
 
         self.traj_stages = np.where(
@@ -361,6 +345,8 @@ class MTSPEnv:
             (last_pos == 0))
             |
             (batch_complete[:, None]),
+            # |
+            # (np.all(actions == 1)),
             self.traj_stages + 1,  # 满足条件时阶段+1
             self.traj_stages  # 否则保持原值
         )
@@ -381,14 +367,13 @@ class MTSPEnv:
         info = {
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
-            "dones_step": self.dones_step,
         }
 
         if self.done:
 
-            valid = self.check_array_structure()
-            ca = self.compress_array()
-            t = self.convert_to_list(ca)
+            # valid = self.check_array_structure()
+            # ca = self.compress_array()
+            # t = self.convert_to_list(ca)
 
             info.update(
                 {
@@ -420,14 +405,30 @@ class MTSPEnv:
             fig.show()
         return fig
 
-    def compress_array(self):
-        B, A, T = self.trajectories.shape
-        mask = np.concatenate((np.ones((B, A, 1), dtype=bool), self.trajectories[:, :, 1:] != self.trajectories[:, :, :-1]), axis=-1)
+    @staticmethod
+    def compress_adjacent_duplicates_optimized(arr):
+        """
+        优化版本：合并 B 和 A 维度，减少循环层数
+        输入形状：[B, A, T]
+        输出形状：[B*[A*[]]]
+        """
+        B, A, T = arr.shape
+        if T == 0:
+            return [[[] for _ in range(A)] for _ in range(B)]
 
-        indices = np.argsort(~mask, axis=-1)  # 计算排序索引，使 False 值移动到末尾
-        sorted_arr = np.take_along_axis(self.trajectories, indices, axis=-1)  # 按照索引重新排序
+        # 合并 B 和 A 维度，转化为二维数组 [B*A, T]
+        arr_2d = arr.reshape(-1, T)
 
-        return sorted_arr
+        # 向量化生成掩码（相邻元素不同时标记为 True）
+        mask = np.ones_like(arr_2d, dtype=bool)
+        if T > 1:
+            mask[:, 1:] = (arr_2d[:, 1:] != arr_2d[:, :-1])
+
+        # 提取非重复元素并转换为列表（单层循环）
+        compressed_2d = [arr_2d[i, mask[i]].tolist() for i in range(arr_2d.shape[0])]
+
+        # 重新分割为 [B, A] 结构
+        return [compressed_2d[i * A: (i + 1) * A] for i in range(B)]
 
     def check_array_structure(self) -> np.ndarray:
         B, A, T = self.trajectories.shape
