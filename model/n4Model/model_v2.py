@@ -21,7 +21,7 @@ class AgentEmbedding(nn.Module):
         self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
         self.distance_cost_embed = nn.Linear(5, self.embed_dim)
         self.problem_scale_embed = nn.Linear(2, self.embed_dim)
-        self.co_embed = nn.Linear(1, self.embed_dim)
+        # self.co_embed = nn.Linear(1, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
         # self.agent_embed = nn.Linear(5 * self.embed_dim, self.embed_dim)
@@ -40,8 +40,8 @@ class AgentEmbedding(nn.Module):
         depot_pos_embed = self.depot_pos_embed(depot_pos)
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:7])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:9])
-        co_embed = self.co_embed(agent_state[:,:,9:10])
-        agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed + co_embed
+        # co_embed = self.co_embed(agent_state[:,:,9:10])
+        agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
         # context = torch.cat([global_graph_embed, depot_pos_embed, distance_cost_embed, problem_scale_embed, co_embed], dim=-1)
         # agent_embed = self.agent_embed(context)
         return agent_embed

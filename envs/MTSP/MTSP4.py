@@ -43,7 +43,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 10
+        self.dim = 9
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -173,7 +173,7 @@ class MTSPEnv:
         # self.states[..., 6] = avg_dist_remain
         self.states[..., 7] = remain_city_ratio.repeat(A,axis = -1)
         self.states[..., 8] = remain_salesmen_city_ratio.repeat(A,axis = -1)
-        self.states[..., 9] = 1 - rank
+        # self.states[..., 9] = 1 - rank
 
         return self.states
 
@@ -454,7 +454,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=2)
     parser.add_argument("--agent_num", type=int, default=3)
-    parser.add_argument("--agent_dim", type=int, default=10)
+    parser.add_argument("--agent_dim", type=int, default=9)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
