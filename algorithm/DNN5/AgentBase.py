@@ -91,22 +91,24 @@ class AgentBase:
         # 实例间优势
         group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
         # 组合优势
-        adv = 0.5*agents_adv + group_adv
+        adv_actions = 0.5*agents_adv + group_adv
+        adv_agents = agents_adv  + 0.5 * group_adv
 
         # 转换为tensor并放到指定的device上
-        adv = _convert_tensor(adv, device=self.device)
+        adv_actions = _convert_tensor(adv_actions, device=self.device)
+        adv_agents = _convert_tensor(adv_agents, device=self.device)
 
         # 对动作概率为零的样本进行掩码
         mask_ = (act_logp_8 != 0)
 
         # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp_8[mask_] * adv[mask_]).mean()
+        act_loss = (act_logp_8[mask_] * adv_actions[mask_]).mean()
 
         # 对智能体的动作概率进行掩码
         mask_ = (agents_logp_8 != 0)
 
         # 计算智能体的损失，mask之后加权平均
-        agents_loss = (agents_logp_8[mask_] * adv[mask_]).mean()
+        agents_loss = (agents_logp_8[mask_] * adv_agents[mask_]).mean()
 
         return act_loss, agents_loss
 

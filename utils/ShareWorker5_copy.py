@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=80000)
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -61,6 +61,7 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
     agent = Agent(args, Config)
+    agent.load_model(args.agent_id)
     from CourseController import CourseController
     CC = CourseController()
     for i in tqdm.tqdm(range(100_000_000)):
