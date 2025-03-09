@@ -155,7 +155,7 @@ class MTSPEnv:
         remain_city_ratio = (remain_cities_num / self.cities)  # remain city ratio
         remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + remain_salesmen_num)
 
-        rank = np.argsort(self.costs, axis=1) / self.salesmen
+        # rank = np.argsort(self.costs, axis=1) / self.salesmen
         sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
         weighted_diff = sum_costs - self.salesmen * self.costs  # 广播计算 [B,A]
         denominator = max(self.salesmen - 1, 1) * self.distance_scale

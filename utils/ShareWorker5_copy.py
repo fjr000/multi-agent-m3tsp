@@ -64,7 +64,7 @@ if __name__ == "__main__":
     agent.load_model(args.agent_id)
     from CourseController import CourseController
     CC = CourseController()
-    for i in tqdm.tqdm(range(100_000_000)):
+    for i in tqdm.tqdm(range(100_000_000), mininterval=10):
         agent_num, city_nums = CC.get_course()
         graph = graphG.generate(args.batch_size, city_nums)
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
