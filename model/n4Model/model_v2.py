@@ -226,7 +226,7 @@ class Model(nn.Module):
 
         acts_no_conflict = torch.where(masks, acts, -1)
         self.step += 1
-        return actions_logits, agents_logits, acts, acts_no_conflict
+        return actions_logits, agents_logits, acts, acts_no_conflict, masks
 
 
 if __name__ == "__main__":

@@ -32,11 +32,14 @@ class AgentBase:
         self.model.init_city(graph_t)
 
     def __get_action_logprob(self, states, masks, mode="greedy"):
-        actions_logits, agents_logits, acts, acts_no_conflict = self.model(states, masks, {"mode": mode})
+        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, {"mode": mode})
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         agents_dist = torch.distributions.Categorical(logits=agents_logits)
         act_logp = actions_dist.log_prob(acts)
         agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
+        # c1 = torch.count_nonzero(agents_logp)
+        agents_logp = torch.where(agents_mask, agents_logp, 0)
+        # c2 = torch.count_nonzero(agents_logp)
         return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agents_dist.entropy()
 
     def predict(self, states_t, masks_t):
@@ -101,12 +104,14 @@ class AgentBase:
 
         # 对动作概率为零的样本进行掩码
         mask_ = (act_logp_8 != 0)
+        # c1 = torch.count_nonzero(mask_)
 
         # 计算动作网络的损失，mask之后加权平均
         act_loss = (act_logp_8[mask_] * adv_actions[mask_]).mean()
 
         # 对智能体的动作概率进行掩码
         mask_ = (agents_logp_8 != 0)
+        # c2 = torch.count_nonzero(mask_)
 
         # 计算智能体的损失，mask之后加权平均
         agents_loss = (agents_logp_8[mask_] * adv_agents[mask_]).mean()
