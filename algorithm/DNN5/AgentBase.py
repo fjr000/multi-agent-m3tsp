@@ -19,6 +19,7 @@ class AgentBase:
         self.grad_max_norm = args.grad_max_norm
         self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
         self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
+        self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         # self.device = torch.device("cpu")
         self.model.to(self.device)
@@ -39,8 +40,9 @@ class AgentBase:
         agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
         # c1 = torch.count_nonzero(agents_logp)
         agents_logp = torch.where(agents_mask, agents_logp, 0)
+        agt_entropy = torch.where(agents_mask, agents_dist.entropy(), 0)
         # c2 = torch.count_nonzero(agents_logp)
-        return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agents_dist.entropy()
+        return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy
 
     def predict(self, states_t, masks_t):
         self.model.train()
@@ -135,14 +137,15 @@ class AgentBase:
         self.model.train()
         act_loss, conflict_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent.mean()
-        self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss + act_ent_loss * self.args.entropy_coef)
+        # self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss + act_ent_loss * self.args.entropy_coef)
         if not torch.any(torch.isnan(conflict_loss)):
             agt_ent_loss = agt_ent.mean()
-            self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss + agt_ent_loss * self.args.entropy_coef)
+        #     self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss + agt_ent_loss * self.args.entropy_coef)
         else:
-            conflict_loss = np.array([0])
-            agt_ent_loss = np.array([0])
-        # del states_tb, actions_tb, returns_tb, masks_tb
+            conflict_loss = torch.tensor([0], device=self.device)
+            agt_ent_loss = torch.tensor([0], device=self.device)
+        # return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+        self.__update_net(self.optim, self.model.parameters(), act_loss + conflict_loss + self.args.entropy_coef * (act_ent_loss + agt_ent_loss))
         return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample"):
@@ -222,6 +225,7 @@ class AgentBase:
             "model_state_dict": self.model.state_dict(),
             "model_act_optim": self.act_optim.state_dict(),
             "model_conf_optim": self.conf_optim.state_dict(),
+            "model_optim": self.optim.state_dict(),
         }
         return checkpoint
 
@@ -229,6 +233,7 @@ class AgentBase:
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.act_optim.load_state_dict(checkpoint["model_act_optim"])
         self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
+        self.optim.load_state_dict(checkpoint["model_optim"])
 
     def _save_model(self, model_dir, filename):
         save_path = f"{model_dir}{filename}.pth"

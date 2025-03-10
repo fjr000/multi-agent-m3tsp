@@ -20,7 +20,7 @@ class AgentEmbedding(nn.Module):
 
         self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
         self.distance_cost_embed = nn.Linear(5, self.embed_dim)
-        self.problem_scale_embed = nn.Linear(2, self.embed_dim)
+        self.problem_scale_embed = nn.Linear(3, self.embed_dim)
         # self.co_embed = nn.Linear(1, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
@@ -39,7 +39,7 @@ class AgentEmbedding(nn.Module):
         depot_pos = cities_expand[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:7])
-        problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:9])
+        problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:10])
         # co_embed = self.co_embed(agent_state[:,:,9:10])
         agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
         # context = torch.cat([global_graph_embed, depot_pos_embed, distance_cost_embed, problem_scale_embed, co_embed], dim=-1)
@@ -50,12 +50,12 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        # self.agent_self_att = nn.Sequential(
-        #     *[
-        #         MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
-        #         for _ in range(num_layers)
-        #     ]
-        # )
+        self.agent_self_att = nn.Sequential(
+            *[
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                for _ in range(num_layers)
+            ]
+        )
 
     def forward(self,cities_embed, graph, agent):
         """
@@ -63,7 +63,7 @@ class AgentEncoder(nn.Module):
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, graph, agent)
-        # agent_embed = self.agent_self_att(agent_embed)
+        agent_embed = self.agent_self_att(agent_embed)
         return agent_embed
 
 class ActionDecoder(nn.Module):
@@ -217,7 +217,7 @@ class Model(nn.Module):
         else:
             raise NotImplementedError
 
-        agents_logits = self.conflict_model(agents_embed.detach(), self.actions_model.city_embed.detach(), acts, info)
+        agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
 
         agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
 

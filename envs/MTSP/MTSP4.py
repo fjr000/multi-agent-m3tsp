@@ -43,7 +43,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 9
+        self.dim = 10
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -173,6 +173,8 @@ class MTSPEnv:
         # self.states[..., 6] = avg_dist_remain
         self.states[..., 7] = remain_city_ratio.repeat(A,axis = -1)
         self.states[..., 8] = remain_salesmen_city_ratio.repeat(A,axis = -1)
+        self.states[..., 9] = self.traj_stages >= 2
+
         # self.states[..., 9] = 1 - rank
 
         return self.states

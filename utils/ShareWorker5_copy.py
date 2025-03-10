@@ -38,11 +38,11 @@ if __name__ == "__main__":
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=32)
+    parser.add_argument("--batch_size", type=float, default=16)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=80000)
+    parser.add_argument("--agent_id", type=int, default=0)
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         # agent_num, city_nums = CC.get_course()
         graph = graphG.generate(args.batch_size, city_nums)
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-        # agent_num = np.random.randint(1, args.agent_num+1)
+        agent_num = np.random.randint(1, args.agent_num+1)
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
         writer.add_scalar("train/act_loss", act_loss, i)
