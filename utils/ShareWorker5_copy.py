@@ -24,25 +24,23 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--gamma", type=float, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
-    parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=64)
-    parser.add_argument("--city_nums", type=int, default=50)
-    parser.add_argument("--allow_back", type=bool, default=False)
+    parser.add_argument("--batch_size", type=float, default=32)
+    parser.add_argument("--city_nums", type=int, default=25)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -50,7 +48,7 @@ if __name__ == "__main__":
     graphG = GG(args.batch_size, args.city_nums, 2)
     from envs.MTSP.MTSP4 import MTSPEnv
 
-    env = MTSPEnv()
+    env = MTSPEnv({"env_masks_mode":args.env_masks_mode})
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 
     # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
@@ -70,6 +68,7 @@ if __name__ == "__main__":
         graph = graphG.generate(args.batch_size, city_nums)
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
         agent_num = np.random.randint(1, args.agent_num+1)
+        # agent_num = np.random.randint(args.agent_num, args.agent_num+1)
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
         writer.add_scalar("train/act_loss", act_loss, i)
@@ -83,8 +82,7 @@ if __name__ == "__main__":
         #       f"act_ent_loss:{act_ent_loss},"
         #       f"agt_ent_loss:{agt_ent_loss},"
         #       )
-        if (i%100) == 0:
-            plt.close()
+        if ((i+1)%100) == 0:
             eval_graph = graphG.generate(1,city_nums)
             ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(eval_graph, agent_num, 10000)
             cost,trajectory =  agent.eval_episode(env, eval_graph,agent_num, "greedy")
@@ -96,10 +94,10 @@ if __name__ == "__main__":
 
             print(f"agent_num:{agent_num},city_num:{city_nums} "
                   f"act_loss:{act_loss:.5f},"
-                  f" agents_loss:{agents_loss:.5f},"
+                  f"agents_loss:{agents_loss:.5f},"
                   f"act_ent_loss:{act_ent_loss},"
                   f"agt_ent_loss:{agt_ent_loss},"
-                  f" costs:{cost.item():.5f},"
+                  f"costs:{cost.item():.5f},"
                   f"gap:{ gap:.5f}%")
 
         if (i+1)%10000 == 0:

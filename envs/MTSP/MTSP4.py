@@ -63,6 +63,7 @@ class MTSPEnv:
         self.seed = config.get("seed", self.seed)
         self.mode = config.get("mode", self.mode)
         self.problem_size = config.get("N_aug", 128)
+        self.env_masks_mode = config.get("env_masks_mode", 0)
 
         if self.seed is not None:
             np.random.seed(self.seed)
@@ -105,7 +106,9 @@ class MTSPEnv:
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
-
+        self.ori_actions_list = []
+        self.actions_list = []
+        self.salesmen_masks_list= []
         self.distance_scale = self.cities / self.salesmen
 
     def _get_salesmen_states(self):
@@ -205,42 +208,36 @@ class MTSPEnv:
         stay_update_mask = (self.remain_stay_still_log < self.stay_still_limit) & (cur_pos != 0)
         repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
 
-        # 阶段处理：使用三阶段条件判断
-        stage_cond = self.traj_stages[..., np.newaxis]  # [B, A, 1]
+        if self.env_masks_mode == 0:
+            # 返回仓库优化 (新增阶段0排除)
+            valid_batches = np.any(self.traj_stages <2, axis=1)
+            batch_ids = np.where(valid_batches)[0]
 
-        # 阶段0：关闭depot
-        repeat_masks = np.where(stage_cond == 0,
-                                repeat_masks & (np.arange(N) != 0),  # 屏蔽depot列
-                                repeat_masks)
+            #仅不允许最小开销智能体返回仓库
+            if len(batch_ids) > 0:
+                valid_costs = np.where((self.traj_stages != 1),
+                                       np.inf, self.costs)
+                min_salesmen = np.argmin(valid_costs[batch_ids], axis=1)
+                repeat_masks[batch_ids, min_salesmen, 0] = 0
+        elif self.env_masks_mode == 1:
+            #仅允许最大开销智能体返回仓库
+            # 旅途中阶段：选出最大的旅行开销
+            # 选出处于0-1阶段的智能体
+            active_agents = self.traj_stages == 1
+            max_cost_idx = np.argmax(self.costs * active_agents, axis=-1)
+            # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
+            batch_indices = np.arange(B)[ np.sum(active_agents,axis=-1)>1][:, np.newaxis]
+            repeat_masks[batch_indices, max_cost_idx[batch_indices], 0] = 1
+        else:
+            raise NotImplementedError
+
+        # 未触发阶段：城市0的mask为0
+        repeat_masks[self.traj_stages == 0, 0] = 0
 
         # 阶段>=2：全掩码关闭但保留depot
-        repeat_masks = np.where(stage_cond >= 2,
-                                np.zeros_like(repeat_masks),
-                                repeat_masks)
-        repeat_masks[..., 0] = np.where(stage_cond.squeeze(-1) >= 2, 1, repeat_masks[..., 0])
-
-        # 返回仓库优化 (新增阶段0排除)
-        valid_batches = np.any(self.traj_stages <2, axis=1)
-        batch_ids = np.where(valid_batches)[0]
-
-        #仅不允许最小开销智能体返回仓库
-        if len(batch_ids) > 0:
-            valid_costs = np.where((self.traj_stages != 1),
-                                   np.inf, self.costs)
-            min_salesmen = np.argmin(valid_costs[batch_ids], axis=1)
-            repeat_masks[batch_ids, min_salesmen, 0] = 0
-
-        # #仅允许最大开销智能体返回仓库
-        # if len(batch_ids) > 0:
-        #     valid_costs = np.where((self.traj_stages != 1),
-        #                            np.inf, self.costs)
-        #     max_salesmen = np.argmax(valid_costs[batch_ids], axis=1)  # 修改为选择最大开销的智能体
-        #     repeat_masks[batch_ids, :, 0] = 0  # 允许最大开销的智能体返回仓库
-        #     if self.salesmen > 1:
-        #         repeat_masks[batch_ids, max_salesmen, 0] = 1
-
-        # batch_complete = np.all(~self.mask, axis=1)
-        # repeat_masks[batch_complete,:,0] = 1
+        stage_2 = self.traj_stages >= 2
+        repeat_masks[stage_2, 1:] = 0
+        repeat_masks[stage_2, 0] = 1
 
         return repeat_masks
 
@@ -310,10 +307,10 @@ class MTSPEnv:
 
         return actions
 
-    def step(self, actions: np.ndarray):
+    def step(self, ori_actions: np.ndarray):
 
         try:
-            actions = self.reset_actions(actions)
+            actions = self.reset_actions(ori_actions)
             self.actions = actions
             self.step_count += 1
             self.trajectories[..., self.step_count] = actions
@@ -357,7 +354,7 @@ class MTSPEnv:
         self.traj_stages = np.where(
             ((last_pos != cur_pos)
             &
-            (last_pos == 0))
+            ((last_pos == 0)|(cur_pos == 0)))
             |
             (batch_complete[:, None]),
             # |
@@ -383,6 +380,10 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
         }
+
+        self.ori_actions_list.append(ori_actions)
+        self.actions_list.append(actions)
+        self.salesmen_masks_list.append(info["salesmen_masks"])
 
         if self.done:
 
