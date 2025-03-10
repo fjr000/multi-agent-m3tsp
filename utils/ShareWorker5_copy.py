@@ -24,7 +24,7 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -38,11 +38,11 @@ if __name__ == "__main__":
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=256)
+    parser.add_argument("--batch_size", type=float, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=80000)
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -64,6 +64,7 @@ if __name__ == "__main__":
     agent.load_model(args.agent_id)
     from CourseController import CourseController
     CC = CourseController()
+    agent_num, city_nums = args.agent_num, args.city_nums
     for i in tqdm.tqdm(range(100_000_000), mininterval=10):
         agent_num, city_nums = CC.get_course()
         graph = graphG.generate(args.batch_size, city_nums)

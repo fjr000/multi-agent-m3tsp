@@ -24,21 +24,21 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=5)
+    parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=8)
-    parser.add_argument("--num_layers", type=int, default=3)
+    parser.add_argument("--num_heads", type=int, default=4)
+    parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=6e-5)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=2)
+    parser.add_argument("--batch_size", type=float, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -61,14 +61,16 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
     agent = Agent(args, Config)
+    agent.load_model(args.agent_id)
     from CourseController import CourseController
     CC = CourseController()
-    for i in tqdm.tqdm(range(100_000_000)):
+    agent_num, city_nums = args.agent_num, args.city_nums
+    for i in tqdm.tqdm(range(100_000_000), mininterval=10):
         # agent_num, city_nums = CC.get_course()
-        agent_num, city_nums = 10,50
         graph = graphG.generate(args.batch_size, city_nums)
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
         # agent_num = np.random.randint(1, args.agent_num+1)
+
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
         writer.add_scalar("train/act_loss", act_loss, i)

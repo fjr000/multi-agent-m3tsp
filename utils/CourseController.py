@@ -21,22 +21,39 @@ class CourseController(object):
         #     (1, 40),
         #     (1, 50),
         # ]
+        # self.course_list = [
+        #     (1, 5), (2, 10), (3, 15), (4, 20), (5, 25), (6, 30), (7, 35), (8, 40), (9, 45), (10, 50),
+        #     (1, 10), (2, 20), (3, 30), (4, 40), (5, 50),(6, 50), (7, 50), (8, 50), (9, 50),
+        #     (1, 20), (2, 40),(3, 50), (4, 50),
+        #     (1, 30), (2, 50),
+        #     (1, 40),
+        #     (1, 50),
+        # ]
         self.course_list = [
-            (1, 5), (2, 10), (3, 15), (4, 20), (5, 25), (6, 30), (7, 35), (8, 40), (9, 45), (10, 50),
-            (1, 10), (2, 20), (3, 30), (4, 40), (5, 50),(6, 50), (7, 50), (8, 50), (9, 50),
-            (1, 20), (2, 40),(3, 50), (4, 50),
-            (1, 30), (2, 50),
-            (1, 40),
-            (1, 50),
+            (1, 5), (1, 10), (1, 15), (1, 20), (1, 25), (1, 30), (1, 35), (1, 40), (1, 45), (1, 50),
+            (2, 10), (2, 20), (2, 30), (2, 40), (2, 50),
+            (3, 15), (3, 30),(3, 40), (3, 50),
+            (4, 20), (4, 40),(4,50),
+            (5, 25),(5, 50),
+            (6, 30),(6, 50),
+            (7, 35),(7, 50),
+            (8, 40),(8, 50),
+            (9, 45), (9, 50),
+            (10, 50),
         ]
+
         self.course = 0
+        self.round = 0
 
     def get_course(self):
         return self.course_list[self.course]
 
     def update_result(self, gap):
         self.q.append(gap)
-        if_next = np.count_nonzero(np.array(list(self.q)) < 0.1) >= 8
+        if_next = np.count_nonzero(np.array(list(self.q)) < 0.1 * 2**(-self.round)) >= 8
         if if_next:
             self.q.clear()
+            last_course = self.course
             self.course = (self.course+1)%len(self.course_list)
+            if self.course<last_course:
+                self.round += 1

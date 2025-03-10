@@ -50,12 +50,12 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.Sequential(
-            *[
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
-                for _ in range(num_layers)
-            ]
-        )
+        # self.agent_self_att = nn.Sequential(
+        #     *[
+        #         MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+        #         for _ in range(num_layers)
+        #     ]
+        # )
 
     def forward(self,cities_embed, graph, agent):
         """
@@ -63,8 +63,8 @@ class AgentEncoder(nn.Module):
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, graph, agent)
-        agent_self_att = self.agent_self_att(agent_embed)
-        return agent_self_att
+        # agent_embed = self.agent_self_att(agent_embed)
+        return agent_embed
 
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
@@ -195,9 +195,12 @@ class Model(nn.Module):
         self.actions_model = ActionsModel(config)
         self.conflict_model = ConflictModel(config)
         initialize_weights(self)
+        self.step = 0
+
 
     def init_city(self, city):
         self.actions_model.init_city(city)
+        self.step = 0
 
     def forward(self, agent, mask, info = None):
         mode = "greedy" if info is None else info.get("mode", "greedy")
@@ -205,7 +208,10 @@ class Model(nn.Module):
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
-            acts = nn.functional.softmax(actions_logits, dim=-1).argmax(dim=-1)  # [B,5] 每个智能体选的城市索引
+            acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            acts = acts_p.argmax(dim=-1)  # [B,5] 每个智能体选的城市索引
+            # if self.step == 0:
+            #     _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
         elif mode == "sample":
             acts = torch.distributions.Categorical(logits=actions_logits).sample()
         else:
@@ -219,7 +225,7 @@ class Model(nn.Module):
         masks = torch.logical_or(agents == pos, acts == 0)
 
         acts_no_conflict = torch.where(masks, acts, -1)
-
+        self.step += 1
         return actions_logits, agents_logits, acts, acts_no_conflict
 
 
