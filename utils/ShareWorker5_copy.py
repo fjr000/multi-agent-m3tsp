@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=16)
+    parser.add_argument("--batch_size", type=float, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -77,12 +77,12 @@ if __name__ == "__main__":
         writer.add_scalar("train/act_ent_loss", act_ent_loss, i)
         writer.add_scalar("train/agt_ent_loss", agt_ent_loss, i)
         writer.add_scalar("train/costs", np.mean(np.max(costs,axis=-1)), i)
-        print(f"agent_num:{agent_num},city_num:{city_nums} "
-              f"act_loss:{act_loss:.5f},"
-              f" agents_loss:{agents_loss:.5f},"
-              f"act_ent_loss:{act_ent_loss},"
-              f"agt_ent_loss:{agt_ent_loss},"
-              )
+        # print(f"agent_num:{agent_num},city_num:{city_nums} "
+        #       f"act_loss:{act_loss:.5f},"
+        #       f" agents_loss:{agents_loss:.5f},"
+        #       f"act_ent_loss:{act_ent_loss},"
+        #       f"agt_ent_loss:{agt_ent_loss},"
+        #       )
         if (i%100) == 0:
             plt.close()
             eval_graph = graphG.generate(1,city_nums)
