@@ -145,7 +145,7 @@ class AgentBase:
             conflict_loss = torch.tensor([0], device=self.device)
             agt_ent_loss = torch.tensor([0], device=self.device)
         # return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
-        self.__update_net(self.optim, self.model.parameters(), act_loss + conflict_loss + self.args.entropy_coef * (act_ent_loss + agt_ent_loss))
+        self.__update_net(self.optim, self.model.parameters(), act_loss + conflict_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
         return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample"):
