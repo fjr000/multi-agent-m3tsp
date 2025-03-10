@@ -223,20 +223,24 @@ class MTSPEnv:
         valid_batches = np.any(self.traj_stages <2, axis=1)
         batch_ids = np.where(valid_batches)[0]
 
-        # #仅不允许最小开销智能体返回仓库
-        # if len(batch_ids) > 0:
-        #     valid_costs = np.where((self.traj_stages != 1),
-        #                            np.inf, self.costs)
-        #     min_salesmen = np.argmin(valid_costs[batch_ids], axis=1)
-        #     repeat_masks[batch_ids, min_salesmen, 0] = 0
-
-        #仅允许最大开销智能体返回仓库
+        #仅不允许最小开销智能体返回仓库
         if len(batch_ids) > 0:
             valid_costs = np.where((self.traj_stages != 1),
                                    np.inf, self.costs)
-            max_salesmen = np.argmax(valid_costs[batch_ids], axis=1)  # 修改为选择最大开销的智能体
-            repeat_masks[batch_ids, max_salesmen, 0] = 1  # 允许最大开销的智能体返回仓库
-            repeat_masks[batch_ids, :, 0] = 0  # 不允许其他智能体（包括最小开销的智能体）返回仓库
+            min_salesmen = np.argmin(valid_costs[batch_ids], axis=1)
+            repeat_masks[batch_ids, min_salesmen, 0] = 0
+
+        # #仅允许最大开销智能体返回仓库
+        # if len(batch_ids) > 0:
+        #     valid_costs = np.where((self.traj_stages != 1),
+        #                            np.inf, self.costs)
+        #     max_salesmen = np.argmax(valid_costs[batch_ids], axis=1)  # 修改为选择最大开销的智能体
+        #     repeat_masks[batch_ids, :, 0] = 0  # 允许最大开销的智能体返回仓库
+        #     if self.salesmen > 1:
+        #         repeat_masks[batch_ids, max_salesmen, 0] = 1
+
+        # batch_complete = np.all(~self.mask, axis=1)
+        # repeat_masks[batch_complete,:,0] = 1
 
         return repeat_masks
 
