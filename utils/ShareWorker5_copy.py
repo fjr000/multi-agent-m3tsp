@@ -41,6 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -82,7 +83,7 @@ if __name__ == "__main__":
         #       f"act_ent_loss:{act_ent_loss},"
         #       f"agt_ent_loss:{agt_ent_loss},"
         #       )
-        if ((i+1)%100) == 0:
+        if ((i+1)%args.eval_interval) == 0:
             eval_graph = graphG.generate(1,city_nums)
             ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(eval_graph, agent_num, 10000)
             cost,trajectory =  agent.eval_episode(env, eval_graph,agent_num, "greedy")
@@ -91,7 +92,7 @@ if __name__ == "__main__":
             # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
             CC.update_result(gap / 100)
             writer.add_scalar("eval/gap", gap, i)
-
+            agent.lr_scheduler.step(gap)
             print(f"agent_num:{agent_num},city_num:{city_nums} "
                   f"act_loss:{act_loss:.5f},"
                   f"agents_loss:{agents_loss:.5f},"
