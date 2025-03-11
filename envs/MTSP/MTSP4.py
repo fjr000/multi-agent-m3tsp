@@ -109,6 +109,7 @@ class MTSPEnv:
         self.ori_actions_list = []
         self.actions_list = []
         self.salesmen_masks_list= []
+        self.traj_stage_list= []
         self.distance_scale = self.cities / self.salesmen
 
     def _get_salesmen_states(self):
@@ -123,11 +124,11 @@ class MTSPEnv:
 
         # 生成批量索引 [B, A]
         batch_indices = np.arange(B)[:, None]  # [B, 1]
-        dis_depot = self.graph_matrix[batch_indices,cur_pos,depot_idx] / self.distance_scale # [B,A]
-        cur_cost = self.costs / self.distance_scale # [B,A]
-        max_cost = np.max(self.costs, keepdims=True, axis=1).repeat(A,axis = 1) / self.distance_scale # [B,A]
+        dis_depot = self.graph_matrix[batch_indices,cur_pos,depot_idx]  # [B,A]
+        cur_cost = self.costs  # [B,A]
+        max_cost = np.max(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
         diff_max_cost = (max_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
-        min_cost = np.min(self.costs, keepdims=True, axis=1).repeat(A,axis = 1) / self.distance_scale # [B,A]
+        min_cost = np.min(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
         diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
 
         # # 直接选取当前节点对应的距离行 [B, A, N]
@@ -153,7 +154,7 @@ class MTSPEnv:
         # ) / self.distance_scale
 
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
-        remain_cities_num = np.count_nonzero(self.mask==1, keepdims=True,axis=1)
+        remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
         remain_city_ratio = (remain_cities_num / self.cities)  # remain city ratio
         remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + remain_salesmen_num)
@@ -161,7 +162,8 @@ class MTSPEnv:
         # rank = np.argsort(self.costs, axis=1) / self.salesmen
         sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
         weighted_diff = sum_costs - self.salesmen * self.costs  # 广播计算 [B,A]
-        denominator = max(self.salesmen - 1, 1) * self.distance_scale
+        # denominator = max(self.salesmen - 1, 1) * self.distance_scale
+        denominator = max(self.salesmen - 1, 1)
         diff_cost = weighted_diff / denominator
 
         self.states[..., 0] = depot_idx
@@ -208,25 +210,21 @@ class MTSPEnv:
         stay_update_mask = (self.remain_stay_still_log < self.stay_still_limit) & (cur_pos != 0)
         repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
 
+        active_agents = self.traj_stages == 1
+        batch_indices = np.arange(B)[np.sum(active_agents, axis=-1) > 1][:, np.newaxis]
+
         if self.env_masks_mode == 0:
             # 返回仓库优化 (新增阶段0排除)
-            valid_batches = np.any(self.traj_stages <2, axis=1)
-            batch_ids = np.where(valid_batches)[0]
-
-            #仅不允许最小开销智能体返回仓库
-            if len(batch_ids) > 0:
-                valid_costs = np.where((self.traj_stages != 1),
-                                       np.inf, self.costs)
-                min_salesmen = np.argmin(valid_costs[batch_ids], axis=1)
-                repeat_masks[batch_ids, min_salesmen, 0] = 0
+            min_cost_idx = np.argmin(self.costs * active_agents, axis=-1)
+            repeat_masks[batch_indices, :, 0] = 1
+            repeat_masks[batch_indices, min_cost_idx[batch_indices], 0] = 0
         elif self.env_masks_mode == 1:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
             # 选出处于0-1阶段的智能体
-            active_agents = self.traj_stages == 1
             max_cost_idx = np.argmax(self.costs * active_agents, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
-            batch_indices = np.arange(B)[ np.sum(active_agents,axis=-1)>1][:, np.newaxis]
+            repeat_masks[batch_indices, :, 0] = 0
             repeat_masks[batch_indices, max_cost_idx[batch_indices], 0] = 1
         else:
             raise NotImplementedError
@@ -384,6 +382,7 @@ class MTSPEnv:
         self.ori_actions_list.append(ori_actions)
         self.actions_list.append(actions)
         self.salesmen_masks_list.append(info["salesmen_masks"])
+        self.traj_stage_list.append(self.traj_stages)
 
         if self.done:
 

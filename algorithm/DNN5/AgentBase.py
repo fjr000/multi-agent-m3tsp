@@ -14,7 +14,6 @@ class AgentBase:
         self.model = model_class(config)
         self.conflict_model = None
 
-        # self._gamma = args.gamma
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
         self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
@@ -22,7 +21,6 @@ class AgentBase:
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min", patience=10000 / args.eval_interval, factor= 0.99,min_lr=2e-5)
-        # self.device = torch.device("cpu")
         self.model.to(self.device)
 
     def reset_graph(self, graph):
@@ -39,7 +37,6 @@ class AgentBase:
         agents_dist = torch.distributions.Categorical(logits=agents_logits)
         act_logp = actions_dist.log_prob(acts)
         agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
-        # c1 = torch.count_nonzero(agents_logp)
         agents_logp = torch.where(agents_mask, agents_logp, 0)
         agt_entropy = torch.where(agents_mask, agents_dist.entropy(), 0)
         return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy
@@ -62,7 +59,6 @@ class AgentBase:
         optim.step()
 
     def __get_logprob(self, states, masks, actions):
-        # TODO: 是否需要actions传入model计算agents_logits
         actions_logits, agents_logits, acts, acts_no_conflict = self.model(states, masks)
         dist = torch.distributions.Categorical(logits=actions_logits)
         agents_dist = torch.distributions.Categorical(logits=agents_logits)
@@ -106,45 +102,28 @@ class AgentBase:
 
         # 对动作概率为零的样本进行掩码
         mask_ = ((act_logp_8 != 0) & (~torch.isnan(act_logp_8)))
-        # c1 = torch.count_nonzero(mask_)
 
         # 计算动作网络的损失，mask之后加权平均
         act_loss = (act_logp_8[mask_] * adv_actions[mask_]).mean()
 
         # 对智能体的动作概率进行掩码
         mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
-        # c2 = torch.count_nonzero(mask_)
 
         # 计算智能体的损失，mask之后加权平均
         agents_loss = (agents_logp_8[mask_] * adv_agents[mask_]).mean()
 
         return act_loss, agents_loss
 
-        # costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
-        # act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)
-        # agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)
-        # max_costs = np.max(costs_8,keepdims=True, axis=-1)
-        # mean_max_costs = max_costs.mean(keepdims=True, axis=1)
-        # adv = costs_8 - mean_max_costs
-        # adv = _convert_tensor(adv, device=self.device)
-        # mask_ = (act_logp_8 != 0)
-        # act_loss = (act_logp_8[mask_] * adv[mask_]).mean()
-        # mask_ = (agents_logp_8 != 0)
-        # agents_loss = (agents_logp_8[mask_] * adv[mask_]).mean()
-        # return act_loss, agents_loss
 
     def learn(self, act_logp, agents_logp,act_ent, agt_ent, costs):
         self.model.train()
         act_loss, conflict_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        # self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss + act_ent_loss * self.args.entropy_coef)
         if not torch.any(torch.isnan(conflict_loss)):
             agt_ent_loss = agt_ent
-        #     self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss + agt_ent_loss * self.args.entropy_coef)
         else:
             conflict_loss = torch.tensor([0], device=self.device)
             agt_ent_loss = torch.tensor([0], device=self.device)
-        # return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
         self.__update_net(self.optim, self.model.parameters(), act_loss + conflict_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
         return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
