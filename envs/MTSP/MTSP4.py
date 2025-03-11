@@ -244,7 +244,7 @@ class MTSPEnv:
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
             max_cost_idx = np.nanargmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
-            repeat_masks[batch_indices, :, 0] = 0
+            repeat_masks[batch_indices, :, 0]= 0
             repeat_masks[batch_indices, max_cost_idx, 0] = 1
         else:
             raise NotImplementedError
@@ -257,7 +257,8 @@ class MTSPEnv:
         repeat_masks[stage_2, 1:] = 0
         repeat_masks[stage_2, 0] = 1
 
-        return repeat_masks
+        self.salesmen_mask = repeat_masks
+        return self.salesmen_mask
 
     def reset(self, config=None, graph=None):
         if config is not None:
@@ -399,10 +400,10 @@ class MTSPEnv:
             "salesmen_masks": self._get_salesmen_masks(),
         }
 
-        self.ori_actions_list.append(ori_actions)
-        self.actions_list.append(actions)
-        self.salesmen_masks_list.append(info["salesmen_masks"])
-        self.traj_stage_list.append(self.traj_stages)
+        # self.ori_actions_list.append(ori_actions)
+        # self.actions_list.append(actions)
+        # self.salesmen_masks_list.append(info["salesmen_masks"])
+        # self.traj_stage_list.append(self.traj_stages)
 
         if self.done:
 
@@ -500,8 +501,8 @@ if __name__ == '__main__':
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=32)
-    parser.add_argument("--city_nums", type=int, default=10)
+    parser.add_argument("--batch_size", type=float, default=2)
+    parser.add_argument("--city_nums", type=int, default=5)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
@@ -536,7 +537,7 @@ if __name__ == '__main__':
     import torch
     from envs.GraphGenerator import GraphGenerator as GG
     g =GG()
-    batch_graph = g.generate(batch_size=512,num=args.city_nums)
+    batch_graph = g.generate(batch_size=args.batch_size,num=args.city_nums)
     states, info = env.reset(graph = batch_graph)
     salesmen_masks = info["salesmen_masks"]
     agent.reset_graph(batch_graph)
