@@ -1,5 +1,4 @@
 import argparse
-from lib2to3.fixes.fix_input import context
 
 import numpy as np
 from torch import inference_mode
@@ -35,8 +34,8 @@ class AgentEmbedding(nn.Module):
 
         global_graph_embed = self.graph_embed(graph_embed)
 
-        cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
-        depot_pos = cities_expand[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
+        # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
+        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:7])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:10])
@@ -78,14 +77,14 @@ class ActionDecoder(nn.Module):
         self.num_heads = num_heads
 
     def forward(self, agent_embed, city_embed, masks):
-        expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
-        expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1)
-        expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
+        # expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
+        expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(agent_embed.size(0) * self.num_heads, masks.size(-2), masks.size(-1))
+        # expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
         aca = agent_embed
         for model in self.agent_city_att:
-            aca = model(aca, expand_city_embed, expand_city_embed, expand_masks)
+            aca = model(aca, city_embed, city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
-        action_logits = self.action(aca, expand_city_embed, masks)
+        action_logits = self.action(aca, city_embed, masks)
         return action_logits
 
 class ConflictModel(nn.Module):
@@ -124,7 +123,7 @@ class ConflictModel(nn.Module):
 
         # 3. 提取候选城市特征 -----------------------------------------------------
         selected_cities = torch.gather(
-            city_embed.expand(B,-1,-1),
+            city_embed,
             1,
             acts.unsqueeze(-1).expand(-1, -1, E)
         )  # [B,5,E]
@@ -176,8 +175,9 @@ class ActionsModel(nn.Module):
         # non_zero_count = batch_mask.sum(1)
         # avg_graph = mask_sum_expand_graph / non_zero_count
 
-        expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
-        agent_embed = self.agent_encoder(self.city_embed, expand_graph, agent)
+        # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
+        # expand_graph = self.city_embed_mean.unsqueeze(1)
+        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent)
 
         actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)
 
@@ -208,9 +208,9 @@ class Model(nn.Module):
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
-            acts_p = nn.functional.softmax(actions_logits, dim=-1)
-            acts = acts_p.argmax(dim=-1)  # [B,5] 每个智能体选的城市索引
+            acts = actions_logits.argmax(dim=-1)
             # if self.step == 0:
+            # acts_p = nn.functional.softmax(actions_logits, dim=-1)
             #     _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
         elif mode == "sample":
             acts = torch.distributions.Categorical(logits=actions_logits).sample()
@@ -219,9 +219,10 @@ class Model(nn.Module):
 
         agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
 
-        agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
+        agents = agents_logits.argmax(dim=-1)
 
-        pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
+        # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
+        pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
         masks = torch.logical_or(agents == pos, acts == 0)
 
         acts_no_conflict = torch.where(masks, acts, -1)

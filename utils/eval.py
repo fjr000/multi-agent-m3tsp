@@ -25,7 +25,7 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=4)
+    parser.add_argument("--agent_num", type=int, default=2)
     parser.add_argument("--agent_dim", type=int, default=9)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -39,11 +39,14 @@ if __name__ == "__main__":
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=8)
+    parser.add_argument("--batch_size", type=float, default=20)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=50000)
+    parser.add_argument("--agent_id", type=int, default=240000)
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -51,7 +54,7 @@ if __name__ == "__main__":
     graphG = GG(args.batch_size, args.city_nums, 2)
     from envs.MTSP.MTSP4 import MTSPEnv
 
-    env = MTSPEnv()
+    env = MTSPEnv({"env_masks_mode":args.env_masks_mode})
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
     from model.n4Model.config import Config
     agent = Agent(args, Config)

@@ -21,6 +21,7 @@ class AgentBase:
         self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
+        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min", patience=10000 / args.eval_interval, factor= 0.99,min_lr=2e-5)
         # self.device = torch.device("cpu")
         self.model.to(self.device)
 
@@ -41,7 +42,6 @@ class AgentBase:
         # c1 = torch.count_nonzero(agents_logp)
         agents_logp = torch.where(agents_mask, agents_logp, 0)
         agt_entropy = torch.where(agents_mask, agents_dist.entropy(), 0)
-        # c2 = torch.count_nonzero(agents_logp)
         return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy
 
     def predict(self, states_t, masks_t):
@@ -105,14 +105,14 @@ class AgentBase:
         adv_agents = _convert_tensor(adv_agents, device=self.device)
 
         # 对动作概率为零的样本进行掩码
-        mask_ = (act_logp_8 != 0)
+        mask_ = ((act_logp_8 != 0) & (~torch.isnan(act_logp_8)))
         # c1 = torch.count_nonzero(mask_)
 
         # 计算动作网络的损失，mask之后加权平均
         act_loss = (act_logp_8[mask_] * adv_actions[mask_]).mean()
 
         # 对智能体的动作概率进行掩码
-        mask_ = (agents_logp_8 != 0)
+        mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
         # c2 = torch.count_nonzero(mask_)
 
         # 计算智能体的损失，mask之后加权平均
@@ -136,10 +136,10 @@ class AgentBase:
     def learn(self, act_logp, agents_logp,act_ent, agt_ent, costs):
         self.model.train()
         act_loss, conflict_loss = self.__get_loss(act_logp, agents_logp, costs)
-        act_ent_loss = act_ent.mean()
+        act_ent_loss = act_ent
         # self.__update_net(self.act_optim, self.model.actions_model.parameters(), act_loss + act_ent_loss * self.args.entropy_coef)
         if not torch.any(torch.isnan(conflict_loss)):
-            agt_ent_loss = agt_ent.mean()
+            agt_ent_loss = agt_ent
         #     self.__update_net(self.conf_optim, self.model.conflict_model.parameters(), conflict_loss + agt_ent_loss * self.args.entropy_coef)
         else:
             conflict_loss = torch.tensor([0], device=self.device)
@@ -186,25 +186,16 @@ class AgentBase:
         else:
             act_logp = torch.cat(act_logp_list, dim=-1)
             agents_logp = torch.cat(agents_logp_list, dim=-1)
-            act_ent = torch.cat(act_ent_list, dim=-1)
+            act_ent = torch.cat(act_ent_list, dim=-1).mean()
             agt_ent = torch.cat(agt_ent_list, dim=-1)
+            agt_ent = agt_ent.sum() / agt_ent.count_nonzero()
 
             # 将logp为0的部分权重为0
-            act_logp = torch.where(act_logp == 0, torch.zeros_like(act_logp), act_logp)  # logp为0时置为0
-            agents_logp = torch.where(agents_logp == 0, torch.zeros_like(agents_logp), agents_logp)
+            act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
+            agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
 
-            # # 计算非零元素的数量（在置零操作之后）
-            # act_nonzero_count = torch.count_nonzero(act_logp, dim=-1)
-            # agents_nonzero_count = torch.count_nonzero(agents_logp, dim=-1)
-            #
-            # # 计算总的logp，并避免除以0
-            # act_likelihood = torch.where(act_nonzero_count > 0, torch.sum(act_logp, dim=-1) / act_nonzero_count,
-            #                              torch.sum(act_logp, dim=-1))
-            # agents_likelihood = torch.where(agents_nonzero_count > 0,
-            #                                 torch.sum(agents_logp, dim=-1) / agents_nonzero_count,
-            #                                 torch.sum(agents_logp, dim=-1))
-            act_likelihood = torch.sum(act_logp, dim=-1)
-            agents_likelihood = torch.sum(agents_logp, dim=-1)
+            act_likelihood = torch.sum(act_logp, dim=-1) / act_logp.count_nonzero(dim = -1)
+            agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
             return (
                 act_likelihood,
                 agents_likelihood,
