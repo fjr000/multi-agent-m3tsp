@@ -138,10 +138,8 @@ class ConflictModel(nn.Module):
             cac = att(cac, agent_embed, agent_embed, expand_conflict_mask)
 
         agents_logits = self.agents(cac, agent_embed, conflict_matrix)
-        #
-        # agents = nn.functional.softmax(agents_logits, dim=-1).argmax(dim=-1)
-        # pos = torch.arange(A, device=agents.device).unsqueeze(0).expand(B, -1)
-        # masks = (agents == pos).float()
+
+        del conflict_matrix, expand_conflict_mask, identity_matrix, acts_exp1, acts_exp2
 
         return agents_logits
 
@@ -226,7 +224,7 @@ class Model(nn.Module):
         # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
         pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
         masks = torch.logical_or(agents == pos, acts == 0)
-
+        del pos
         acts_no_conflict = torch.where(masks, acts, -1)
         self.step += 1
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
