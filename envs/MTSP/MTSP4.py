@@ -231,17 +231,21 @@ class MTSPEnv:
 
         if self.env_masks_mode == 0:
             # 返回仓库优化 (新增阶段0排除)
-            min_cost_idx = np.argmin(self.costs * active_agents, axis=-1)
+            masked_cost = np.where(active_agents, self.costs, np.nan)
+            masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
+            min_cost_idx =  np.nanargmin(masked_cost_sl, axis=-1)
             repeat_masks[batch_indices, :, 0] = 1
-            repeat_masks[batch_indices, min_cost_idx[batch_indices], 0] = 0
+            repeat_masks[batch_indices, min_cost_idx, 0] = 0
         elif self.env_masks_mode == 1:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
             # 选出处于0-1阶段的智能体
-            max_cost_idx = np.argmax(self.costs * active_agents, axis=-1)
+            masked_cost = np.where(active_agents, self.costs, np.nan)
+            masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
+            max_cost_idx = np.nanargmin(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0] = 0
-            repeat_masks[batch_indices, max_cost_idx[batch_indices], 0] = 1
+            repeat_masks[batch_indices, max_cost_idx, 0] = 1
         else:
             raise NotImplementedError
 
@@ -483,33 +487,33 @@ class MTSPEnv:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=2)
+    parser.add_argument("--num_worker", type=int, default=8)
     parser.add_argument("--agent_num", type=int, default=3)
-    parser.add_argument("--agent_dim", type=int, default=9)
-    parser.add_argument("--hidden_dim", type=int, default=256)
+    parser.add_argument("--agent_dim", type=int, default=3)
+    parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
-    parser.add_argument("--num_layers", type=int, default=3)
-    parser.add_argument("--gamma", type=float, default=1)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--grad_max_norm", type=float, default=10)
+    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--lr", type=float, default=9e-5)
+    parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
-    parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--batch_size", type=float, default=512)
-    parser.add_argument("--city_nums", type=int, default=20)
-    parser.add_argument("--allow_back", type=bool, default=False)
-    parser.add_argument("--model_dir", type=str, default="../../pth/")
+    parser.add_argument("--entropy_coef", type=float, default=5e-3)
+    parser.add_argument("--batch_size", type=float, default=32)
+    parser.add_argument("--city_nums", type=int, default=10)
+    parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 
     env_config = {
         "salesmen": args.agent_num,
         "cities": args.city_nums,
         "seed": None,
-        "mode": 'rand'
+        "mode": 'rand',
+        "env_masks_mode":args.env_masks_mode
     }
     env = MTSPEnv(
         env_config
@@ -520,7 +524,7 @@ if __name__ == '__main__':
     # g = GG(1, env_config["cities"])
     # graph = g.generate(1, env_config["cities"], dim=2)
 
-    from algorithm.DNN4.AgentV2 import AgentV2 as Agent
+    from algorithm.DNN5.AgentV1 import AgentV1 as Agent
     from model.n4Model.config import Config
 
     agent = Agent(args, Config)
@@ -540,7 +544,7 @@ if __name__ == '__main__':
     while not done:
         states_t = _convert_tensor(states, device=agent.device)
         salesmen_masks_t = _convert_tensor(salesmen_masks, device=agent.device)
-        acts, acts_no_conflict = agent.predict(states_t, salesmen_masks_t)
+        acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = agent.predict(states_t, salesmen_masks_t)
         states, r, done, info = env.step(acts_no_conflict+1)
         salesmen_masks = info["salesmen_masks"]
 
