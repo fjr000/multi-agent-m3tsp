@@ -242,7 +242,7 @@ class MTSPEnv:
             # 选出处于0-1阶段的智能体
             masked_cost = np.where(active_agents, self.costs, np.nan)
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
-            max_cost_idx = np.nanargmin(masked_cost_sl, axis=-1)
+            max_cost_idx = np.nanargmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0] = 0
             repeat_masks[batch_indices, max_cost_idx, 0] = 1
