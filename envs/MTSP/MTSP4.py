@@ -34,6 +34,8 @@ class MTSPEnv:
         self.salesmen = 5
         self.seed = None
         self.mode = "rand"
+        self.problem_size = 1
+        self.env_masks_mode = 0
         if config is not None:
             self.__parse_config(config)
 
@@ -62,8 +64,8 @@ class MTSPEnv:
         self.salesmen = config.get("salesmen", self.salesmen)
         self.seed = config.get("seed", self.seed)
         self.mode = config.get("mode", self.mode)
-        self.problem_size = config.get("N_aug", 128)
-        self.env_masks_mode = config.get("env_masks_mode", 0)
+        self.problem_size = config.get("N_aug", self.problem_size)
+        self.env_masks_mode = config.get("env_masks_mode", self.env_masks_mode)
 
         if self.seed is not None:
             np.random.seed(self.seed)
