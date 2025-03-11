@@ -174,7 +174,7 @@ class MTSPEnv:
 
         self.states[..., 10] = remain_city_ratio.repeat(A,axis = -1)
         self.states[..., 11] = remain_salesmen_city_ratio.repeat(A,axis = -1)
-        self.states[..., 12] = self.traj_stages
+        self.states[..., 12] = np.clip(self.traj_stages, a_min=0, a_max=2)
 
         # self.states[..., 9] = 1 - rank
 
