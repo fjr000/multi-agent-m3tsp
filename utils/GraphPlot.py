@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import time
 import os
 
+import warnings
+warnings.simplefilter("ignore", category=UserWarning)  # 或者 MatplotlibDeprecationWarning
 
 class GraphPlot:
     def __init__(self):
