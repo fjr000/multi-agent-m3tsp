@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument("--city_nums", type=int, default=10)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=240000)
-    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 

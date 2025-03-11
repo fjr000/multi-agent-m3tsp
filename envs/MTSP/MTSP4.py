@@ -171,7 +171,7 @@ class MTSPEnv:
         self.states[..., 0] = depot_idx
         self.states[..., 1] = cur_pos
         self.states[..., 2] = dis_depot
-        self.states[..., 3] = cur_cost
+        self.states[..., 3] = cur_cost / self.distance_scale
         # self.states[..., 4] = max_cost
         self.states[..., 4] = diff_max_cost
         # self.states[..., 6] = min_cost
