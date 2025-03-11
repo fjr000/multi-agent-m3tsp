@@ -235,7 +235,7 @@ class MTSPEnv:
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
             min_cost_idx =  np.nanargmin(masked_cost_sl, axis=-1)
             repeat_masks[batch_indices, :, 0] = 1
-            repeat_masks[batch_indices, min_cost_idx, 0] = 0
+            repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
         elif self.env_masks_mode == 1:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
@@ -245,7 +245,7 @@ class MTSPEnv:
             max_cost_idx = np.nanargmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0]= 0
-            repeat_masks[batch_indices, max_cost_idx, 0] = 1
+            repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
         else:
             raise NotImplementedError
 
@@ -402,7 +402,7 @@ class MTSPEnv:
 
         # self.ori_actions_list.append(ori_actions)
         # self.actions_list.append(actions)
-        # self.salesmen_masks_list.append(info["salesmen_masks"])
+        self.salesmen_masks_list.append(info["salesmen_masks"])
         # self.traj_stage_list.append(self.traj_stages)
 
         if self.done:
