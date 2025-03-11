@@ -173,8 +173,10 @@ class AgentBase:
             act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
             agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
 
-            act_likelihood = torch.sum(act_logp, dim=-1) / act_logp.count_nonzero(dim = -1)
-            agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
+            act_likelihood = torch.sum(act_logp, dim=-1)
+            agents_likelihood = torch.sum(agents_logp, dim=-1)
+            # act_likelihood = torch.sum(act_logp, dim=-1) / act_logp.count_nonzero(dim = -1)
+            # agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
             return (
                 act_likelihood,
                 agents_likelihood,

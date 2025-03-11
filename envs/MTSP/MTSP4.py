@@ -134,7 +134,21 @@ class MTSPEnv:
         diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
 
         # # 直接选取当前节点对应的距离行 [B, A, N]
-        # selected_dists = self.graph_matrix[batch_indices, cur_pos, :]
+        selected_dists = self.graph_matrix[batch_indices, cur_pos, :]
+        each_depot_dist = self.graph_matrix[:,0:1,:]
+        selected_dists_depot = selected_dists + each_depot_dist
+        masked_distances_depot = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists_depot, np.nan)
+        average_distances_depot = np.nanmean(masked_distances_depot, axis = 2)
+        max_distances_depot = np.nanmax(masked_distances_depot, axis=2)
+        min_distances_depot = np.nanmin(masked_distances_depot, axis=2)
+
+
+        masked_distances = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists, np.nan)
+        average_distances = np.nanmean(masked_distances, axis=2)
+        max_distances = np.nanmax(masked_distances, axis=2)
+        min_distances = np.nanmin(masked_distances, axis=2)
+
+        pass
         #
         # # 生成布尔掩码：提前将 mask 转换为布尔类型
         # mask_bool = self.mask.astype(bool)
