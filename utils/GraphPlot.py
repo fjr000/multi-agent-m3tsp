@@ -4,7 +4,10 @@ import time
 import os
 
 import warnings
-warnings.simplefilter("ignore", category=UserWarning)  # 或者 MatplotlibDeprecationWarning
+
+from matplotlib import MatplotlibDeprecationWarning
+
+warnings.simplefilter("ignore", MatplotlibDeprecationWarning)  # 或者 MatplotlibDeprecationWarning
 
 class GraphPlot:
     def __init__(self):
@@ -53,27 +56,67 @@ class GraphPlot:
         return fig
 
     def combine_figs(self, figs):
-        # 创建一个新的大画布
+        # Calculate grid dimensions based on number of figures
         row = int(np.sqrt(len(figs)))
-        col = len(figs) // row + 1 if len(figs) % row else 0
-        fig_combined, axs = plt.subplots(row, col, figsize=(5 * col, 5*col))  # 创建 1x3 子图
-        axs = axs.flatten().tolist()
-        # 拷贝每个独立图的内容到新的子图中
-        for i, (source_fig, target_ax) in enumerate(zip(figs, axs), start=1):
-            source_ax = source_fig.axes[0]  # 获取原始图的第一个 Axes
-            for line in source_ax.get_lines():  # 获取线条并复制
-                target_ax.plot(line.get_xdata(), line.get_ydata(), label=line.get_label())
-            target_ax.set_title(source_ax.get_title())  # 复制标题
-            target_ax.set_xlabel(source_ax.get_xlabel())  # 复制 X 轴标签
-            target_ax.set_ylabel(source_ax.get_ylabel())  # 复制 Y 轴标签
-            # target_ax.legend()  # 复制图例
+        col = len(figs) // row + (1 if len(figs) % row else 0)
 
-        # 显示合并后的大图
-        plt.tight_layout()
-        # plt.show()
-        # 可选：关闭原始图以释放内存
-        for fig in figs:
-            plt.close(fig)
+        # Create a new combined figure with appropriate dimensions
+        fig_combined, axs = plt.subplots(row, col, figsize=(5 * col, 5 * row))
+
+        # Convert axes to flat list for easier iteration
+        if isinstance(axs, np.ndarray):
+            axs = axs.flatten().tolist()
+        elif not isinstance(axs, list):
+            axs = [axs]  # Handle case with only one subplot
+
+        # Copy content from each source figure to the corresponding subplot
+        for i, (source_fig, target_ax) in enumerate(zip(figs, axs)):
+            source_ax = source_fig.axes[0]  # Get the first Axes from the original figure
+
+            # Copy all lines (line plots)
+            for line in source_ax.get_lines():
+                target_ax.plot(line.get_xdata(), line.get_ydata(),
+                               color=line.get_color(),
+                               linestyle=line.get_linestyle(),
+                               marker=line.get_marker(),
+                               markersize=line.get_markersize(),
+                               label=line.get_label())
+
+            # Copy scatter plots
+            for collection in source_ax.collections:
+                if isinstance(collection, plt.matplotlib.collections.PathCollection):  # Scatter plots
+                    # Extract scatter plot properties
+                    offsets = collection.get_offsets()
+                    if len(offsets) > 0:
+                        x = offsets[:, 0]
+                        y = offsets[:, 1]
+                        sizes = collection.get_sizes()
+                        colors = collection.get_facecolors()
+                        size = sizes[0] if len(sizes) == 1 else sizes
+                        color = colors[0] if len(colors) == 1 else colors
+
+                        # Recreate scatter plot
+                        target_ax.scatter(x, y, s=size, c=color)
+
+            # # Copy axis properties
+            target_ax.set_title(source_ax.get_title())
+            # target_ax.set_xlabel(source_ax.get_xlabel())
+            # target_ax.set_ylabel(source_ax.get_ylabel())
+            #
+            # # Copy axis limits if they were explicitly set
+            # target_ax.set_xlim(source_ax.get_xlim())
+            # target_ax.set_ylim(source_ax.get_ylim())
+            #
+            # # Copy grid settings
+            # target_ax.grid(source_ax.get_xgridlines() and source_ax.get_ygridlines())
+
+        # Hide any unused subplots
+        for j in range(len(figs), len(axs)):
+            axs[j].axis('off')
+
+        # Adjust layout for better spacing
+        fig_combined.tight_layout()
+
         return fig_combined
 
     def plot_format(self, ax, title=None):
