@@ -45,7 +45,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 10
+        self.dim = 13
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -141,33 +141,10 @@ class MTSPEnv:
         average_distances_depot = np.nanmean(masked_distances_depot, axis = 2)
         max_distances_depot = np.nanmax(masked_distances_depot, axis=2)
         min_distances_depot = np.nanmin(masked_distances_depot, axis=2)
-
-
-        masked_distances = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists, np.nan)
-        average_distances = np.nanmean(masked_distances, axis=2)
-        max_distances = np.nanmax(masked_distances, axis=2)
-        min_distances = np.nanmin(masked_distances, axis=2)
-
-        pass
-        #
-        # # 生成布尔掩码：提前将 mask 转换为布尔类型
-        # mask_bool = self.mask.astype(bool)
-        # mask_expanded = mask_bool[:, None, :]  # [B, 1, N]
-        #
-        # # 生成排除当前节点的掩码 [B, A, N]
-        # current_expanded = cur_pos[..., None]  # [B, A, 1]
-        # valid_mask = mask_expanded & (np.arange(N) != current_expanded)
-        #
-        # # 计算总和及有效节点数（向量化操作）
-        # sum_dist = np.sum(selected_dists * valid_mask, axis=-1)
-        # count = np.sum(valid_mask, axis=-1)
-        #
-        # # 计算平均值，避免除以零
-        # avg_dist_remain = np.divide(
-        #     sum_dist, count,
-        #     where=count != 0,
-        #     out=np.zeros_like(sum_dist, dtype=np.float64)
-        # ) / self.distance_scale
+        # masked_distances = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists, np.nan)
+        # average_distances = np.nanmean(masked_distances, axis=2)
+        # max_distances = np.nanmax(masked_distances, axis=2)
+        # min_distances = np.nanmin(masked_distances, axis=2)
 
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
@@ -180,21 +157,24 @@ class MTSPEnv:
         weighted_diff = sum_costs - self.salesmen * self.costs  # 广播计算 [B,A]
         # denominator = max(self.salesmen - 1, 1) * self.distance_scale
         denominator = max(self.salesmen - 1, 1)
-        diff_cost = weighted_diff / denominator
+        avg_diff_cost = weighted_diff / denominator
 
         self.states[..., 0] = depot_idx
         self.states[..., 1] = cur_pos
-        self.states[..., 2] = dis_depot
-        self.states[..., 3] = cur_cost / self.distance_scale
-        # self.states[..., 4] = max_cost
-        self.states[..., 4] = diff_max_cost
-        # self.states[..., 6] = min_cost
-        self.states[..., 5] = diff_min_cost
-        self.states[..., 6] = diff_cost
-        # self.states[..., 6] = avg_dist_remain
-        self.states[..., 7] = remain_city_ratio.repeat(A,axis = -1)
-        self.states[..., 8] = remain_salesmen_city_ratio.repeat(A,axis = -1)
-        self.states[..., 9] = self.traj_stages >= 2
+
+        self.states[..., 2] = cur_cost / self.distance_scale
+        self.states[..., 3] = diff_max_cost
+        self.states[..., 4] = diff_min_cost
+        self.states[..., 5] = avg_diff_cost
+
+        self.states[..., 6] = dis_depot
+        self.states[..., 7] = average_distances_depot
+        self.states[..., 8] = max_distances_depot
+        self.states[..., 9] = min_distances_depot
+
+        self.states[..., 10] = remain_city_ratio.repeat(A,axis = -1)
+        self.states[..., 11] = remain_salesmen_city_ratio.repeat(A,axis = -1)
+        self.states[..., 12] = self.traj_stages
 
         # self.states[..., 9] = 1 - rank
 

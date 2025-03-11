@@ -18,12 +18,12 @@ class AgentEmbedding(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
-        self.distance_cost_embed = nn.Linear(5, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(4, self.embed_dim)
+        self.next_cost_embed = nn.Linear(4, self.embed_dim)
         self.problem_scale_embed = nn.Linear(3, self.embed_dim)
-        # self.co_embed = nn.Linear(1, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
-        # self.agent_embed = nn.Linear(5 * self.embed_dim, self.embed_dim)
+        self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
 
     def forward(self,cities_embed, graph_embed, agent_state):
         """
@@ -32,17 +32,19 @@ class AgentEmbedding(nn.Module):
         :return:
         """
 
-        global_graph_embed = self.graph_embed(graph_embed)
 
         # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
         depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
-        distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:7])
-        problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:10])
+        distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:6])
+        next_cost_embed = self.next_cost_embed(agent_state[:,:,6:10])
+        problem_scale_embed = self.problem_scale_embed(agent_state[:,:,10:])
+        global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
+
         # co_embed = self.co_embed(agent_state[:,:,9:10])
-        agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
-        # context = torch.cat([global_graph_embed, depot_pos_embed, distance_cost_embed, problem_scale_embed, co_embed], dim=-1)
-        # agent_embed = self.agent_embed(context)
+        # agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
+        context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
+        agent_embed = self.agent_embed(context)
         return agent_embed
 
 class AgentEncoder(nn.Module):
