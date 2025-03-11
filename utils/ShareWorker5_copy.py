@@ -24,7 +24,7 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -36,10 +36,10 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=128)
-    parser.add_argument("--city_nums", type=int, default=10)
+    parser.add_argument("--batch_size", type=float, default=32)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=240000)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
@@ -68,8 +68,8 @@ if __name__ == "__main__":
         # agent_num, city_nums = CC.get_course()
         graph = graphG.generate(args.batch_size, city_nums)
         graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-        # agent_num = np.random.randint(1, args.agent_num+1)
-        agent_num = np.random.randint(args.agent_num, args.agent_num+1)
+        agent_num = np.random.randint(1, args.agent_num+1)
+        # agent_num = np.random.randint(args.agent_num, args.agent_num+1)
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
         writer.add_scalar("train/act_loss", act_loss, i)
@@ -90,6 +90,14 @@ if __name__ == "__main__":
             traj = env.compress_adjacent_duplicates_optimized(trajectory)
             gap = ((cost - ortools_cost) / ortools_cost).item()*100
             # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
+            # if gap  < 0 :
+            env.draw_multi(
+                eval_graph[0],
+                [cost.item(),ortools_cost],
+                [traj[0], ortools_trajectory],
+                [0,0],
+                ["greedy",'or_tools']
+            )
             CC.update_result(gap / 100)
             writer.add_scalar("eval/gap", gap, i)
             agent.lr_scheduler.step(gap)
