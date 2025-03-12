@@ -30,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=9e-5)
+    parser.add_argument("--lr", type=float, default=6e-5)
     parser.add_argument("--grad_max_norm", type=float, default=1.0)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
@@ -39,8 +39,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=float, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--agent_id", type=int, default=90000)
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 
@@ -90,14 +90,14 @@ if __name__ == "__main__":
             traj = env.compress_adjacent_duplicates_optimized(trajectory)
             gap = ((cost - ortools_cost) / ortools_cost).item()*100
             # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
-            # if gap  < 0 :
-            env.draw_multi(
-                eval_graph[0],
-                [cost.item(),ortools_cost],
-                [traj[0], ortools_trajectory],
-                [0,0],
-                ["greedy",'or_tools']
-            )
+            if gap  < 0 :
+                env.draw_multi(
+                    eval_graph[0],
+                    [cost.item(),ortools_cost],
+                    [traj[0], ortools_trajectory],
+                    [0,0],
+                    ["greedy",'or_tools']
+                )
             CC.update_result(gap / 100)
             writer.add_scalar("eval/gap", gap, i)
             agent.lr_scheduler.step(gap)

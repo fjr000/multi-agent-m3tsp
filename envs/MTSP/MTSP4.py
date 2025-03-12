@@ -180,15 +180,6 @@ class MTSPEnv:
 
         return self.states
 
-
-    def _get_salesmen(self):
-        states = np.empty((self.salesmen, self.dim), dtype=np.float32)
-        for i in range(self.salesmen):
-            states[i] = self._get_salesman(i)
-        if np.any(np.isnan(states)):
-            pass
-        return states
-
     def _get_distance(self, id1, id2):
         return np.sqrt(np.sum(np.square(self.graph[id1 - 1] - self.graph[id2 - 1])))
 
@@ -197,8 +188,7 @@ class MTSPEnv:
         A = self.salesmen
 
         # 初始化批量掩码 [B, A, N]
-        repeat_masks = np.empty((B, A, N), dtype=np.bool_)
-        np.copyto(repeat_masks, self.mask[:, None, :])
+        repeat_masks = np.tile(self.mask[:, None, :], (1, A, 1))
         # repeat_masks = self.mask[:,None,:].repeat(A,axis = 1)
 
         # 处理停留限制 (使用位运算加速)

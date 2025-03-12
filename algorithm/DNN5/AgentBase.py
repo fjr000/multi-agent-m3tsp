@@ -93,40 +93,39 @@ class AgentBase:
         # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (agents_max_cost.std( keepdims=True, axis=1) + 1e-8)
         # 组合优势
-        adv_actions = 0.5*agents_adv + group_adv
-        adv_agents = 0.5*agents_adv  + group_adv
+        adv = 0.5*agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
-        adv_actions = _convert_tensor(adv_actions, device=self.device)
-        adv_agents = _convert_tensor(adv_agents, device=self.device)
+        adv_t = _convert_tensor(adv, device=self.device)
 
         # 对动作概率为零的样本进行掩码
         mask_ = ((act_logp_8 != 0) & (~torch.isnan(act_logp_8)))
 
         # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp_8[mask_] * adv_actions[mask_]).mean()
+        act_loss = (act_logp_8[mask_] * adv_t[mask_]).mean()
 
         # 对智能体的动作概率进行掩码
         mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
 
         # 计算智能体的损失，mask之后加权平均
-        agents_loss = (agents_logp_8[mask_] * adv_agents[mask_]).mean()
+        agents_loss = (agents_logp_8[mask_] * adv_t[mask_]).mean()
 
         return act_loss, agents_loss
 
-
-    def learn(self, act_logp, agents_logp,act_ent, agt_ent, costs):
+    def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
-        act_loss, conflict_loss = self.__get_loss(act_logp, agents_logp, costs)
+        act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        if not torch.any(torch.isnan(conflict_loss)):
+        # 修改为检查 agents_loss 是否包含 NaN
+        if not torch.any(torch.isnan(agents_loss)):
             agt_ent_loss = agt_ent
         else:
-            conflict_loss = torch.tensor([0], device=self.device)
+            agents_loss = torch.tensor([0], device=self.device)
             agt_ent_loss = torch.tensor([0], device=self.device)
-        self.__update_net(self.optim, self.model.parameters(), act_loss + conflict_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
-        # torch.cuda.empty_cache()
-        return act_loss.item(), conflict_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+        # 更新损失计算，确保使用正确的变量名称
+        self.__update_net(self.optim, self.model.parameters(),
+                          act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
+        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample"):
         states, info = env.reset(
