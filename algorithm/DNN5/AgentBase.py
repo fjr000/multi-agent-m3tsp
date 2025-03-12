@@ -144,13 +144,13 @@ class AgentBase:
         mask_ = ((act_logp != 0) & (~torch.isnan(act_logp)))
 
         # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp[mask_] * act_adv[mask_]).mean()
+        act_loss = (act_logp[mask_] * act_adv_t[mask_]).mean()
         if agents_logp is not None:
             # 对智能体的动作概率进行掩码
             mask_ = ((agents_logp != 0) & (~torch.isnan(agents_logp)))
 
             # 计算智能体的损失，mask之后加权平均
-            agents_loss = (agents_logp[mask_] * agt_adv[mask_]).mean()
+            agents_loss = (agents_logp[mask_] * agt_adv_t[mask_]).mean()
         else:
             agents_loss = None
 

@@ -36,13 +36,13 @@ if __name__ == "__main__":
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=32)
+    parser.add_argument("--entropy_coef", type=float, default=2e-2)
+    parser.add_argument("--batch_size", type=float, default=16)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=100000)
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=1, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
@@ -104,7 +104,7 @@ if __name__ == "__main__":
             if gap  < 0  or no_conflict_gap < 0:
                 env.draw_multi(
                     eval_graph[0],
-                    [cost.item(), no_conflict_cost, ortools_cost],
+                    [cost.item(), no_conflict_cost.item(), ortools_cost],
                     [traj[0], no_conflict_traj[0], ortools_trajectory],
                     [0,0,0],
                     ["greedy","no_conflict_model",'or_tools']
