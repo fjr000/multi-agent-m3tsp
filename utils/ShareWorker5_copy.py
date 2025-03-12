@@ -25,6 +25,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
     parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -36,13 +37,15 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=1)
+    parser.add_argument("--batch_size", type=float, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=180000)
+    parser.add_argument("--agent_id", type=int, default=100000)
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=1, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     args = parser.parse_args()
 
     from envs.GraphGenerator import GraphGenerator as GG
@@ -67,23 +70,27 @@ if __name__ == "__main__":
     agent_num, city_nums = args.agent_num, args.city_nums
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
-        graph = graphG.generate(args.batch_size, city_nums)
-        graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-        agent_num = np.random.randint(1, args.agent_num+1)
-        # agent_num = np.random.randint(args.agent_num, args.agent_num+1)
+        if args.only_one_instance:
+            graph = graphG.generate(1).repeat(args.batch_size,axis =0)
+            graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
+        else:
+            graph = graphG.generate(args.batch_size, city_nums)
+            graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
+
+        if args.fixed_agent_num:
+            agent_num = np.random.randint(args.agent_num, args.agent_num+1)
+        else:
+            agent_num = np.random.randint(1, args.agent_num + 1)
+
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info={"use_conflict_model":args.use_conflict_model})
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
+
         writer.add_scalar("train/act_loss", act_loss, i)
         writer.add_scalar("train/agents_loss", agents_loss, i)
         writer.add_scalar("train/act_ent_loss", act_ent_loss, i)
         writer.add_scalar("train/agt_ent_loss", agt_ent_loss, i)
         writer.add_scalar("train/costs", np.mean(np.max(costs,axis=-1)), i)
-        # print(f"agent_num:{agent_num},city_num:{city_nums} "
-        #       f"act_loss:{act_loss:.5f},"
-        #       f" agents_loss:{agents_loss:.5f},"
-        #       f"act_ent_loss:{act_ent_loss},"
-        #       f"agt_ent_loss:{agt_ent_loss},"
-        #       )
+
         if ((i+1)%args.eval_interval) == 0:
             eval_graph = graphG.generate(1,city_nums)
             ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(eval_graph, agent_num, 10000)
@@ -116,5 +123,5 @@ if __name__ == "__main__":
                   f"or_costs:{ortools_cost:.5f},"
                   f"gap:{ gap:.5f}%")
 
-        if (i+1)%10000 == 0:
+        if (i+1)%args.save_model_interval == 0:
             agent.save_model(args.agent_id + i+1)

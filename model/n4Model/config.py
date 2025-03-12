@@ -1,6 +1,7 @@
 class Config(object):
     agent_dim = 10
     embed_dim = 128
+    dropout = 0.3
 
     city_encoder_hidden_dim = 128
     city_encoder_num_layers = 3

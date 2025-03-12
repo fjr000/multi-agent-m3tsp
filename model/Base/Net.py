@@ -88,7 +88,7 @@ class MultiHeadAttention(nn.Module):
         return out
 
 class MultiHeadAttentionLayer(nn.Module):
-    def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='batch'):
+    def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='batch', dropout = 0):
         super(MultiHeadAttentionLayer, self).__init__()
         normalization = []
         if normalization == 'batch':
@@ -102,7 +102,7 @@ class MultiHeadAttentionLayer(nn.Module):
                 MultiHeadAttention(
                     embedding_dim,
                     n_heads,
-                    dropout=0
+                    dropout=dropout
                 )
             ),
 
@@ -216,11 +216,11 @@ class SelfAttentionLayer(nn.Module):
 
 class CrossAttentionLayer(nn.Module):
     # For not self attention
-    def __init__(self, embedding_dim, num_heads, use_FFN=True, hidden_size=128):
+    def __init__(self, embedding_dim, num_heads, use_FFN=True, hidden_size=128,dropout=0):
         super(CrossAttentionLayer, self).__init__()
         self.embedding_dim = embedding_dim
         self.use_FFN = use_FFN
-        self.multiHeadAttention = nn.MultiheadAttention(embedding_dim, num_heads, batch_first=True, )
+        self.multiHeadAttention = nn.MultiheadAttention(embedding_dim, num_heads, batch_first=True, dropout=dropout)
         self.normalization1 = nn.LayerNorm(embedding_dim)
         if self.use_FFN:
             self.feedForward = nn.Sequential(nn.Linear(embedding_dim, hidden_size),

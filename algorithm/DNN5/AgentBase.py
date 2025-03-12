@@ -121,9 +121,47 @@ class AgentBase:
 
         return act_loss, agents_loss
 
+    def __get_loss_only_instance(self, act_logp, agents_logp, costs):
+        # 智能体间平均， 组间最小化最大
+
+        agents_avg_cost = np.mean(costs, keepdims=True, axis=-1)
+        agents_max_cost = np.max(costs, keepdims=True, axis=-1)
+        # 智能体间优势
+        agents_adv = np.abs(costs - agents_avg_cost)
+        # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        # 实例间优势
+        # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0))
+        # 组合优势
+        act_adv = 0.25 * agents_adv + group_adv
+        agt_adv =  agents_adv + group_adv * 0.25
+
+        # 转换为tensor并放到指定的device上
+        act_adv_t = _convert_tensor(act_adv, device=self.device)
+        agt_adv_t = _convert_tensor(agt_adv,device=self.device)
+
+        # 对动作概率为零的样本进行掩码
+        mask_ = ((act_logp != 0) & (~torch.isnan(act_logp)))
+
+        # 计算动作网络的损失，mask之后加权平均
+        act_loss = (act_logp[mask_] * act_adv[mask_]).mean()
+        if agents_logp is not None:
+            # 对智能体的动作概率进行掩码
+            mask_ = ((agents_logp != 0) & (~torch.isnan(agents_logp)))
+
+            # 计算智能体的损失，mask之后加权平均
+            agents_loss = (agents_logp[mask_] * agt_adv[mask_]).mean()
+        else:
+            agents_loss = None
+
+        return act_loss, agents_loss
+
     def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
-        act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
+        if self.args.only_one_instance:
+            act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
+        else:
+            act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
         if agents_logp is not None:
             # 修改为检查 agents_loss 是否包含 NaN

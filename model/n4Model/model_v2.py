@@ -48,12 +48,12 @@ class AgentEmbedding(nn.Module):
         return agent_embed
 
 class AgentEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
+    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
         self.agent_self_att = nn.Sequential(
             *[
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
                 for _ in range(num_layers)
             ]
         )
@@ -68,10 +68,10 @@ class AgentEncoder(nn.Module):
         return agent_embed
 
 class ActionDecoder(nn.Module):
-    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
+    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0):
         super(ActionDecoder, self).__init__()
         self.agent_city_att = nn.ModuleList([
-            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim)
+            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
             for _ in range(num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -94,7 +94,8 @@ class ConflictModel(nn.Module):
         super(ConflictModel, self).__init__()
         self.city_agent_att = nn.ModuleList([
             CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
-                                use_FFN=True, hidden_size=config.conflict_deal_hidden_dim)
+                                use_FFN=True, hidden_size=config.conflict_deal_hidden_dim,
+                                dropout=config.dropout)
             for _ in range(config.conflict_deal_num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -148,13 +149,15 @@ class ActionsModel(nn.Module):
     def __init__(self, config: Config):
         super(ActionsModel, self).__init__()
         self.city_encoder = CityEncoder(2, config.city_encoder_hidden_dim, config.embed_dim,
-                                        config.city_encoder_num_heads, config.city_encoder_num_layers
+                                        config.city_encoder_num_heads, config.city_encoder_num_layers,
                                         )
         self.agent_encoder = AgentEncoder(config.agent_dim, config.agent_encoder_hidden_dim, config.embed_dim,
-                                          config.agent_encoder_num_heads, config.agent_encoder_num_layers
+                                          config.agent_encoder_num_heads, config.agent_encoder_num_layers,
+                                          dropout=config.dropout
                                           )
         self.agent_decoder = ActionDecoder(config.action_decoder_hidden_dim, config.embed_dim,
-                                           config.action_decoder_num_heads, config.action_decoder_num_layers
+                                           config.action_decoder_num_heads, config.action_decoder_num_layers,
+                                           dropout=config.dropout
                                            )
         self.city_embed = None
         self.city_embed_mean = None
