@@ -31,25 +31,32 @@ class AgentBase:
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
         self.model.init_city(graph_t)
 
-    def __get_action_logprob(self, states, masks, mode="greedy"):
-        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, {"mode": mode})
+    def __get_action_logprob(self, states, masks, mode="greedy", info = None):
+        use_conflict_model = True if info is None else info.get("use_conflict_model", True)
+        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, {"mode": mode, "use_conflict_model":use_conflict_model})
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
-        agents_dist = torch.distributions.Categorical(logits=agents_logits)
         act_logp = actions_dist.log_prob(acts)
-        agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
-        agents_logp = torch.where(agents_mask, agents_logp, 0)
-        agt_entropy = torch.where(agents_mask, agents_dist.entropy(), 0)
+
+        if agents_logits is not None:
+            agents_dist = torch.distributions.Categorical(logits=agents_logits)
+            agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
+            agents_logp = torch.where(agents_mask, agents_logp, 0)
+            agt_entropy = torch.where(agents_mask, agents_dist.entropy(), 0)
+        else:
+            agents_logp = None
+            agt_entropy = None
+
         return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy
 
-    def predict(self, states_t, masks_t):
+    def predict(self, states_t, masks_t, info = None):
         self.model.train()
         actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.__get_action_logprob(states_t, masks_t,
-                                                                                        mode="sample")
+                                                                                        mode="sample", info = info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy
 
-    def exploit(self, states_t, masks_t, mode="greedy"):
+    def exploit(self, states_t, masks_t, mode="greedy", info = None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode)
+        actions, actions_no_conflict, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info = info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __update_net(self, optim, params, loss):
@@ -81,7 +88,6 @@ class AgentBase:
         # 智能体间平均， 组间最小化最大
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
         act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
-        agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
 
         agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
         agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
@@ -103,12 +109,15 @@ class AgentBase:
 
         # 计算动作网络的损失，mask之后加权平均
         act_loss = (act_logp_8[mask_] * adv_t[mask_]).mean()
+        if agents_logp is not None:
+            agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
+            # 对智能体的动作概率进行掩码
+            mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
 
-        # 对智能体的动作概率进行掩码
-        mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
-
-        # 计算智能体的损失，mask之后加权平均
-        agents_loss = (agents_logp_8[mask_] * adv_t[mask_]).mean()
+            # 计算智能体的损失，mask之后加权平均
+            agents_loss = (agents_logp_8[mask_] * adv_t[mask_]).mean()
+        else:
+            agents_loss = None
 
         return act_loss, agents_loss
 
@@ -116,19 +125,25 @@ class AgentBase:
         self.model.train()
         act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        # 修改为检查 agents_loss 是否包含 NaN
-        if not torch.any(torch.isnan(agents_loss)):
-            agt_ent_loss = agt_ent
+        if agents_logp is not None:
+            # 修改为检查 agents_loss 是否包含 NaN
+            if not torch.any(torch.isnan(agents_loss)):
+                agt_ent_loss = agt_ent
+            else:
+                agents_loss = torch.tensor([0], device=self.device)
+                agt_ent_loss = torch.tensor([0], device=self.device)
+            # 更新损失计算，确保使用正确的变量名称
+            self.__update_net(self.optim, self.model.parameters(),
+                              act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
+            return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
         else:
-            agents_loss = torch.tensor([0], device=self.device)
-            agt_ent_loss = torch.tensor([0], device=self.device)
-        # 更新损失计算，确保使用正确的变量名称
-        self.__update_net(self.optim, self.model.parameters(),
-                          act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
-        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+            self.__update_net(self.optim, self.model.parameters(),
+                              act_loss + self.args.entropy_coef * (-act_ent_loss))
+            return act_loss.item(), 0, act_ent_loss.item(), 0
 
-    def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample"):
-        states, info = env.reset(
+
+    def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info = None):
+        states, env_info = env.reset(
             config={
                 "cities": batch_graph.shape[1],
                 "salesmen": agent_num,
@@ -137,7 +152,7 @@ class AgentBase:
             },
             graph=batch_graph
         )
-        salesmen_masks = info["salesmen_masks"]
+        salesmen_masks = env_info["salesmen_masks"]
         self.reset_graph(batch_graph)
         act_logp_list = []
         agents_logp_list = []
@@ -145,36 +160,41 @@ class AgentBase:
         agt_ent_list = []
 
         done = False
-        info = None
+        use_conflict_model = False
         while not done:
             states_t = _convert_tensor(states, device=self.device)
             salesmen_masks_t = _convert_tensor(salesmen_masks, device=self.device)
             if eval_mode:
-                acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode)
+                acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
             else:
-                acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.predict(states_t, salesmen_masks_t)
+                acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.predict(states_t, salesmen_masks_t, info)
                 act_logp_list.append(act_logp.unsqueeze(-1))
-                agents_logp_list.append(agents_logp.unsqueeze(-1))
                 act_ent_list.append(act_entropy.unsqueeze(-1))
-                agt_ent_list.append(agt_entropy.unsqueeze(-1))
-            states, r, done, info = env.step(acts_no_conflict + 1)
-            salesmen_masks = info["salesmen_masks"]
+                if agents_logp is not None:
+                    use_conflict_model = True
+                    agents_logp_list.append(agents_logp.unsqueeze(-1))
+                    agt_ent_list.append(agt_entropy.unsqueeze(-1))
+            states, r, done, env_info = env.step(acts_no_conflict + 1)
+            salesmen_masks = env_info["salesmen_masks"]
 
         if eval_mode:
-            return info
+            return env_info
         else:
             act_logp = torch.cat(act_logp_list, dim=-1)
-            agents_logp = torch.cat(agents_logp_list, dim=-1)
             act_ent = torch.cat(act_ent_list, dim=-1).mean()
-            agt_ent = torch.cat(agt_ent_list, dim=-1)
-            agt_ent = agt_ent.sum() / agt_ent.count_nonzero()
-
-            # 将logp为0的部分权重为0
             act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
-            agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
-
             act_likelihood = torch.sum(act_logp, dim=-1)
-            agents_likelihood = torch.sum(agents_logp, dim=-1)
+
+            if use_conflict_model:
+                agents_logp = torch.cat(agents_logp_list, dim=-1)
+                agt_ent = torch.cat(agt_ent_list, dim=-1)
+                agt_ent = agt_ent.sum() / agt_ent.count_nonzero()
+                agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
+                agents_likelihood = torch.sum(agents_logp, dim=-1)
+            else:
+                agents_likelihood = None
+                agt_ent = None
+
             # act_likelihood = torch.sum(act_logp, dim=-1) / act_logp.count_nonzero(dim = -1)
             # agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
             return (
@@ -182,12 +202,12 @@ class AgentBase:
                 agents_likelihood,
                 act_ent,
                 agt_ent,
-                info["costs"]
+                env_info["costs"]
             )
 
-    def eval_episode(self, env, batch_graph, agent_num, exploit_mode="sample"):
+    def eval_episode(self, env, batch_graph, agent_num, exploit_mode="sample", info=None):
         with torch.no_grad():
-            eval_info = self.run_batch_episode(env, batch_graph, agent_num, eval_mode=True, exploit_mode=exploit_mode)
+            eval_info = self.run_batch_episode(env, batch_graph, agent_num, eval_mode=True, exploit_mode=exploit_mode, info = info)
             cost = np.max(eval_info["costs"], axis=1)
             trajectory = eval_info["trajectories"]
             return cost, trajectory

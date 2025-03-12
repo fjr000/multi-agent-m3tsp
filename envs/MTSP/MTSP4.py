@@ -276,6 +276,43 @@ class MTSPEnv:
 
         return new_actions
 
+    def deal_conflict_batch(self, actions: np.ndarray):
+        """
+        实现的动作冲突解决函数，跳过动作值为1的冲突
+
+        参数:
+        actions: np.ndarray, 形状为[B,A], B为批次数, A为智能体数量
+        costs: np.ndarray, 形状为[B,A], 表示每个批次每个智能体的开销
+
+        返回:
+        resolved_actions: np.ndarray, 形状为[B,A], 解决冲突后的动作
+        """
+        B, A = actions.shape
+        # 初始化结果数组为原始动作值
+        resolved_actions = actions.copy()
+
+        for b, acts in enumerate(resolved_actions):
+            unique_act, unique_count = np.unique(acts, return_counts=True)
+            for a, c in zip(unique_act, unique_count):
+                if a <=1 or c == 1:
+                    pass
+                else:
+                    idx = np.argwhere(acts == a)
+                    min_cost = np.inf
+                    min_id = -1
+                    for i in idx:
+                        if self.costs[b,i] < min_cost:
+                            min_cost = self.costs[b,i]
+                            min_id = i
+                    for i in idx:
+                        if i == min_id:
+                            acts[i] = a
+                        else:
+                            acts[i] = self.trajectories[b,i,self.step_count]
+        return resolved_actions
+
+
+
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
         cur_pos = self.trajectories[:, :, self.step_count]
@@ -300,6 +337,7 @@ class MTSPEnv:
 
         try:
             actions = self.reset_actions(ori_actions)
+            actions = self.deal_conflict_batch(actions)
             self.actions = actions
             self.step_count += 1
             self.trajectories[..., self.step_count] = actions

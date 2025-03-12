@@ -196,6 +196,7 @@ class Model(nn.Module):
         self.conflict_model = ConflictModel(config)
         initialize_weights(self)
         self.step = 0
+        self.cfg = config
 
 
     def init_city(self, city):
@@ -204,6 +205,7 @@ class Model(nn.Module):
 
     def forward(self, agent, mask, info = None):
         mode = "greedy" if info is None else info.get("mode", "greedy")
+        use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         actions_logits, agents_embed = self.actions_model(agent, mask, info)
         acts = None
         if mode == "greedy":
@@ -216,16 +218,20 @@ class Model(nn.Module):
             acts = torch.distributions.Categorical(logits=actions_logits).sample()
         else:
             raise NotImplementedError
+        if use_conflict_model:
+            agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
 
-        agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
+            agents = agents_logits.argmax(dim=-1)
 
-        agents = agents_logits.argmax(dim=-1)
-
-        # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
-        pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
-        masks = torch.logical_or(agents == pos, acts == 0)
-        del pos
-        acts_no_conflict = torch.where(masks, acts, -1)
+            # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
+            pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
+            masks = torch.logical_or(agents == pos, acts == 0)
+            del pos
+            acts_no_conflict = torch.where(masks, acts, -1)
+        else:
+            agents_logits = None
+            acts_no_conflict = acts
+            masks = None
         self.step += 1
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
 

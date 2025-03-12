@@ -46,6 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("--agent_id", type=int, default=240000)
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
 
     args = parser.parse_args()
 
@@ -71,7 +72,14 @@ if __name__ == "__main__":
         ed = time.time_ns()
         greedy_cost = np.mean(cost)
         greedy_time = (ed- st) / 1e9
+        st = time.time_ns()
+        no_conflict_cost,no_conflict_greedy_trajectory =  agent.eval_episode(env, eval_graph,agent_nums, "greedy", {"use_conflict_model":False})
+        ed = time.time_ns()
+        no_conflict_greedy_cost = np.mean(no_conflict_cost)
+        no_conflict_greedy_time = (ed- st) / 1e9
+
         print(f"greedy_cost:{greedy_cost},greedy_time:{(ed- st) / 1e9}")
+        print(f"no_conflict_greedy_cost:{greedy_cost},no_conflict_greedy_time:{(ed- st) / 1e9}")
 
         st = time.time_ns()
         min_sample_costs_list = []
