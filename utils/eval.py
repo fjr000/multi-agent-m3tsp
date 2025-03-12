@@ -39,11 +39,11 @@ if __name__ == "__main__":
     parser.add_argument("--returns_norm", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=20)
-    parser.add_argument("--city_nums", type=int, default=50)
+    parser.add_argument("--batch_size", type=float, default=1)
+    parser.add_argument("--city_nums", type=int, default=100)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=90000)
+    parser.add_argument("--agent_id", type=int, default=100000)
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
@@ -104,11 +104,14 @@ if __name__ == "__main__":
 
         if args.batch_size == 1:
             greedy_traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)[0]
+            no_conflict_greedy_traj = env.compress_adjacent_duplicates_optimized(no_conflict_greedy_trajectory)[0]
             idx = np.argmin(batch_cost, axis=0).item()
             min_sample_traj = trajectory[idx:idx+1]
             sample_traj = env.compress_adjacent_duplicates_optimized(min_sample_traj)[0]
-            env.draw_multi(eval_graph[0],[ortools_cost_mean, greedy_cost, min_sample_cost_mean], [ortools_trajectory, greedy_traj, sample_traj],
-                           [ortools_time, greedy_time, sample_time],["or_tools", "greedy", "sample"])
+            env.draw_multi(eval_graph[0],[ortools_cost_mean, greedy_cost.item(), no_conflict_cost.item(), min_sample_cost_mean],
+                           [ortools_trajectory, greedy_traj, no_conflict_greedy_traj, sample_traj],
+                           [ortools_time, greedy_time, no_conflict_greedy_time, sample_time],
+                           ["or_tools", "greedy", "no_conflict", "sample"])
 
         traj = env.compress_adjacent_duplicates_optimized(trajectory)
         gap = ((greedy_cost - ortools_cost_mean) / ortools_cost_mean).item()*100
