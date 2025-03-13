@@ -69,7 +69,7 @@ if __name__ == "__main__":
     from EvalTools import EvalTools
     for i in (range(100_000_000)):
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_nums, agent, env)
-        no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(graph, agent_nums, agent, env,{"use_conflict_model":args.use_conflict_model})
+        no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(graph, agent_nums, agent, env,{"use_conflict_model":False})
         sample_cost, sample_traj ,sample_time = EvalTools.EvalSample(graph, agent_nums, agent, env)
         ortools_cost, ortools_traj, ortools_time = EvalTools.EvalOrTools(graph, agent_nums)
         LKH_cost, LKH_traj, LKH_time = EvalTools.EvalLKH3(graph, agent_nums)
