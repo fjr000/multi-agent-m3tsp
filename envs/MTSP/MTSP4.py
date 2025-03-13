@@ -191,10 +191,10 @@ class MTSPEnv:
         repeat_masks = np.tile(self.mask[:, None, :], (1, A, 1))
         # repeat_masks = self.mask[:,None,:].repeat(A,axis = 1)
 
-        # 处理停留限制 (使用位运算加速)
-        cur_pos = self.trajectories[..., self.step_count]-1
-        stay_update_mask = (self.remain_stay_still_log < self.stay_still_limit) & (cur_pos != 0)
-        repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
+        # # 处理停留限制 (使用位运算加速)
+        # cur_pos = self.trajectories[..., self.step_count]-1
+        # stay_update_mask = (self.remain_stay_still_log < self.stay_still_limit) & (cur_pos != 0)
+        # repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
 
         active_agents = self.traj_stages == 1
         batch_indices = np.arange(B)[np.sum(active_agents, axis=-1) > 1][:, np.newaxis]
@@ -206,6 +206,10 @@ class MTSPEnv:
             min_cost_idx =  np.nanargmin(masked_cost_sl, axis=-1)
             repeat_masks[batch_indices, :, 0] = 1
             repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
+            # # 仅不允许最大开销的智能体留在原地
+            # cur_pos = self.trajectories[..., self.step_count]-1
+            # x_cur = cur_pos[batch_indices.squeeze(1), max_cost_idx]
+            # repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
         elif self.env_masks_mode == 1:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
@@ -216,6 +220,11 @@ class MTSPEnv:
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0]= 0
             repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
+            # 仅允许最大开销的智能体留在原地
+            cur_pos = self.trajectories[..., self.step_count]-1
+            x_max_cur_pos = cur_pos[batch_indices.squeeze(1), max_cost_idx]
+            repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
+            # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
         else:
             raise NotImplementedError
 
@@ -513,7 +522,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=5)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 
