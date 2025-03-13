@@ -20,7 +20,7 @@ class AgentEmbedding(nn.Module):
         self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
         self.distance_cost_embed = nn.Linear(4, self.embed_dim)
         self.next_cost_embed = nn.Linear(4, self.embed_dim)
-        self.problem_scale_embed = nn.Linear(3, self.embed_dim)
+        self.problem_scale_embed = nn.Linear(2, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
         self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)

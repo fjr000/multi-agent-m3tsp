@@ -141,16 +141,11 @@ class MTSPEnv:
         average_distances_depot = np.nanmean(masked_distances_depot, axis = 2)
         max_distances_depot = np.nanmax(masked_distances_depot, axis=2)
         min_distances_depot = np.nanmin(masked_distances_depot, axis=2)
-        # masked_distances = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists, np.nan)
-        # average_distances = np.nanmean(masked_distances, axis=2)
-        # max_distances = np.nanmax(masked_distances, axis=2)
-        # min_distances = np.nanmin(masked_distances, axis=2)
 
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
-        remain_city_ratio = (remain_cities_num / self.cities)  # remain city ratio
-        remain_salesmen_city_ratio = remain_salesmen_num / (remain_cities_num + remain_salesmen_num)
+        remain_salesmen_city_ratio = remain_cities_num / max(remain_salesmen_num,1) / self.cities
 
         # rank = np.argsort(self.costs, axis=1) / self.salesmen
         sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
@@ -162,7 +157,7 @@ class MTSPEnv:
         self.states[..., 0] = depot_idx
         self.states[..., 1] = cur_pos
 
-        self.states[..., 2] = cur_cost / self.distance_scale
+        self.states[..., 2] = cur_cost
         self.states[..., 3] = diff_max_cost
         self.states[..., 4] = diff_min_cost
         self.states[..., 5] = avg_diff_cost
@@ -172,9 +167,8 @@ class MTSPEnv:
         self.states[..., 8] = max_distances_depot
         self.states[..., 9] = min_distances_depot
 
-        self.states[..., 10] = remain_city_ratio.repeat(A,axis = -1)
-        self.states[..., 11] = remain_salesmen_city_ratio.repeat(A,axis = -1)
-        self.states[..., 12] = np.clip(self.traj_stages, a_min=0, a_max=2)
+        self.states[..., 10] = remain_salesmen_city_ratio.repeat(A,axis = -1)
+        self.states[..., 11] = np.clip(self.traj_stages, a_min=0, a_max=2) - 1
 
         # self.states[..., 9] = 1 - rank
 

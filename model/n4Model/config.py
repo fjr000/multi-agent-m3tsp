@@ -5,10 +5,10 @@ class Config(object):
 
     city_encoder_hidden_dim = 128
     city_encoder_num_layers = 3
-    city_encoder_num_heads = 4
+    city_encoder_num_heads = 8
 
     agent_encoder_hidden_dim = 128
-    agent_encoder_num_layers = 2
+    agent_encoder_num_layers = 1
     agent_encoder_num_heads = 4
 
     action_decoder_hidden_dim = 128
