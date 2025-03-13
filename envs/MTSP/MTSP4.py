@@ -45,7 +45,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 13
+        self.dim = 12
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -145,7 +145,7 @@ class MTSPEnv:
         remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
-        remain_salesmen_city_ratio = remain_cities_num / max(remain_salesmen_num,1) / self.cities
+        remain_salesmen_city_ratio = remain_cities_num / np.maximum(remain_salesmen_num,1) / self.cities
 
         # rank = np.argsort(self.costs, axis=1) / self.salesmen
         sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
