@@ -201,9 +201,9 @@ class MTSPEnv:
 
         if self.env_masks_mode == 0:
             # 返回仓库优化 (新增阶段0排除)
-            masked_cost = np.where(active_agents, self.costs, np.nan)
+            masked_cost = np.where(active_agents, self.costs, np.inf)
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
-            min_cost_idx =  np.nanargmin(masked_cost_sl, axis=-1)
+            min_cost_idx =  np.argmin(masked_cost_sl, axis=-1)
             repeat_masks[batch_indices, :, 0] = 1
             repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
             # # 仅不允许最大开销的智能体留在原地
@@ -225,9 +225,9 @@ class MTSPEnv:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
             # 选出处于0-1阶段的智能体
-            masked_cost = np.where(active_agents, self.costs, np.nan)
+            masked_cost = np.where(active_agents, self.costs, -np.inf)
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
-            max_cost_idx = np.nanargmax(masked_cost_sl, axis=-1)
+            max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0]= 0
             repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1

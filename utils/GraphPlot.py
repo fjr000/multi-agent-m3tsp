@@ -117,6 +117,9 @@ class GraphPlot:
         # Adjust layout for better spacing
         fig_combined.tight_layout()
 
+        for fig in figs:
+            plt.close(fig)
+
         return fig_combined
 
     def plot_format(self, ax, title=None):

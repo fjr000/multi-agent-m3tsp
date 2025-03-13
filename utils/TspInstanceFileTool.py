@@ -71,9 +71,9 @@ class TspInstanceFileTool(object):
             print(f"File \"{filename}\" not found")
 
     @staticmethod
-    def writeLKH3MTSPPar(filename,tsp_filename, salesmen = 1, depot = 1, output_filename=None):
+    def writeLKH3MTSPPar(filename,tsp_filename, salesmen = 1, depot = 1, output_filename=None, time_limit = 60):
         if output_filename is None:
-            output_filename = tsp_filename.split(".")[0] + ".tour"
+            output_filename = tsp_filename.split(".")[-2] + ".tour"
         with open(filename, 'w') as f:
             f.write("SPECIAL\n")
             f.write(f"PROBLEM_FILE = {tsp_filename}\n")
@@ -84,6 +84,7 @@ class TspInstanceFileTool(object):
             f.write(f"DEPOT = {depot}\n")
             f.write(f"INITIAL_TOUR_ALGORITHM = MTSP\n")
             f.write("MTSP_OBJECTIVE = MINMAX\n")
+            f.write(f"TIME_LIMIT = {time_limit}\n")
             f.write(f"MTSP_SOLUTION_FILE = {output_filename}\n")
 
 

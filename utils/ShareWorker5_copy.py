@@ -19,6 +19,7 @@ import argparse
 from envs.MTSP.MTSP4 import MTSPEnv
 from algorithm.DNN5.AgentV1 import AgentV1 as Agent
 import tqdm
+from utils.EvalTools import EvalTools
 
 
 if __name__ == "__main__":
@@ -94,21 +95,21 @@ if __name__ == "__main__":
 
         if ((i+1)%args.eval_interval) == 0:
             eval_graph = graphG.generate(1,city_nums)
-            ortools_trajectory, ortools_cost, used_time = ortools_solve_mtsp(eval_graph, agent_num, 10000)
+            LKH3_cost, LKH3_traj, LKH3_time = EvalTools.EvalLKH3(eval_graph, agent_num)
             cost,trajectory = agent.eval_episode(env, eval_graph,agent_num, "greedy",{"use_conflict_model":True})
             no_conflict_cost,no_conflict_trajectory = agent.eval_episode(env, eval_graph,agent_num, "greedy", {"use_conflict_model":False})
             traj = env.compress_adjacent_duplicates_optimized(trajectory)
             no_conflict_traj = env.compress_adjacent_duplicates_optimized(no_conflict_trajectory)
-            gap = ((cost - ortools_cost) / ortools_cost).item()*100
-            no_conflict_gap = ((no_conflict_cost - ortools_cost) / ortools_cost).item()*100
+            gap = ((cost - LKH3_cost) / LKH3_cost).item()*100
+            no_conflict_gap = ((no_conflict_cost - LKH3_cost) / LKH3_cost).item()*100
             # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
             if gap  < 0  or no_conflict_gap < 0:
                 env.draw_multi(
                     eval_graph[0],
-                    [cost.item(), no_conflict_cost.item(), ortools_cost],
-                    [traj[0], no_conflict_traj[0], ortools_trajectory],
+                    [cost.item(), no_conflict_cost.item(), LKH3_cost],
+                    [traj[0], no_conflict_traj[0], LKH3_traj],
                     [0,0,0],
-                    ["greedy","no_conflict_model",'or_tools']
+                    ["greedy","no_conflict_model",'LKH3']
                 )
             CC.update_result(gap / 100)
             writer.add_scalar("eval/gap", gap, i)
@@ -121,7 +122,7 @@ if __name__ == "__main__":
                   f"agt_ent_loss:{agt_ent_loss:.5f},"
                   f"costs:{cost.item():.5f},"
                   f"no_conflict_costs:{no_conflict_cost.item():.5f},"
-                  f"or_costs:{ortools_cost:.5f},"
+                  f"or_costs:{LKH3_cost:.5f},"
                   f"gap:{ gap:.5f}%")
 
         if (i+1)%args.save_model_interval == 0:
