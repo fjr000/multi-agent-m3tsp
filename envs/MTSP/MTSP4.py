@@ -207,6 +207,17 @@ class MTSPEnv:
             repeat_masks[batch_indices, :, 0] = 1
             repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
             # # 仅不允许最大开销的智能体留在原地
+            # 允许所有激活智能体留在原地
+            cur_pos = self.trajectories[..., self.step_count]-1
+            for b_idx, min_idx in zip(batch_indices.squeeze(1), min_cost_idx):
+                active_agts = active_agents[b_idx]
+                for agent_idx in range(active_agents.shape[1]):
+                    if active_agts[agent_idx] and agent_idx != min_idx:
+                        pos = cur_pos[b_idx, agent_idx]
+                        repeat_masks[b_idx, agent_idx, pos] = 1
+                    else:
+                        pos = cur_pos[b_idx, agent_idx]
+                        repeat_masks[b_idx, agent_idx, pos] = 0
             # cur_pos = self.trajectories[..., self.step_count]-1
             # x_cur = cur_pos[batch_indices.squeeze(1), max_cost_idx]
             # repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
@@ -522,7 +533,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=5)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 

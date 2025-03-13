@@ -22,6 +22,7 @@ class AgentBase:
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min", patience=10000 / args.eval_interval, factor= 0.99,min_lr=2e-5)
         self.model.to(self.device)
+        self.train_count = 0
 
     def reset_graph(self, graph):
         """
@@ -158,6 +159,7 @@ class AgentBase:
 
     def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
+        self.train_count +=1
         if self.args.only_one_instance:
             act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
         else:
@@ -171,14 +173,19 @@ class AgentBase:
                 agents_loss = torch.tensor([0], device=self.device)
                 agt_ent_loss = torch.tensor([0], device=self.device)
             # 更新损失计算，确保使用正确的变量名称
-            self.__update_net(self.optim, self.model.parameters(),
-                              act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss))
-            return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+            loss = act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss)
+            loss.backward()
         else:
-            self.__update_net(self.optim, self.model.parameters(),
-                              act_loss + self.args.entropy_coef * (-act_ent_loss))
-            return act_loss.item(), 0, act_ent_loss.item(), 0
+            loss = act_loss + self.args.entropy_coef * (-act_ent_loss)
+            loss.backward()
+            agt_ent_loss = torch.tensor([0], device=self.device)
+            agents_loss = torch.tensor([0], device=self.device)
 
+        if self.train_count % self.args.accumulation_steps == 0:
+            nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
+            self.optim.step()
+            self.optim.zero_grad()
+        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info = None):
         states, env_info = env.reset(
