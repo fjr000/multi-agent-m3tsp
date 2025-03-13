@@ -174,9 +174,11 @@ class AgentBase:
                 agt_ent_loss = torch.tensor([0], device=self.device)
             # 更新损失计算，确保使用正确的变量名称
             loss = act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss)
+            loss /= self.args.accumulation_steps
             loss.backward()
         else:
             loss = act_loss + self.args.entropy_coef * (-act_ent_loss)
+            loss /= self.args.accumulation_steps
             loss.backward()
             agt_ent_loss = torch.tensor([0], device=self.device)
             agents_loss = torch.tensor([0], device=self.device)
