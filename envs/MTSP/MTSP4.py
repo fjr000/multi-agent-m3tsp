@@ -223,7 +223,7 @@ class MTSPEnv:
             masked_cost_sl = masked_cost[batch_indices.squeeze(1)]
             max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
-            repeat_masks[batch_indices, :, 0]= 0
+            repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
             repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
             # 仅允许最大开销的智能体留在原地
             cur_pos = self.trajectories[..., self.step_count]-1
@@ -232,16 +232,19 @@ class MTSPEnv:
             # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
         else:
             raise NotImplementedError
-
-        # 未触发阶段：城市0的mask为0
-        repeat_masks[self.traj_stages == 0, 0] = 0
+        #
+        # # 未触发阶段：城市0的mask为0
+        # repeat_masks[:,:,0][self.traj_stages == 0] = 0
 
         # 阶段>=2：全掩码关闭但保留depot
-        stage_2 = self.traj_stages >= 2
-        repeat_masks[stage_2, 1:] = 0
-        repeat_masks[stage_2, 0] = 1
+        stage_2 = self.traj_stages >= 2  # 维度 [B,A]
+        repeat_masks[stage_2, 1:] = 0  # 对于stage_2为True的位置，将最后维度的1:之后位置置为0
+        repeat_masks[stage_2, 0] = 1  # 对于stage_2为True的位置，将最后维度的0位置置为1
 
         self.salesmen_mask = repeat_masks
+        allB = np.all(~self.salesmen_mask, axis=-1)
+        idx = np.argwhere(allB)
+        assert len(idx)==0, "all actions is ban"
         return self.salesmen_mask
 
     def reset(self, config=None, graph=None):
@@ -422,10 +425,10 @@ class MTSPEnv:
             "salesmen_masks": self._get_salesmen_masks(),
         }
 
-        # self.ori_actions_list.append(ori_actions)
-        # self.actions_list.append(actions)
+        self.ori_actions_list.append(ori_actions)
+        self.actions_list.append(actions)
         self.salesmen_masks_list.append(info["salesmen_masks"])
-        # self.traj_stage_list.append(self.traj_stages)
+        self.traj_stage_list.append(self.traj_stages)
 
         if self.done:
 
@@ -523,11 +526,11 @@ if __name__ == '__main__':
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=2)
-    parser.add_argument("--city_nums", type=int, default=5)
+    parser.add_argument("--batch_size", type=float, default=128)
+    parser.add_argument("--city_nums", type=int, default=4)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     args = parser.parse_args()
 
