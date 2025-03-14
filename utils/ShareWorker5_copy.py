@@ -79,6 +79,8 @@ if __name__ == "__main__":
     writer.add_text("agent_config", str(args), 0)
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
+    for lr in agent.optim.param_groups:
+        lr["lr"] = args.lr
     from CourseController import CourseController
 
     CC = CourseController()

@@ -21,6 +21,7 @@ class AgentV1(AgentBase):
     def load_model(self, id):
         filename = f"n5AgentV1_{id}"
         super(AgentV1, self)._load_model(self.args.model_dir, filename)
+        
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
