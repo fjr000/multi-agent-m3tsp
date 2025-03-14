@@ -101,7 +101,7 @@ class MTSPEnv:
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
-        self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float64)
+        self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float32)
         self.mask = np.ones((self.problem_size, self.cities,), dtype=np.bool_)
         self.mask[:,0] = 0
         self.step_limit = self.cities
@@ -116,10 +116,6 @@ class MTSPEnv:
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
-        self.ori_actions_list = []
-        self.actions_list = []
-        self.salesmen_masks_list= []
-        self.traj_stage_list= []
         self.distance_scale = self.cities / self.salesmen
 
     def _get_salesmen_states(self):

@@ -239,14 +239,15 @@ class AgentBase:
         else:
             act_logp = torch.cat(act_logp_list, dim=-1)
             act_ent = torch.cat(act_ent_list, dim=-1).mean()
-            act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
+            act_ent = act_ent.sum() / act_ent.count_nonzero()
+            # act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
             act_likelihood = torch.sum(act_logp, dim=-1)
 
             if use_conflict_model:
                 agents_logp = torch.cat(agents_logp_list, dim=-1)
                 agt_ent = torch.cat(agt_ent_list, dim=-1)
                 agt_ent = agt_ent.sum() / agt_ent.count_nonzero()
-                agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
+                # agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
                 agents_likelihood = torch.sum(agents_logp, dim=-1)
             else:
                 agents_likelihood = None

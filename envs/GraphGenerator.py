@@ -17,7 +17,7 @@ class GraphGenerator:
         N = self.num if num is None else num
         D = self.dim if dim is None else dim
 
-        self.last_data = np.random.rand(B, N, D)
+        self.last_data = np.random.rand(B, N, D).astype(np.float32)
         self.last_distance_matrix = None
         return self.last_data
 
