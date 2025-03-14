@@ -30,6 +30,7 @@ class MTSPEnv:
     """
 
     def __init__(self, config: Dict = None):
+        self.stage_2 = None
         self.cur_pos = None
         self.cities = 50
         self.salesmen = 5
@@ -106,9 +107,12 @@ class MTSPEnv:
         self.step_limit = self.cities
         self.remain_stay_still_log = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32)
         self.traj_stages = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
+        self.stage_2 = self.traj_stages >= 2
         self.dones_step = np.zeros((self.problem_size, self.salesmen), dtype=np.int32)
         self.dones = np.zeros(self.problem_size, dtype=np.bool_)
         self.states = np.empty((self.problem_size,self.salesmen, self.dim), dtype=np.float32)
+        self.batch_ar = np.arange(self.problem_size)
+        self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
@@ -127,7 +131,7 @@ class MTSPEnv:
         depot_idx = 0
 
         # 生成批量索引 [B, A]
-        batch_indices = np.arange(B)[:, None]  # [B, 1]
+        batch_indices = self.batch_ar[:, None]  # [B, 1]
         dis_depot = self.graph_matrix[batch_indices,self.cur_pos,depot_idx]  # [B,A]
         cur_cost = self.costs  # [B,A]
         max_cost = np.max(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
@@ -144,7 +148,7 @@ class MTSPEnv:
         max_distances_depot = np.nanmax(masked_distances_depot, axis=2)
         min_distances_depot = np.nanmin(masked_distances_depot, axis=2)
 
-        remain_salesmen_num = np.count_nonzero(self.traj_stages < 2, keepdims=True, axis=1)
+        remain_salesmen_num = self.salesmen - np.count_nonzero(self.stage_2,keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
         remain_salesmen_city_ratio = remain_cities_num / np.maximum(remain_salesmen_num,1) / self.cities
@@ -193,7 +197,7 @@ class MTSPEnv:
         # repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
 
         active_agents = self.traj_stages == 1
-        batch_indices = np.arange(B)[np.sum(active_agents, axis=-1) > 1][:, np.newaxis]
+        batch_indices = self.batch_ar[np.sum(active_agents, axis=-1) > 1][:, np.newaxis]
 
         if self.env_masks_mode == 0:
             # 返回仓库优化 (新增阶段0排除)
@@ -237,14 +241,13 @@ class MTSPEnv:
         # repeat_masks[:,:,0][self.traj_stages == 0] = 0
 
         # 阶段>=2：全掩码关闭但保留depot
-        stage_2 = self.traj_stages >= 2  # 维度 [B,A]
-        repeat_masks[stage_2, 1:] = 0  # 对于stage_2为True的位置，将最后维度的1:之后位置置为0
-        repeat_masks[stage_2, 0] = 1  # 对于stage_2为True的位置，将最后维度的0位置置为1
+        repeat_masks[self.stage_2, 1:] = 0  # 对于stage_2为True的位置，将最后维度的1:之后位置置为0
+        repeat_masks[self.stage_2, 0] = 1  # 对于stage_2为True的位置，将最后维度的0位置置为1
 
         self.salesmen_mask = repeat_masks
-        allB = np.all(~self.salesmen_mask, axis=-1)
-        idx = np.argwhere(allB)
-        assert len(idx)==0, "all actions is ban"
+        # allB = np.all(~self.salesmen_mask, axis=-1)
+        # idx = np.argwhere(allB)
+        # assert len(idx)==0, "all actions is ban"
         return self.salesmen_mask
 
     def reset(self, config=None, graph=None):
@@ -263,7 +266,7 @@ class MTSPEnv:
         return self._get_salesmen_states(), env_info
 
     def _get_reward(self):
-        self.dones = np.all(self.traj_stages >=2, axis=1)
+        self.dones = np.all(self.stage_2, axis=1)
         self.done = np.all(self.dones, axis=0)
         # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
         self.rewards = np.where(self.dones, -np.max(self.costs, axis=1), 0)
@@ -358,18 +361,18 @@ class MTSPEnv:
         self.step_count += 1
         self.trajectories[..., self.step_count] = actions
         # 生成行索引 [B*A]
-        batch_indices = np.repeat(np.arange(self.problem_size), self.salesmen)
+        self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
 
         # 展平列索引 [B*A]
         col_indices = actions.ravel()-1
         # 批量置零操作
-        self.mask[batch_indices, col_indices] = 0
+        self.mask[self.batch_salesmen_ar, col_indices] = 0
 
         last_pos = self.trajectories[..., self.step_count-1]-1
         self.cur_pos = self.trajectories[...,self.step_count]-1
 
         self.costs += self.graph_matrix[
-            np.arange(self.problem_size)[:,None],
+            self.batch_ar[:, None],
             last_pos,
             self.cur_pos,
         ]
@@ -389,18 +392,20 @@ class MTSPEnv:
             self.traj_stages  # 否则保持原值
         )
 
-        # 找出需要处理的旅行商 [B, A]
-        need_process = (
-                batch_complete[:, None] &  # 批次完成标记
-                (self.traj_stages == 0)    # 未出发状态
-        )
-
-        # 批量更新轨迹和状态
-        if np.any(need_process):
-            # 更新状态
-            self.traj_stages[need_process] = 2
+        # # 找出需要处理的旅行商 [B, A]
+        # need_process = (
+        #         batch_complete[:, None] &  # 批次完成标记
+        #         (self.traj_stages == 0)    # 未出发状态
+        # )
+        #
+        # # 批量更新轨迹和状态
+        # if np.any(need_process):
+        #     # 更新状态
+        #     self.traj_stages[need_process] = 1
 
         self.mask[batch_complete,0] =1
+
+        self.stage_2 = self.traj_stages >= 2
 
         self._get_reward()
 
@@ -420,9 +425,15 @@ class MTSPEnv:
             # ca = self.compress_array()
             # t = self.convert_to_list(ca)
 
+            self.costs += self.graph_matrix[
+                self.batch_ar[:, None],
+                np.zeros_like(self.cur_pos),
+                self.cur_pos,
+            ]
+
             info.update(
                 {
-                    "trajectories": self.trajectories[...,:self.step_count+1],
+                    "trajectories": self.trajectories[...,:self.step_count+2],
                     "costs": self.costs,
                 }
             )
