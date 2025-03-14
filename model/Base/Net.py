@@ -42,15 +42,15 @@ def make_fc_layer(in_features: int, out_features: int, use_bias=True, layer_norm
 
 
 class SkipConnection(nn.Module):
-
     def __init__(self, module):
         super(SkipConnection, self).__init__()
         self.module = module
-        self.alpha = nn.Parameter(torch.Tensor([0.5]))
 
-    def forward(self, input):
-        module_out = self.module(input)
-        return input + module_out * self.alpha
+    def forward(self, inputs, masks = None):
+        if masks is not None:
+            return inputs + self.module(inputs, masks)
+        else:
+            return inputs + self.module(inputs)
 
 
 class MLP(nn.Module):
@@ -83,8 +83,8 @@ class MultiHeadAttention(nn.Module):
         super(MultiHeadAttention, self).__init__()
         self.layer = nn.MultiheadAttention(embedding_dim, n_heads, dropout = dropout, batch_first = True)
 
-    def forward(self, x):
-        out,_ = self.layer(x, x, x)
+    def forward(self, x, attn_mask = None):
+        out,_ = self.layer(x, x, x, attn_mask = attn_mask)
         return out
 
 class MultiHeadAttentionLayer(nn.Module):
@@ -97,30 +97,33 @@ class MultiHeadAttentionLayer(nn.Module):
             normalization = [nn.LayerNorm(embedding_dim)]
         else:
             normalization = []
-        self.layers = nn.Sequential(
-            SkipConnection(
-                MultiHeadAttention(
-                    embedding_dim,
-                    n_heads,
-                    dropout=dropout
+
+        self.attention = SkipConnection(
+                    MultiHeadAttention(
+                        embedding_dim,
+                        n_heads,
+                        dropout=dropout
+                    )
                 )
-            ),
 
-            *normalization,
+        self.norm1 = nn.LayerNorm(embedding_dim)
 
-            SkipConnection(
-                nn.Sequential(
-                    nn.Linear(embedding_dim, hidden_dim),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dim, embedding_dim)
+        self.mlp = SkipConnection(
+                    nn.Sequential(
+                        nn.Linear(embedding_dim, hidden_dim),
+                        nn.ReLU(),
+                        nn.Linear(hidden_dim, embedding_dim)
+                    )
                 )
-            ),
 
-            *normalization,
-        )
+        self.norm2 = nn.LayerNorm(embedding_dim)
 
-    def forward(self, x):
-        return self.layers(x)
+    def forward(self, x, masks = None):
+        o = self.attention(x, masks)
+        o = self.norm1(o)
+        o = self.mlp(o, None)
+        o = self.norm2(o)
+        return o
 
 
 class SingleHeadAttention(nn.Module):

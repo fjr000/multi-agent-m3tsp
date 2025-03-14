@@ -36,8 +36,10 @@ class AgentBase:
 
     def __get_action_logprob(self, states, masks, mode="greedy", info=None):
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
+        masks_in_salesmen_t = None if info is None else info.get("masks_in_salesmen", None)
         actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, {"mode": mode,
-                                                                                                        "use_conflict_model": use_conflict_model})
+                                                                                                        "use_conflict_model": use_conflict_model,
+                                                                                                        "masks_in_salesmen":masks_in_salesmen_t})
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
@@ -208,6 +210,8 @@ class AgentBase:
             graph=batch_graph
         )
         salesmen_masks = env_info["salesmen_masks"]
+        masks_in_salesmen = env_info["masks_in_salesmen"]
+
         self.reset_graph(batch_graph)
         act_logp_list = []
         agents_logp_list = []
@@ -219,6 +223,10 @@ class AgentBase:
         while not done:
             states_t = _convert_tensor(states, device=self.device)
             salesmen_masks_t = _convert_tensor(salesmen_masks, device=self.device)
+            masks_in_salesmen_t = _convert_tensor(masks_in_salesmen, device=self.device)
+            info.update({
+                "masks_in_salesmen":masks_in_salesmen_t
+            })
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
             else:
@@ -233,6 +241,7 @@ class AgentBase:
                     agt_ent_list.append(agt_entropy.unsqueeze(-1))
             states, r, done, env_info = env.step(acts_no_conflict + 1)
             salesmen_masks = env_info["salesmen_masks"]
+            masks_in_salesmen = env_info["masks_in_salesmen"]
 
         if eval_mode:
             return env_info

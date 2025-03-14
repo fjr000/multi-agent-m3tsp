@@ -256,7 +256,8 @@ class MTSPEnv:
             "salesmen": self.salesmen,
             "cities": self.cities,
             "mask": self.mask,
-            "salesmen_masks": self._get_salesmen_masks()
+            "salesmen_masks": self._get_salesmen_masks(),
+            "masks_in_salesmen": self._get_masks_in_salesmen(),
         }
 
         return self._get_salesmen_states(), env_info
@@ -327,7 +328,22 @@ class MTSPEnv:
                             acts[i] = self.trajectories[b,i,self.step_count]
         return resolved_actions
 
+    def _get_masks_in_salesmen(self):
+        B, A = self.stage_2.shape
+        global_invert = ~self.stage_2  # Shape [B, A]
+        self.masks_in_salesmen = np.zeros((B, A, A), dtype=bool)
 
+        # 处理False的情况
+        # 找到所有批次和代理中为False的位置
+        false_batch, false_agents = np.where(global_invert)
+        # 对于每个这样的位置，设置对应的行为global_invert的对应批次
+        self.masks_in_salesmen[false_batch, false_agents, :] = global_invert[false_batch, :]
+
+        # 处理True的情况
+        true_batch, true_agents = np.where(self.stage_2)
+        self.masks_in_salesmen[true_batch, true_agents, true_agents] = True
+
+        return self.masks_in_salesmen
 
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
@@ -408,6 +424,7 @@ class MTSPEnv:
         info = {
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
+            "masks_in_salesmen": self._get_masks_in_salesmen(),
         }
 
         # self.ori_actions_list.append(ori_actions)

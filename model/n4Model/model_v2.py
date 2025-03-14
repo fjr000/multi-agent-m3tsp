@@ -51,20 +51,26 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.Sequential(
-            *[
+        self.agent_self_att = nn.ModuleList(
+            [
                 MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
                 for _ in range(num_layers)
             ]
         )
+        self.num_heads = num_heads
 
-    def forward(self,cities_embed, graph, agent):
+    def forward(self,cities_embed, graph, agent, masks = None):
         """
         :param agent: [B,N,2]
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, graph, agent)
-        agent_embed = self.agent_self_att(agent_embed)
+        if masks is not None:
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
+        else:
+            expand_masks = None
+        for model in self.agent_self_att:
+            agent_embed = model(agent_embed, expand_masks)
         return agent_embed
 
 class ActionDecoder(nn.Module):
@@ -136,7 +142,7 @@ class ConflictModel(nn.Module):
         # Q: 候选城市特征 [B,5,E]
         # K/V: 智能体特征 [B,5,E]
         cac = selected_cities
-        for att in  self.city_agent_att:
+        for att in self.city_agent_att:
             cac = att(cac, agent_embed, agent_embed, expand_conflict_mask)
 
         agents_logits = self.agents(cac, agent_embed, conflict_matrix)
@@ -181,7 +187,7 @@ class ActionsModel(nn.Module):
 
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
-        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent)
+        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
         actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)
 

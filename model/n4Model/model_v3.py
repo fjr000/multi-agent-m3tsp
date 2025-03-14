@@ -69,21 +69,28 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        # self.agent_self_att = nn.Sequential(
-        #     *[
-        #         MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
-        #         for _ in range(num_layers)
-        #     ]
-        # )
+        self.agent_self_att = nn.ModuleList(
+            [
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
+                for _ in range(num_layers)
+            ]
+        )
+        self.num_heads = num_heads
 
-    def forward(self,cities_embed, graph, agent):
+    def forward(self,cities_embed, graph, agent, masks = None):
         """
         :param agent: [B,N,2]
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, graph, agent)
-        # agent_embed = self.agent_self_att(agent_embed)
+        if masks is not None:
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
+        else:
+            expand_masks = None
+        for model in self.agent_self_att:
+            agent_embed = model(agent_embed, expand_masks)
         return agent_embed
+
 
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0):
@@ -111,8 +118,8 @@ class ConflictModel(nn.Module):
     def __init__(self, config: Config):
         super(ConflictModel, self).__init__()
 
-        self.agent_self_att = nn.Sequential(
-            *[
+        self.agent_self_att = nn.ModuleList(
+            [
                 MultiHeadAttentionLayer(config.agent_encoder_num_heads,
                                         config.embed_dim,
                                         config.agent_encoder_hidden_dim,
@@ -120,6 +127,7 @@ class ConflictModel(nn.Module):
                 for _ in range(config.agent_encoder_num_layers)
             ]
         )
+        self.num_heads = config.agent_encoder_num_heads
 
         # 不能使用dropout
         self.city_agent_att = nn.ModuleList([
@@ -144,9 +152,13 @@ class ConflictModel(nn.Module):
             conflict_mask: [B,N] 初始冲突标记
         """
         B, A, E = agent_embed.shape
-
+        masks = None if info is None else info.get("masks_in_salesmen", None)
+        if masks is not None:
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
+        else:
+            expand_masks = None
         for model in self.agent_self_att:
-            agent_embed = model(agent_embed)
+            agent_embed = model(agent_embed, expand_masks)
 
         # 2. 生成初始冲突掩码 ----------------------------------------------------
         # 扩展维度用于广播比较
@@ -214,7 +226,7 @@ class ActionsModel(nn.Module):
 
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
-        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent)
+        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
         actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)
 
