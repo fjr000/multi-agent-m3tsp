@@ -92,10 +92,11 @@ class ActionDecoder(nn.Module):
 class ConflictModel(nn.Module):
     def __init__(self, config: Config):
         super(ConflictModel, self).__init__()
+        # 不能使用dropout
         self.city_agent_att = nn.ModuleList([
             CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
                                 use_FFN=True, hidden_size=config.conflict_deal_hidden_dim,
-                                dropout=config.dropout)
+                                dropout=0)
             for _ in range(config.conflict_deal_num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -236,6 +237,9 @@ class Model(nn.Module):
             acts_no_conflict = acts
             masks = None
         self.step += 1
+        a = torch.all((acts_no_conflict == -1),dim = -1)
+        if torch.any(a):
+            pass
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
 
 
