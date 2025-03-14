@@ -203,6 +203,7 @@ class AgentBase:
                 "salesmen": agent_num,
                 "mode": "fixed",
                 "N_aug": batch_graph.shape[0],
+                "use_conflict_model":info.get("use_conflict_model", False) if info is not None else False,
             },
             graph=batch_graph
         )

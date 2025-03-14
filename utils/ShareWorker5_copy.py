@@ -129,14 +129,13 @@ if __name__ == "__main__":
             greedy_gap = ((greedy_cost - LKH3_cost) / LKH3_cost).item() * 100
             no_conflict_gap = ((no_conflict_cost - LKH3_cost) / LKH3_cost).item() * 100
             # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
-            # if gap < 0 or no_conflict_gap < 0:
-            #     env.draw_multi(
-            #         eval_graph[0],
-            #         [cost.item(), no_conflict_cost.item(), LKH3_cost],
-            #         [traj[0], no_conflict_traj[0], LKH3_traj],
-            #         [0, 0, 0],
-            #         ["greedy", "no_conflict_model", 'LKH3']
-            #     )
+            # env.draw_multi(
+            #     eval_graph,
+            #     [greedy_cost, no_conflict_cost,  LKH3_cost],
+            #     [greedy_traj, no_conflict_trajectory,  LKH3_traj],
+            #     [greedy_time, no_conflict_time,   LKH3_time],
+            #     ["greedy","no_conflict_greedy", "LKH"]
+            # )
             CC.update_result(greedy_gap / 100)
             writer.add_scalar("eval/gap", greedy_gap, i)
             writer.add_scalar("eval/no_conflict_gap", no_conflict_gap, i)

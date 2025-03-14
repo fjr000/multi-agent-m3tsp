@@ -26,7 +26,7 @@ import tqdm
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--agent_dim", type=int, default=9)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
     parser.add_argument("--batch_size", type=float, default=1)
-    parser.add_argument("--city_nums", type=int, default=20)
+    parser.add_argument("--city_nums", type=int, default=30)
     parser.add_argument("--allow_back", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=80000)
@@ -63,11 +63,10 @@ if __name__ == "__main__":
     agent.load_model(args.agent_id)
     city_nums = args.city_nums
     agent_nums = args.agent_num
-
-    graph = graphG.generate()
-
     from EvalTools import EvalTools
     for i in (range(100_000_000)):
+        graph = graphG.generate()
+
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_nums, agent, env)
         no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(graph, agent_nums, agent, env,{"use_conflict_model":False})
         sample_cost, sample_traj ,sample_time = EvalTools.EvalSample(graph, agent_nums, agent, env)
