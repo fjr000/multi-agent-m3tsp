@@ -226,6 +226,19 @@ class ActionsModel(nn.Module):
 
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
+
+        city_mask = None if info is None else info.get("mask", None)
+        if city_mask is not None:
+            expand_masks = ((city_mask.unsqueeze(1).expand(city_mask.size(0), city_mask.size(1), city_mask.size(1))
+                             .unsqueeze(1).expand(city_mask.size(0), self.config.city_encoder_num_heads,
+                                                  city_mask.size(1), city_mask.size(1)))
+                            .reshape(city_mask.size(0) * self.config.city_encoder_num_heads, city_mask.size(1),
+                                     city_mask.size(1)))
+        else:
+            expand_masks = None
+        self.city_embed = self.city_encoder(self.city, att_mask=expand_masks)
+        self.city_embed_mean = torch.mean(self.city_embed, dim=1)
+
         agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
         actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)

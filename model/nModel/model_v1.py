@@ -43,21 +43,22 @@ class CityEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(CityEncoder, self).__init__()
         self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
-        self.city_self_att = nn.Sequential(
-            *[
+        self.city_self_att = nn.ModuleList(
+            [
                 MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
                 for _ in range(num_layers)
             ]
         )
 
-    def forward(self, city):
+    def forward(self, city, att_mask=None):
         """
         :param city: [B,N,2]
         :return:
         """
         city_embed = self.city_embed(city)
-        city_self_att = self.city_self_att(city_embed)
-        return city_self_att
+        for model in self.city_self_att:
+            city_embed = model(city_embed, att_mask)
+        return city_embed
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):

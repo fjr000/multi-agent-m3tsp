@@ -35,11 +35,11 @@ class AgentBase:
         self.model.init_city(graph_t)
 
     def __get_action_logprob(self, states, masks, mode="greedy", info=None):
-        use_conflict_model = True if info is None else info.get("use_conflict_model", True)
-        masks_in_salesmen_t = None if info is None else info.get("masks_in_salesmen", None)
-        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, {"mode": mode,
-                                                                                                        "use_conflict_model": use_conflict_model,
-                                                                                                        "masks_in_salesmen":masks_in_salesmen_t})
+        info = {} if info is None else info
+        info.update({
+            "mode": mode,
+        })
+        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, info)
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
@@ -211,6 +211,7 @@ class AgentBase:
         )
         salesmen_masks = env_info["salesmen_masks"]
         masks_in_salesmen = env_info["masks_in_salesmen"]
+        city_mask = env_info["mask"]
 
         self.reset_graph(batch_graph)
         act_logp_list = []
@@ -224,9 +225,11 @@ class AgentBase:
             states_t = _convert_tensor(states, device=self.device)
             salesmen_masks_t = _convert_tensor(salesmen_masks, device=self.device)
             masks_in_salesmen_t = _convert_tensor(masks_in_salesmen, device=self.device)
+            city_mask_t = _convert_tensor(city_mask, device=self.device)
             info = {} if info is None else info
             info.update({
-                "masks_in_salesmen":masks_in_salesmen_t
+                "masks_in_salesmen":masks_in_salesmen_t,
+                "mask":city_mask_t
             })
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
@@ -243,6 +246,7 @@ class AgentBase:
             states, r, done, env_info = env.step(acts_no_conflict + 1)
             salesmen_masks = env_info["salesmen_masks"]
             masks_in_salesmen = env_info["masks_in_salesmen"]
+            city_mask = env_info["mask"]
 
         if eval_mode:
             return env_info
