@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("--accumulation_steps", type=int, default=4)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--city_nums", type=int, default=40)
+    parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=80000)
     parser.add_argument("--env_masks_mode", type=int, default=1,
@@ -66,7 +67,10 @@ if __name__ == "__main__":
     graphG = GG(args.batch_size, args.city_nums, 2)
     from envs.MTSP.MTSP4 import MTSPEnv
 
-    env = MTSPEnv({"env_masks_mode": args.env_masks_mode})
+    env = MTSPEnv({
+        "env_masks_mode": args.env_masks_mode,
+        "use_conflict_model":args.use_conflict_model
+    })
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 
     # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
@@ -87,17 +91,23 @@ if __name__ == "__main__":
     agent_num, city_nums = args.agent_num, args.city_nums
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
+
+        if args.random_city_num:
+            city_nums = np.random.randint(args.agent_num+1, args.city_nums+1)
+        else:
+            city_nums = args.city_nums
+
+        if args.fixed_agent_num:
+            agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
+        else:
+            agent_num = np.random.randint(2, args.agent_num + 1)
+
         if args.only_one_instance:
             graph = graphG.generate(1).repeat(args.batch_size, axis=0)
             graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
         else:
             graph = graphG.generate(args.batch_size, city_nums)
             graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-
-        if args.fixed_agent_num:
-            agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
-        else:
-            agent_num = np.random.randint(2, args.agent_num + 1)
 
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num,
                                                                                  eval_mode=False, info={

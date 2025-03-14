@@ -30,12 +30,14 @@ class MTSPEnv:
     """
 
     def __init__(self, config: Dict = None):
+        self.cur_pos = None
         self.cities = 50
         self.salesmen = 5
         self.seed = None
         self.mode = "rand"
         self.problem_size = 1
         self.env_masks_mode = 0
+        self.use_conflict_model = False
         if config is not None:
             self.__parse_config(config)
 
@@ -66,6 +68,7 @@ class MTSPEnv:
         self.mode = config.get("mode", self.mode)
         self.problem_size = config.get("N_aug", self.problem_size)
         self.env_masks_mode = config.get("env_masks_mode", self.env_masks_mode)
+        self.use_conflict_model = config.get("use_conflict_model", self.use_conflict_model)
 
         if self.seed is not None:
             np.random.seed(self.seed)
@@ -91,14 +94,15 @@ class MTSPEnv:
         self.graph_matrix = self.GG.nodes_to_matrix(self.graph)
         # self.graph = self.graph - self.graph[0]
 
-        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+2), dtype=np.int32)
+        self.step_count = 0
+        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+1), dtype=np.int32)
+        self.cur_pos = self.trajectories[...,self.step_count]
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
         self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float64)
         self.mask = np.ones((self.problem_size, self.cities,), dtype=np.bool_)
         self.mask[:,0] = 0
-        self.step_count = 0
         self.step_limit = self.cities
         self.remain_stay_still_log = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32)
         self.traj_stages = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
@@ -120,13 +124,11 @@ class MTSPEnv:
         N = self.cities
         A = self.salesmen
 
-        pos = self.trajectories[:,:,self.step_count] # [B,A]
         depot_idx = 0
-        cur_pos = pos-1
 
         # 生成批量索引 [B, A]
         batch_indices = np.arange(B)[:, None]  # [B, 1]
-        dis_depot = self.graph_matrix[batch_indices,cur_pos,depot_idx]  # [B,A]
+        dis_depot = self.graph_matrix[batch_indices,self.cur_pos,depot_idx]  # [B,A]
         cur_cost = self.costs  # [B,A]
         max_cost = np.max(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
         diff_max_cost = (max_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
@@ -134,7 +136,7 @@ class MTSPEnv:
         diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
 
         # # 直接选取当前节点对应的距离行 [B, A, N]
-        selected_dists = self.graph_matrix[batch_indices, cur_pos, :]
+        selected_dists = self.graph_matrix[batch_indices, self.cur_pos, :]
         each_depot_dist = self.graph_matrix[:,0:1,:]
         selected_dists_depot = selected_dists + each_depot_dist
         masked_distances_depot = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists_depot, np.nan)
@@ -155,7 +157,7 @@ class MTSPEnv:
         avg_diff_cost = weighted_diff / denominator
 
         self.states[..., 0] = depot_idx
-        self.states[..., 1] = cur_pos
+        self.states[..., 1] = self.cur_pos
 
         self.states[..., 2] = cur_cost
         self.states[..., 3] = diff_max_cost
@@ -202,15 +204,14 @@ class MTSPEnv:
             repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
             # # 仅不允许最大开销的智能体留在原地
             # 允许所有激活智能体留在原地
-            cur_pos = self.trajectories[..., self.step_count]-1
             for b_idx, min_idx in zip(batch_indices.squeeze(1), min_cost_idx):
                 active_agts = active_agents[b_idx]
                 for agent_idx in range(active_agents.shape[1]):
                     if active_agts[agent_idx] and agent_idx != min_idx:
-                        pos = cur_pos[b_idx, agent_idx]
+                        pos = self.cur_pos[b_idx, agent_idx]
                         repeat_masks[b_idx, agent_idx, pos] = 1
                     else:
-                        pos = cur_pos[b_idx, agent_idx]
+                        pos = self.cur_pos[b_idx, agent_idx]
                         repeat_masks[b_idx, agent_idx, pos] = 0
             # cur_pos = self.trajectories[..., self.step_count]-1
             # x_cur = cur_pos[batch_indices.squeeze(1), max_cost_idx]
@@ -226,8 +227,7 @@ class MTSPEnv:
             repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
             repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
             # 仅允许最大开销的智能体留在原地
-            cur_pos = self.trajectories[..., self.step_count]-1
-            x_max_cur_pos = cur_pos[batch_indices.squeeze(1), max_cost_idx]
+            x_max_cur_pos = self.cur_pos[batch_indices.squeeze(1), max_cost_idx]
             repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
             # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
         else:
@@ -332,48 +332,31 @@ class MTSPEnv:
 
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
-        cur_pos = self.trajectories[:, :, self.step_count]
 
         # 生成条件掩码 [B, A]
-        same_pos_mask = (cur_pos == actions)
+        same_pos_mask = (self.cur_pos == actions)
 
-        # 批量更新停留计数 (向量化条件判断)
-        self.remain_stay_still_log = np.where(
-            same_pos_mask,
-            self.remain_stay_still_log + 1,  # 条件为真时+1
-            0  # 条件为假时重置为0
-        )
+        # # 批量更新停留计数 (向量化条件判断)
+        # self.remain_stay_still_log = np.where(
+        #     same_pos_mask,
+        #     self.remain_stay_still_log + 1,  # 条件为真时+1
+        #     0  # 条件为假时重置为0
+        # )
 
         # 将保持静止的动作置本身 [B, A]
-        actions = np.where(same_pos_mask, cur_pos, actions)
+        actions = np.where(same_pos_mask, self.cur_pos, actions)
         actions = np.where(actions == 0, self.trajectories[...,self.step_count], actions)
 
         return actions
 
     def step(self, ori_actions: np.ndarray):
 
-        try:
-            actions = self.reset_actions(ori_actions)
+        actions = self.reset_actions(ori_actions)
+        if not args.use_conflict_model:
             actions = self.deal_conflict_batch(actions)
-            self.actions = actions
-            self.step_count += 1
-            self.trajectories[..., self.step_count] = actions
-        except Exception as e:
-            np.set_printoptions(threshold=np.inf)
-            print(f"trajectories:{self.trajectories} ")
-            print(f"mask:{self.mask} ")
-            print(f"traj_stages:{self.traj_stages} ")
-            with open("error log", 'w') as f:
-                print(f"trajectories:{self.trajectories} ", file=f)
-                print(f"mask:{self.mask} ", file=f)
-                print(f"traj_stages:{self.traj_stages} ",file=f)
-                print(f"actions:{actions} ", file=f)
-                idx = np.argwhere(~ self.dones)
-                print(f"idx:{idx}")
-                print(f"tra:{self.trajectories[idx]}", file=f)
-                print(f"mask:{self.mask[idx]}", file=f)
-                print(f"traj_stages:{self.traj_stages[idx]}", file=f)
-                print(f"actions:{self.actions[idx]}", file=f)
+        self.actions = actions
+        self.step_count += 1
+        self.trajectories[..., self.step_count] = actions
         # 生成行索引 [B*A]
         batch_indices = np.repeat(np.arange(self.problem_size), self.salesmen)
 
@@ -383,22 +366,21 @@ class MTSPEnv:
         self.mask[batch_indices, col_indices] = 0
 
         last_pos = self.trajectories[..., self.step_count-1]-1
-        cur_pos = self.trajectories[...,self.step_count]-1
+        self.cur_pos = self.trajectories[...,self.step_count]-1
 
         self.costs += self.graph_matrix[
             np.arange(self.problem_size)[:,None],
             last_pos,
-            cur_pos,
+            self.cur_pos,
         ]
-        self._get_reward()
 
         batch_complete = np.all(~self.mask, axis=1)
         # 判断哪些批次所有城市已访问完成 [B]
 
         self.traj_stages = np.where(
-            ((last_pos != cur_pos)
+            ((last_pos != self.cur_pos)
             &
-            ((last_pos == 0)|(cur_pos == 0)))
+            ((last_pos == 0)|(self.cur_pos == 0)))
             |
             (batch_complete[:, None]),
             # |
@@ -420,15 +402,17 @@ class MTSPEnv:
 
         self.mask[batch_complete,0] =1
 
+        self._get_reward()
+
         info = {
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
         }
 
-        self.ori_actions_list.append(ori_actions)
-        self.actions_list.append(actions)
-        self.salesmen_masks_list.append(info["salesmen_masks"])
-        self.traj_stage_list.append(self.traj_stages)
+        # self.ori_actions_list.append(ori_actions)
+        # self.actions_list.append(actions)
+        # self.salesmen_masks_list.append(info["salesmen_masks"])
+        # self.traj_stage_list.append(self.traj_stages)
 
         if self.done:
 
@@ -532,6 +516,7 @@ if __name__ == '__main__':
     parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     args = parser.parse_args()
 
     env_config = {
@@ -539,7 +524,8 @@ if __name__ == '__main__':
         "cities": args.city_nums,
         "seed": None,
         "mode": 'rand',
-        "env_masks_mode":args.env_masks_mode
+        "env_masks_mode":args.env_masks_mode,
+        "use_conflict_model": args.use_conflict_model
     }
     env = MTSPEnv(
         env_config
