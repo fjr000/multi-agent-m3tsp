@@ -129,7 +129,7 @@ class ConflictModel(nn.Module):
         acts_exp2 = acts.unsqueeze(1)  # [B,1,5]
         # 生成布尔型冲突矩阵
         conflict_matrix = (acts_exp1 == acts_exp2).bool()  # [B,5,5]
-        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0)  # [1, A, A]
+        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0).bool()  # [1, A, A]
         conflict_matrix = torch.where(acts_exp1 == 0, identity_matrix, conflict_matrix)
         conflict_matrix = ~conflict_matrix
         expand_conflict_mask = conflict_matrix.unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B*self.num_heads, A, A)
@@ -193,11 +193,11 @@ class ActionsModel(nn.Module):
 
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
-        city_mask = None if info is None else info.get("mask", None)
-        self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
-        cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
-        self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
-        del city_mask
+        # city_mask = None if info is None else info.get("mask", None)
+        # self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
+        # cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
+        # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
+        # del city_mask
 
         agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
