@@ -69,12 +69,12 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.ModuleList(
-            [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
-                for _ in range(num_layers)
-            ]
-        )
+        # self.agent_self_att = nn.ModuleList(
+        #     [
+        #         MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
+        #         for _ in range(num_layers)
+        #     ]
+        # )
         self.num_heads = num_heads
 
     def forward(self,cities_embed, graph, agent, masks = None):
@@ -83,12 +83,12 @@ class AgentEncoder(nn.Module):
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, graph, agent)
-        if masks is not None:
-            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
-        else:
-            expand_masks = None
-        for model in self.agent_self_att:
-            agent_embed = model(agent_embed, expand_masks)
+        # if masks is not None:
+        #     expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
+        # else:
+        #     expand_masks = None
+        # for model in self.agent_self_att:
+        #     agent_embed = model(agent_embed, expand_masks)
         return agent_embed
 
 
