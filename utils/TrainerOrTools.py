@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -124,18 +124,18 @@ if __name__ == "__main__":
             eval_graph = graphG.generate(1, city_nums)
             OrToolsCost, OrToolsTraj, OrToolsTime = EvalTools.EvalOrTools(eval_graph, agent_num)
             greedy_cost,  greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env)
-            no_conflict_cost,  no_conflict_trajectory, no_conflict_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env, {"use_conflict_model": False})
+            # no_conflict_cost,  no_conflict_trajectory, no_conflict_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env, {"use_conflict_model": False})
 
             greedy_gap = ((greedy_cost - OrToolsCost) / OrToolsCost).item() * 100
-            no_conflict_gap = ((no_conflict_cost - OrToolsCost) / OrToolsCost).item() * 100
+            # no_conflict_gap = ((no_conflict_cost - OrToolsCost) / OrToolsCost).item() * 100
             CC.update_result(greedy_gap / 100)
             writer.add_scalar("eval/gap", greedy_gap, i)
-            writer.add_scalar("eval/no_conflict_gap", no_conflict_gap, i)
+            # writer.add_scalar("eval/no_conflict_gap", no_conflict_gap, i)
             agent.lr_scheduler.step(greedy_gap)
             print(f"agent_num:{agent_num},city_num:{city_nums}, "
-                  f"greedy_gap:{greedy_gap:.5f}%, no_conflict_gap:{no_conflict_gap:.5f}%, "
-                  f"costs:{greedy_cost.item():.5f}, no_conflict_costs:{no_conflict_cost.item():.5f},"
-                  f"LKH3_costs:{OrToolsCost:.5f}"
+                  f"greedy_gap:{greedy_gap:.5f}%, "
+                  f"costs:{greedy_cost.item():.5f}, "
+                  f"OrTools_cost:{OrToolsCost:.5f}"
                   )
 
         if (i + 1) % (args.save_model_interval ) == 0:
