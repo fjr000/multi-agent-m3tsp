@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1.5e-4)
     parser.add_argument("--grad_max_norm", type=float, default=10)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)

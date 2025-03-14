@@ -352,7 +352,7 @@ class MTSPEnv:
     def step(self, ori_actions: np.ndarray):
 
         actions = self.reset_actions(ori_actions)
-        if not args.use_conflict_model:
+        if not self.use_conflict_model:
             actions = self.deal_conflict_batch(actions)
         self.actions = actions
         self.step_count += 1
