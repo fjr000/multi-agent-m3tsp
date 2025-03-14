@@ -137,5 +137,5 @@ if __name__ == "__main__":
                   f"LKH3_costs:{LKH3_cost:.5f}"
                   )
 
-        if (i + 1) % (args.save_model_interval * args.accumulation_steps) == 0:
+        if (i + 1) % (args.save_model_interval ) == 0:
             agent.save_model(args.agent_id + i + 1)
