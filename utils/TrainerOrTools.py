@@ -34,7 +34,7 @@ def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=2)
+    parser.add_argument("--agent_num", type=int, default=1)
     parser.add_argument("--fixed_agent_num", type=bool, default=True)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -57,7 +57,7 @@ if __name__ == "__main__":
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     args = parser.parse_args()
 

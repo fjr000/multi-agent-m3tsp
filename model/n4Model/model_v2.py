@@ -71,6 +71,7 @@ class AgentEncoder(nn.Module):
             expand_masks = None
         for model in self.agent_self_att:
             agent_embed = model(agent_embed, expand_masks)
+        del expand_masks
         return agent_embed
 
 class ActionDecoder(nn.Module):
@@ -93,6 +94,7 @@ class ActionDecoder(nn.Module):
             aca = model(aca, city_embed, city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
         action_logits = self.action(aca, city_embed, masks)
+        del masks, expand_masks
         return action_logits
 
 class ConflictModel(nn.Module):
@@ -126,9 +128,10 @@ class ConflictModel(nn.Module):
         acts_exp1 = acts.unsqueeze(2)  # [B,5,1]
         acts_exp2 = acts.unsqueeze(1)  # [B,1,5]
         # 生成布尔型冲突矩阵
-        conflict_matrix = (acts_exp1 == acts_exp2).float()  # [B,5,5]
+        conflict_matrix = (acts_exp1 == acts_exp2).bool()  # [B,5,5]
         identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0)  # [1, A, A]
         conflict_matrix = torch.where(acts_exp1 == 0, identity_matrix, conflict_matrix)
+        conflict_matrix = ~conflict_matrix
         expand_conflict_mask = conflict_matrix.unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B*self.num_heads, A, A)
 
         # 3. 提取候选城市特征 -----------------------------------------------------
@@ -191,18 +194,15 @@ class ActionsModel(nn.Module):
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
         city_mask = None if info is None else info.get("mask", None)
-        if city_mask is not None:
-            expand_masks = ((city_mask.unsqueeze(1).expand(city_mask.size(0), city_mask.size(1), city_mask.size(1))
-                            .unsqueeze(1).expand(city_mask.size(0), self.config.city_encoder_num_heads, city_mask.size(1), city_mask.size(1)))
-                            .reshape(city_mask.size(0) * self.config.city_encoder_num_heads, city_mask.size(1), city_mask.size(1)))
-        else:
-            expand_masks = None
-        self.city_embed = self.city_encoder(self.city, att_mask = expand_masks)
-        self.city_embed_mean = torch.mean(self.city_embed, dim=1)
+        self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
+        cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
+        self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
+        del city_mask
 
         agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
         actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)
+        del mask
 
         # agents_logits = self.deal_conflict(agent_embed, self.city_embed, actions_logits)
 

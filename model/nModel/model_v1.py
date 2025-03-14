@@ -49,15 +49,26 @@ class CityEncoder(nn.Module):
                 for _ in range(num_layers)
             ]
         )
+        self.num_heads = num_heads
 
-    def forward(self, city, att_mask=None):
+    def forward(self, city, city_mask=None):
         """
         :param city: [B,N,2]
         :return:
         """
+
+        if city_mask is not None:
+            city_mask[:,0] = False
+            B, A = city_mask.shape
+            expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
+            # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
+        else:
+            expand_masks = None
+
         city_embed = self.city_embed(city)
         for model in self.city_self_att:
-            city_embed = model(city_embed, att_mask)
+            city_embed = model(city_embed, expand_masks)
+        del expand_masks
         return city_embed
 
 class AgentEmbedding(nn.Module):
@@ -120,7 +131,7 @@ class ActionDecoder(nn.Module):
     def forward(self, agent_embed, city_embed, masks):
         expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
         expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1)
-        expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
+        expand_masks = expand_masks.reshape(-1, expand_masks.size(2), expand_masks.size(3))
         aca = self.agent_city_att(agent_embed, expand_city_embed, expand_city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
         action_logits = self.action(aca, expand_city_embed, masks)

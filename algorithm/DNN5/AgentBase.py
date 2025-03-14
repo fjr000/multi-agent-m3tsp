@@ -223,9 +223,11 @@ class AgentBase:
         use_conflict_model = False
         while not done:
             states_t = _convert_tensor(states, device=self.device)
-            salesmen_masks_t = _convert_tensor(salesmen_masks, device=self.device)
-            masks_in_salesmen_t = _convert_tensor(masks_in_salesmen, device=self.device)
-            city_mask_t = _convert_tensor(city_mask, device=self.device)
+            # mask: true :not allow  false:allow
+
+            salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
+            masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+            city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
             info = {} if info is None else info
             info.update({
                 "masks_in_salesmen":masks_in_salesmen_t,
