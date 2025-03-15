@@ -579,7 +579,7 @@ if __name__ == '__main__':
     done =False
     while not done:
         states_t = _convert_tensor(states, device=agent.device)
-        salesmen_masks_t = _convert_tensor(salesmen_masks, device=agent.device)
+        salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype=torch.bool, device=agent.device)
         acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = agent.predict(states_t, salesmen_masks_t)
         states, r, done, info = env.step(acts_no_conflict+1)
         salesmen_masks = info["salesmen_masks"]

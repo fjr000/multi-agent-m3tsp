@@ -30,6 +30,76 @@ def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, 
     writer.add_scalar("train/costs", np.mean(np.max(costs, axis=-1)), train_count)
     writer.add_scalar("train/lr", lr, train_count)
 
+def eval(agent, env, agent_num, graph, choose = ("ortools", "LKH3", "greedy", "no_conflict", "sample")):
+
+    results = {}
+
+    if "ortools" in choose:
+        OrToolsCost, OrToolsTraj, OrToolsTime = EvalTools.EvalOrTools(eval_graph, agent_num)
+        results.update({
+            "cost":{
+                "ortools": OrToolsCost,
+            },
+            "traj":{
+                "ortools": OrToolsTraj,
+            },
+            "time":{
+                "ortools": OrToolsTime,
+            }
+        })
+    if "greedy" in choose:
+        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env)
+        results.update({
+            "cost":{
+                "greedy": greedy_cost,
+            },
+            "traj":{
+                "greedy": greedy_traj,
+            },
+            "time":{
+                "greedy": greedy_time,
+            }
+        })
+    if "LKH3" in choose:
+        LKH3_cost, LKH3_traj, LKH3_time = EvalTools.EvalLKH3(eval_graph, agent_num)
+        results.update({
+            "cost":{
+                "LKH3": LKH3_cost,
+            },
+            "traj":{
+                "LKH3": LKH3_traj,
+            },
+            "time":{
+                "LKH3": LKH3_time,
+            }
+        })
+    if "no_conflict" in choose:
+        no_conflict_cost, no_conflict_trajectory, no_conflict_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env,
+                                                                                          {"use_conflict_model": False})
+        results.update({
+            "cost":{
+                "no_conflict": no_conflict_cost,
+            },
+            "traj":{
+                "no_conflict": no_conflict_trajectory,
+            },
+            "time":{
+                "no_conflict": no_conflict_time,
+            }
+        })
+    if "sample" in choose:
+        sample_cost, sample_traj ,sample_time = EvalTools.EvalSample(graph, agent_num, agent, env)
+        results.update({
+            "cost":{
+                "sample": sample_cost,
+            },
+            "traj":{
+                "sample": sample_traj,
+            },
+            "time":{
+                "sample": sample_time,
+            }
+        })
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

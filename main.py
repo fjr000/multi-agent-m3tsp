@@ -1,18 +1,25 @@
-# This is a sample Python script.
-import numpy as np
+import  numpy as np
+from ortools.sat.python.cp_model import INT_MAX
 
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+
+    from utils.TspInstanceFileTool import TspInstanceFileTool
+    import tsplib95
+    p = tsplib95.load_problem('graph/tsp/berlin52.tsp')
+    n = p.dimension
+    graph = np.zeros((n,2), dtype = np.float32)
+    max_V = 0
+    for idx, node in  enumerate(p.node_coords.items()):
+        graph[idx, 0] = node[1][0]
+        graph[idx, 1] = node[1][1]
+        max_V = max(max_V, graph[idx, 0])
+        max_V = max(max_V, graph[idx, 1])
+
+    norm_graph = graph / max_V
+
+
+    problem = TspInstanceFileTool.readTSPInstanceFromFile('graph/tsp/berlin52.tsp')
+
     def generate_agent_masks(original_mask):
         num_agents = len(original_mask)
         new_masks = []
@@ -62,6 +69,3 @@ if __name__ == '__main__':
     for mask in results[0]:
         print(f" {str(mask).replace('False', 'false').replace('True', 'true')},")
     print("]")
-
-
-    for

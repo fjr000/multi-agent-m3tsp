@@ -5,6 +5,7 @@ import numpy as np
 from utils.TspInstanceFileTool import TspInstanceFileTool
 import time
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
+from TspInstanceFileTool import TspInstanceFileTool, result_dict
 
 class EvalTools(object):
 
@@ -111,3 +112,41 @@ class EvalTools(object):
             return min_sample_cost_mean, sample_traj, sample_time
         else:
             return min_sample_cost_mean, None, sample_time
+
+    @staticmethod
+    def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, costs, lr):
+        writer.add_scalar("train/act_loss", act_loss, train_count)
+        writer.add_scalar("train/agents_loss", agents_loss, train_count)
+        writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
+        writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
+        writer.add_scalar("train/costs", np.mean(np.max(costs, axis=-1)), train_count)
+        writer.add_scalar("train/lr", lr, train_count)
+
+    @staticmethod
+    def eval_mtsplib(agent, env, writer, step):
+        for graph_name in ("eil51", "berlin52", "eil76", "rat99"):
+            graph, scale = TspInstanceFileTool.loadTSPLib("../graph/tsp", graph_name)
+            for agent_num in (2, 3, 5, 7):
+                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env)
+                # no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, {"use_conflict_model": False})
+                best_cost = result_dict[graph_name][agent_num][0] / scale
+                writer.add_scalar(f"eval/{graph_name}/{agent_num}/greedy_gap",
+                                  (greedy_cost - best_cost) / best_cost * 100, step)
+                # writer.add_scalar(f"eval/{graph_name}/{agent_num}/no_conflict_cost", (no_conflict_greedy_cost - best_cost) / best_cost * 100, step)
+
+    @staticmethod
+    def eval_random(graph, agent_num, agent, env, writer, step):
+        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env)
+        if agent_num == 1:
+            cost, traj, time = EvalTools.EvalOrTools(graph, agent_num)
+        else:
+            cost, traj, time = EvalTools.EvalLKH3(graph, agent_num)
+
+        greedy_gap = ((greedy_cost - cost) / cost).item() * 100
+        writer.add_scalar("eval/gap", greedy_gap, step)
+        print(f"agent_num:{agent_num},city_num:{graph.shape[1]},"
+              f"greedy_gap:{greedy_gap:.5f}%,"
+              f"costs:{greedy_cost.item():.5f},"
+              f"LKH3_OrTools_costs:{cost:.5f}"
+              )
+        return greedy_gap

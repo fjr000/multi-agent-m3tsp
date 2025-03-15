@@ -19,16 +19,8 @@ import argparse
 from envs.MTSP.MTSP4 import MTSPEnv
 from algorithm.DNN5.AgentV1 import AgentV1 as Agent
 import tqdm
-from utils.EvalTools import EvalTools
+from EvalTools import EvalTools
 
-
-def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, costs, lr):
-    writer.add_scalar("train/act_loss", act_loss, train_count)
-    writer.add_scalar("train/agents_loss", agents_loss, train_count)
-    writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
-    writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
-    writer.add_scalar("train/costs", np.mean(np.max(costs, axis=-1)), train_count)
-    writer.add_scalar("train/lr", lr, train_count)
 
 
 if __name__ == "__main__":
@@ -41,23 +33,23 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--grad_max_norm", type=float, default=10)
+    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--grad_max_norm", type=float, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--accumulation_steps", type=int, default=4)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--city_nums", type=int, default=40)
+    parser.add_argument("--entropy_coef", type=float, default=5e-3)
+    parser.add_argument("--accumulation_steps", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=60000)
     parser.add_argument("--env_masks_mode", type=int, default=1,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=500, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     args = parser.parse_args()
 
@@ -66,7 +58,6 @@ if __name__ == "__main__":
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)
     from envs.MTSP.MTSP4 import MTSPEnv
-
     env = MTSPEnv({
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model":args.use_conflict_model
@@ -92,15 +83,15 @@ if __name__ == "__main__":
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
 
-        if args.random_city_num:
-            city_nums = np.random.randint(args.agent_num+1, args.city_nums+1)
-        else:
-            city_nums = args.city_nums
-
         if args.fixed_agent_num:
             agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
         else:
-            agent_num = np.random.randint(2, args.agent_num + 1)
+            agent_num = np.random.randint(1, args.agent_num + 1)
+
+        if args.random_city_num:
+            city_nums = np.random.randint(agent_num*5, args.city_nums+1)
+        else:
+            city_nums = args.city_nums
 
         if args.only_one_instance:
             graph = graphG.generate(1).repeat(args.batch_size, axis=0)
@@ -114,37 +105,17 @@ if __name__ == "__main__":
                 "use_conflict_model": args.use_conflict_model})
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
 
-        tensorboard_write(writer, i,
+        EvalTools.tensorboard_write(writer, i,
                           act_loss, agents_loss,
                           act_ent_loss, agt_ent_loss,
                           costs, agent.optim.param_groups[0]["lr"]
                           )
 
         if ((i + 1) % args.eval_interval) == 0:
+            EvalTools.eval_mtsplib(agent, env, writer, i + 1)
             eval_graph = graphG.generate(1, city_nums)
-            LKH3_cost, LKH3_traj, LKH3_time = EvalTools.EvalLKH3(eval_graph, agent_num)
-            greedy_cost,  greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env)
-            no_conflict_cost,  no_conflict_trajectory, no_conflict_time = EvalTools.EvalGreedy(eval_graph, agent_num, agent, env, {"use_conflict_model": False})
-
-            greedy_gap = ((greedy_cost - LKH3_cost) / LKH3_cost).item() * 100
-            no_conflict_gap = ((no_conflict_cost - LKH3_cost) / LKH3_cost).item() * 100
-            # fig = env.draw(eval_graph[0],cost.item(), traj[0],gap)
-            # env.draw_multi(
-            #     eval_graph,
-            #     [greedy_cost, no_conflict_cost,  LKH3_cost],
-            #     [greedy_traj, no_conflict_trajectory,  LKH3_traj],
-            #     [greedy_time, no_conflict_time,   LKH3_time],
-            #     ["greedy","no_conflict_greedy", "LKH"]
-            # )
-            CC.update_result(greedy_gap / 100)
-            writer.add_scalar("eval/gap", greedy_gap, i)
-            writer.add_scalar("eval/no_conflict_gap", no_conflict_gap, i)
+            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1)
             agent.lr_scheduler.step(greedy_gap)
-            print(f"agent_num:{agent_num},city_num:{city_nums}, "
-                  f"greedy_gap:{greedy_gap:.5f}%, no_conflict_gap:{no_conflict_gap:.5f}%, "
-                  f"costs:{greedy_cost.item():.5f}, no_conflict_costs:{no_conflict_cost.item():.5f},"
-                  f"LKH3_costs:{LKH3_cost:.5f}"
-                  )
 
         if (i + 1) % (args.save_model_interval ) == 0:
             agent.save_model(args.agent_id + i + 1)

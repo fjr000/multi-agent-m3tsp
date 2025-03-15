@@ -1,4 +1,38 @@
+import os.path
+
 import numpy as np
+import tsplib95
+
+result_dict={
+    "eil51":{
+        2:(222.73, 222.73),
+        3:(150.70, 159.57),
+        5:(96.91, 123.96),
+        7:(75.91, 112.07)
+    },
+
+    "berlin52":{
+        2: (4049.05, 4110.21),
+        3: (2753.63, 3244.37),
+        5: (1671.69, 2441.39),
+        7: (1272.06, 2440.92)
+    },
+
+    "eil76": {
+        2: (280.85, 280.85),
+        3: (186.34, 197.34),
+        5: (117.61, 150.30),
+        7: (88.35, 139.62)
+    },
+
+    "rat99": {
+        2: (620.99, 728.71),
+        3: (426.25, 587.17),
+        5: (271.91, 469.25),
+        7: (210.41, 443.91)
+    },
+
+}
 
 
 class TspInstanceFileTool(object):
@@ -109,6 +143,22 @@ class TspInstanceFileTool(object):
                         break
 
         return min_cost, salesmen, trajectory
+
+    @staticmethod
+    def loadTSPLib(graph_dir:str, instance_name:str):
+        assert instance_name in ("eil51", "berlin52", "eil76", "rat99"), "not support instance"
+        p = tsplib95.load_problem(os.path.join(graph_dir,instance_name)+".tsp")
+        n = p.dimension
+        graph = np.zeros((n, 2), dtype=np.float32)
+        max_V = 0
+        for idx, node in enumerate(p.node_coords.items()):
+            graph[idx, 0] = node[1][0]
+            graph[idx, 1] = node[1][1]
+            max_V = max(max_V, graph[idx, 0])
+            max_V = max(max_V, graph[idx, 1])
+
+        norm_graph = graph / max_V
+        return norm_graph[None,:], max_V
 
 
 
