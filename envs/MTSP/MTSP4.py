@@ -48,7 +48,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 12
+        self.dim = 8
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -131,46 +131,51 @@ class MTSPEnv:
         dis_depot = self.graph_matrix[batch_indices,self.cur_pos,depot_idx]  # [B,A]
         cur_cost = self.costs  # [B,A]
         max_cost = np.max(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
-        diff_max_cost = (max_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
-        min_cost = np.min(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
-        diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
+        # diff_max_cost = (max_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
+        diff_max_cost = max_cost - cur_cost # [B,A]
+        # min_cost = np.min(self.costs, keepdims=True, axis=1).repeat(A,axis = 1)  # [B,A]
+        # diff_min_cost = (min_cost - cur_cost) / (max_cost + 1e-8) # [B,A]
 
         # # 直接选取当前节点对应的距离行 [B, A, N]
         selected_dists = self.graph_matrix[batch_indices, self.cur_pos, :]
         each_depot_dist = self.graph_matrix[:,0:1,:]
         selected_dists_depot = selected_dists + each_depot_dist
         masked_distances_depot = np.where(self.mask[:,None,:].repeat(A,axis = 1), selected_dists_depot, np.nan)
-        average_distances_depot = np.nanmean(masked_distances_depot, axis = 2)
+        # average_distances_depot = np.nanmean(masked_distances_depot, axis = 2)
         max_distances_depot = np.nanmax(masked_distances_depot, axis=2)
         min_distances_depot = np.nanmin(masked_distances_depot, axis=2)
 
         remain_salesmen_num = self.salesmen - np.count_nonzero(self.stage_2,keepdims=True, axis=1)
         remain_cities_num = np.count_nonzero(self.mask, keepdims=True,axis=1)
         # remain_salesmen_ratio = (remain_salesmen_num / self.salesmen).repeat(A,axis = -1)  # remain agents ratio
-        remain_salesmen_city_ratio = remain_cities_num / np.maximum(remain_salesmen_num,1) / self.cities
+        # remain_salesmen_city_ratio = remain_cities_num / np.maximum(remain_salesmen_num,1) / self.cities
+        remain_salesmen_city_ratio = np.log1p(remain_cities_num) - np.log1p(remain_salesmen_num)
 
         # rank = np.argsort(self.costs, axis=1) / self.salesmen
-        sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
-        weighted_diff = sum_costs - self.salesmen * self.costs  # 广播计算 [B,A]
-        # denominator = max(self.salesmen - 1, 1) * self.distance_scale
-        denominator = max(self.salesmen - 1, 1)
-        avg_diff_cost = weighted_diff / denominator
+        # sum_costs = np.sum(self.costs, axis=1, keepdims=True)  # 维度 [B,1]
+        # weighted_diff = sum_costs - self.salesmen * self.costs  # 广播计算 [B,A]
+        # # denominator = max(self.salesmen - 1, 1) * self.distance_scale
+        # denominator = max(self.salesmen - 1, 1)
+        # avg_diff_cost = weighted_diff / denominator
 
         self.states[..., 0] = depot_idx
         self.states[..., 1] = self.cur_pos
 
-        self.states[..., 2] = cur_cost
-        self.states[..., 3] = diff_max_cost
-        self.states[..., 4] = diff_min_cost
-        self.states[..., 5] = avg_diff_cost
 
-        self.states[..., 6] = dis_depot
-        self.states[..., 7] = average_distances_depot
-        self.states[..., 8] = max_distances_depot
-        self.states[..., 9] = min_distances_depot
+        self.states[..., 2] = cur_cost / (max_cost + 1e-8)
+        self.states[..., 3] = diff_max_cost / (max_cost + 1e-8)
+        self.states[..., 4] = dis_depot / np.sqrt(2) / 2
+        self.states[..., 5] = max_distances_depot / np.sqrt(2) / 2
+        self.states[..., 6] = min_distances_depot / np.sqrt(2) / 2
+        self.states[..., 7] = remain_salesmen_city_ratio.repeat(A,axis = -1)
 
-        self.states[..., 10] = remain_salesmen_city_ratio.repeat(A,axis = -1)
-        self.states[..., 11] = np.clip(self.traj_stages, a_min=0, a_max=2) - 1
+        # self.states[..., 4] = diff_min_cost
+        # self.states[..., 5] = avg_diff_cost
+
+        # self.states[..., 7] = average_distances_depot
+
+
+        # self.states[..., 11] = np.clip(self.traj_stages, a_min=0, a_max=2) - 1
 
         # self.states[..., 9] = 1 - rank
 
@@ -230,6 +235,8 @@ class MTSPEnv:
             x_max_cur_pos = self.cur_pos[batch_indices.squeeze(1), max_cost_idx]
             repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
             # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
+
+
         else:
             raise NotImplementedError
         #

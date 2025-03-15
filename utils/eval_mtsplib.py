@@ -23,13 +23,14 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=60000)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=1,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
+    parser.add_argument("--draw", type=bool, default=False, help="whether to draw result")
     args = parser.parse_args()
 
 
@@ -51,19 +52,21 @@ if __name__ == '__main__':
             ortools_cost, ortools_traj, ortools_time = EvalTools.EvalOrTools(graph, agent_num)
             sample_cost, sample_traj, sample_time = EvalTools.EvalSample(graph, agent_num, agent, env)
 
-            env.draw_multi(
-                graph,
-                [greedy_cost, no_conflict_greedy_cost, sample_cost, ortools_cost, LKH_cost],
-                [greedy_traj, no_conflict_greedy_traj, sample_traj, ortools_traj, LKH_traj],
-                [greedy_time, no_conflict_greedy_time, sample_time, ortools_time, LKH_time],
-                ["greedy","no_conflict_greedy", "sample","or_tools", "LKH"]
-            )
+            if args.draw:
+                env.draw_multi(
+                    graph,
+                    [greedy_cost, no_conflict_greedy_cost, sample_cost, ortools_cost, LKH_cost],
+                    [greedy_traj, no_conflict_greedy_traj, sample_traj, ortools_traj, LKH_traj],
+                    [greedy_time, no_conflict_greedy_time, sample_time, ortools_time, LKH_time],
+                    ["greedy","no_conflict_greedy", "sample","or_tools", "LKH"]
+                )
             best_cost = result_dict[graph_name][agent_num][0] / scale
-            print(f"greedy_gap:{(greedy_cost-best_cost) / best_cost * 100} %,"
-                  f"no_conflict_greedy_gap:{(no_conflict_greedy_cost -best_cost) / best_cost * 100} %,"
-                  f"sample_gap:{(sample_cost -best_cost) / best_cost * 100} %,"
-                  f"ortools_gap:{(ortools_cost -best_cost) / best_cost *100} %,"
-                  f"LKH_gap:{(LKH_cost -best_cost) / best_cost *100} %")
+            print(f"graph:{graph_name}, agent_num:{agent_num},"
+                  f"greedy_gap:{(greedy_cost-best_cost) / best_cost * 100 :.5f} %,"
+                  f"no_conflict_greedy_gap:{(no_conflict_greedy_cost -best_cost) / best_cost * 100 :.5f} %,"
+                  f"sample_gap:{(sample_cost -best_cost) / best_cost * 100 :.5f} %,"
+                  f"ortools_gap:{(ortools_cost -best_cost) / best_cost *100 :.5f} %,"
+                  f"LKH_gap:{(LKH_cost -best_cost) / best_cost *100 :.5f} %")
 
 
 

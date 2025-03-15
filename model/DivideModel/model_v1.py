@@ -1,21 +1,94 @@
 import argparse
 
 import numpy as np
-from torch import inference_mode
-from model.Base.Net import MultiHeadAttentionLayer, SingleHeadAttention, CrossAttentionLayer
-from model.nModel.model_v1 import CityEncoder
+from model.Base.Net import MultiHeadAttentionLayer
 from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 import torch
 import torch.nn as nn
-from model.n4Model.config import Config
 from model.Base.Net import initialize_weights
 
-class AgentEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(AgentEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
+class ActionsModelConfig(object):
+    agent_dim = 10
+    embed_dim = 128
+    dropout = 0.3
+
+    agent_encoder_hidden_dim = 256
+    agent_encoder_num_layers = 1
+    agent_encoder_num_heads = 4
+
+    city_encoder_hidden_dim = 256
+    city_encoder_num_layers = 3
+    city_encoder_num_heads = 8
+
+    action_decoder_hidden_dim = 256
+    action_decoder_num_layers = 2
+    action_decoder_num_heads = 4
+
+
+class ConflictModelConfig:
+    agent_dim = 10
+    embed_dim = 128
+    dropout = 0.3
+
+    agent_encoder_hidden_dim = 256
+    agent_encoder_num_layers = 1
+    agent_encoder_num_heads = 4
+
+    conflict_deal_hidden_dim = 256
+    conflict_deal_num_layers = 2
+    conflict_deal_num_heads = 4
+
+class ModelConfig:
+    actions_model_config = ActionsModelConfig()
+    conflict_model_config = ConflictModelConfig()
+
+
+class CityEncoder(nn.Module):
+    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
+        super(CityEncoder, self).__init__()
+
+        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
+
+        self.city_self_att = nn.ModuleList(
+            [
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                for _ in range(num_layers)
+            ]
+        )
+        self.num_heads = num_heads
+
+    def forward(self, city, city_mask=None):
+        """
+        :param city: [B,N,2]
+        :param city_mask: [B,N]
+        :return:
+
+        """
+
+        depot_embed = self.depot_embed(city[:, 0:1])
+        city_embed = self.city_embed(city[:, 1:])
+        city_embed = torch.cat([depot_embed, city_embed], dim=1)
+
+        if city_mask is not None:
+            city_mask[:,0] = False
+            B, A = city_mask.shape
+            expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
+            # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
+        else:
+            expand_masks = None
+
+        for model in self.city_self_att:
+            city_embed = model(city_embed, expand_masks)
+        del expand_masks
+        return city_embed
+
+class AgentEncoder(nn.Module):
+    def __init__(self, config: ActionsModelConfig):
+        super(AgentEncoder, self).__init__()
+        self.embed_dim = config.embed_dim
+        self.input_dim = config.agent_dim
+        self.hidden_dim = config.agent_encoder_hidden_dim
 
         self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
         self.distance_cost_embed = nn.Linear(2, self.embed_dim)
@@ -25,15 +98,24 @@ class AgentEmbedding(nn.Module):
 
         self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
 
-    def forward(self,cities_embed, graph_embed, agent_state):
+        self.agent_self_att = nn.ModuleList(
+            [
+                MultiHeadAttentionLayer(config.agent_encoder_num_heads,
+                                        config.embed_dim,
+                                        config.agent_encoder_hidden_dim,
+                                        dropout=config.dropout)
+                for _ in range(config.agent_encoder_num_layers)
+            ]
+        )
+
+
+    def forward(self,cities_embed, graph_embed, agent_state, masks = None):
         """
         :param graph_embed
         :param agent_state: [B,M,14]
         :return:
         """
 
-
-        # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
         depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:4])
@@ -41,41 +123,61 @@ class AgentEmbedding(nn.Module):
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:8])
         global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
 
-        # co_embed = self.co_embed(agent_state[:,:,9:10])
-        # agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
         context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
         agent_embed = self.agent_embed(context)
+
+        for model in self.agent_self_att:
+            agent_embed = model(agent_embed, agent_embed, agent_embed, masks = masks)
+
         return agent_embed
 
-class AgentEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
-        super(AgentEncoder, self).__init__()
-        self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
+class MultiAgentEncoder(nn.Module):
+    def __init__(self, config: ConflictModelConfig):
+        super(MultiAgentEncoder, self).__init__()
+        self.embed_dim = config.embed_dim
+        self.input_dim = config.agent_dim
+        self.hidden_dim = config.agent_encoder_hidden_dim
+
+        self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(3, self.embed_dim)
+        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
+
+        self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
+
         self.agent_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
-                for _ in range(num_layers)
+                MultiHeadAttentionLayer(config.agent_encoder_num_heads,
+                                        config.embed_dim,
+                                        config.agent_encoder_hidden_dim,
+                                        dropout=config.dropout)
+                for _ in range(config.agent_encoder_num_layers)
             ]
         )
-        self.num_heads = num_heads
 
-    def forward(self,cities_embed, graph, agent, masks = None):
+
+    def forward(self,cities_embed, graph_embed, agent_state, masks = None):
         """
-        :param agent: [B,N,2]
+        :param graph_embed
+        :param agent_state: [B,M,14]
         :return:
         """
-        agent_embed = self.agent_embed(cities_embed, graph, agent)
-        if masks is not None:
-            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
-        else:
-            expand_masks = None
+
+        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
+        depot_pos_embed = self.depot_pos_embed(depot_pos)
+        distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:5])
+        global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
+
+        context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed ], dim=-1)
+        agent_embed = self.agent_embed(context)
+
         for model in self.agent_self_att:
-            agent_embed = model(agent_embed, expand_masks)
-        del expand_masks
+            agent_embed = model(agent_embed, agent_embed, agent_embed, masks = masks)
+
         return agent_embed
 
+
 class ActionDecoder(nn.Module):
-    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0):
+    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0.0):
         super(ActionDecoder, self).__init__()
         self.agent_city_att = nn.ModuleList([
             CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
@@ -94,12 +196,16 @@ class ActionDecoder(nn.Module):
             aca = model(aca, city_embed, city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
         action_logits = self.action(aca, city_embed, masks)
-        del masks, expand_masks
-        return action_logits, aca
+        return action_logits
+
 
 class ConflictModel(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ConflictModelConfig):
         super(ConflictModel, self).__init__()
+
+        self.agent_encoder = MultiAgentEncoder(config)
+        self.num_heads = config.agent_encoder_num_heads
+
         # 不能使用dropout
         self.city_agent_att = nn.ModuleList([
             CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
@@ -109,7 +215,8 @@ class ConflictModel(nn.Module):
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.agents = SingleHeadAttention(config.embed_dim)
-        self.num_heads = config.conflict_deal_num_heads
+        self.conflict_deal_num_heads = config.conflict_deal_num_heads
+        self.agents_encoder_num_heads = config.conflict_deal_num_heads
 
     def forward(self, agent_embed, city_embed, acts, info = None):
         """
@@ -122,17 +229,21 @@ class ConflictModel(nn.Module):
             conflict_mask: [B,N] 初始冲突标记
         """
         B, A, E = agent_embed.shape
-
+        masks = None if info is None else info.get("masks_in_salesmen", None)
+        if masks is not None:
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
+        else:
+            expand_masks = None
+        agent_embed = self.agent_encoder(agent_embed, expand_masks)
         # 2. 生成初始冲突掩码 ----------------------------------------------------
         # 扩展维度用于广播比较
         acts_exp1 = acts.unsqueeze(2)  # [B,5,1]
         acts_exp2 = acts.unsqueeze(1)  # [B,1,5]
         # 生成布尔型冲突矩阵
-        conflict_matrix = (acts_exp1 == acts_exp2).bool()  # [B,5,5]
-        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0).bool()  # [1, A, A]
+        conflict_matrix = (acts_exp1 == acts_exp2).float()  # [B,5,5]
+        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0)  # [1, A, A]
         conflict_matrix = torch.where(acts_exp1 == 0, identity_matrix, conflict_matrix)
-        conflict_matrix = ~conflict_matrix
-        expand_conflict_mask = conflict_matrix.unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B*self.num_heads, A, A)
+        expand_conflict_mask = conflict_matrix.unsqueeze(1).expand(B, self.conflict_deal_num_heads, A, A).reshape(B*self.conflict_deal_num_heads, A, A)
 
         # 3. 提取候选城市特征 -----------------------------------------------------
         selected_cities = torch.gather(
@@ -145,7 +256,7 @@ class ConflictModel(nn.Module):
         # Q: 候选城市特征 [B,5,E]
         # K/V: 智能体特征 [B,5,E]
         cac = selected_cities
-        for att in self.city_agent_att:
+        for att in  self.city_agent_att:
             cac = att(cac, agent_embed, agent_embed, expand_conflict_mask)
 
         agents_logits = self.agents(cac, agent_embed, conflict_matrix)
@@ -156,67 +267,53 @@ class ConflictModel(nn.Module):
 
 
 class ActionsModel(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ActionsModelConfig):
         super(ActionsModel, self).__init__()
         self.city_encoder = CityEncoder(2, config.city_encoder_hidden_dim, config.embed_dim,
                                         config.city_encoder_num_heads, config.city_encoder_num_layers,
                                         )
-        self.agent_encoder = AgentEncoder(config.agent_dim, config.agent_encoder_hidden_dim, config.embed_dim,
-                                          config.agent_encoder_num_heads, config.agent_encoder_num_layers,
-                                          dropout=config.dropout
+        self.agent_encoder = AgentEncoder(config.agent_dim, config.agent_encoder_hidden_dim, config.embed_dim
                                           )
         self.agent_decoder = ActionDecoder(config.action_decoder_hidden_dim, config.embed_dim,
                                            config.action_decoder_num_heads, config.action_decoder_num_layers,
                                            dropout=config.dropout
                                            )
-        self.city = None
         self.city_embed = None
         self.city_embed_mean = None
-        self.config = config
 
     def init_city(self, city):
         """
         :param city: [B,N,2]
         :return: None
         """
-        self.city = city
         self.city_embed = self.city_encoder(city)
         self.city_embed_mean = torch.mean(self.city_embed, dim=1)
 
     def forward(self, agent, mask, info = None):
-        # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
-        # ori_expand_graph = self.city_embed.expand(*batch_mask.shape)
-        # mask_expand_graph = ori_expand_graph * batch_mask
-        # mask_sum_expand_graph = mask_expand_graph.sum(1)
-        # non_zero_count = batch_mask.sum(1)
-        # avg_graph = mask_sum_expand_graph / non_zero_count
 
-        # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
-        # expand_graph = self.city_embed_mean.unsqueeze(1)
-        # city_mask = None if info is None else info.get("mask", None)
-        # self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
-        # cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
-        # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
-        # del city_mask
+        city_mask = None if info is None else info.get("mask", None)
+        if city_mask is not None:
+            expand_masks = ((city_mask.unsqueeze(1).expand(city_mask.size(0), city_mask.size(1), city_mask.size(1))
+                             .unsqueeze(1).expand(city_mask.size(0), self.config.city_encoder_num_heads,
+                                                  city_mask.size(1), city_mask.size(1)))
+                            .reshape(city_mask.size(0) * self.config.city_encoder_num_heads, city_mask.size(1),
+                                     city_mask.size(1)))
+        else:
+            expand_masks = None
+        self.city_embed = self.city_encoder(self.city, att_mask=expand_masks)
+        self.city_embed_mean = torch.mean(self.city_embed, dim=1)
 
         agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
 
-        actions_logits, agent_embed = self.agent_decoder( agent_embed, self.city_embed, mask)
-        del mask
+        actions_logits = self.agent_decoder( agent_embed, self.city_embed, mask)
 
-        # agents_logits = self.deal_conflict(agent_embed, self.city_embed, actions_logits)
-
-        # expanded_city_embed = self.city_embed.expand(select.size(1), -1, -1)
-        # expanded_select = select.unsqueeze(-1).expand(-1,-1,128)
-        # select_city_embed = torch.gather(expanded_city_embed,1, expanded_select)
-        # reselect = self.action_reselector(agent_embed, select_city_embed)
         return actions_logits, agent_embed
 
 class Model(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super(Model, self).__init__()
-        self.actions_model = ActionsModel(config)
-        self.conflict_model = ConflictModel(config)
+        self.actions_model = ActionsModel(config.actions_model_config)
+        self.conflict_model = ConflictModel(config.conflict_model_config)
         initialize_weights(self)
         self.step = 0
         self.cfg = config
@@ -255,10 +352,10 @@ class Model(nn.Module):
             agents_logits = None
             acts_no_conflict = acts
             masks = None
-        self.step += 1
-        a = torch.all((acts_no_conflict == -1),dim = -1)
-        if torch.any(a):
-            pass
+        # self.step += 1
+        # a = torch.all((acts_no_conflict == -1),dim = -1)
+        # if torch.any(a):
+        #     pass
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
 
 
