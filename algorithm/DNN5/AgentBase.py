@@ -108,7 +108,7 @@ class AgentBase:
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
                     agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
-        adv = 0.1 * agents_adv + group_adv
+        adv = 0.3*agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         adv_t = _convert_tensor(adv, device=self.device)

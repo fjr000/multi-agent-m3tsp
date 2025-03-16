@@ -117,6 +117,7 @@ class MTSPEnv:
         self.actions = None
         self.ori_actions = None
         self.distance_scale = self.cities / self.salesmen
+        self.ori_actions_list = []
 
     def _get_salesmen_states(self):
 
@@ -206,8 +207,8 @@ class MTSPEnv:
             masked_cost = np.where(active_agents, self.costs, np.inf)
             masked_cost_sl = masked_cost[batch_indices_1d]
             min_cost_idx =  np.argmin(masked_cost_sl, axis=-1)
-            repeat_masks[batch_indices, :, 0] = 1
-            repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
+            # repeat_masks[batch_indices, :, 0] = 1
+            # repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
             # # 仅不允许最小开销的智能体留在原地
             # 允许所有激活智能体留在原地
             # 筛选有效批次的 mask 和 indices
@@ -215,8 +216,9 @@ class MTSPEnv:
             valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
 
             # 使用高级索引直接赋值
+            # x = repeat_masks[batch_indices, np.arange(A), valid_indices]
             repeat_masks[batch_indices, np.arange(A), valid_indices] = valid_mask
-
+            # xx =  repeat_masks[batch_indices, np.arange(A), valid_indices]
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             repeat_masks[batch_indices, min_cost_idx[:,None], x_min_cur_pos[:,None]] = 0
 
@@ -575,8 +577,8 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", type=float, default=256)
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--agent_id", type=int, default=130000)
+    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     args = parser.parse_args()
