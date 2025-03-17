@@ -16,8 +16,8 @@ class AgentBase:
 
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
-        self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
-        self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
+        # self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
+        # self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min",
