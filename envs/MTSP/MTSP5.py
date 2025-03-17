@@ -241,13 +241,24 @@ class MTSPEnv:
             masked_cost = np.where(active_agents, self.costs, -np.inf)
             masked_cost_sl = masked_cost[batch_indices_1d]
             max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
-            # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
-            repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
-            repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
+            # # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
+            # repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
+            # repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
             # 仅允许最大开销的智能体留在原地
             x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
             repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
             # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
+
+            valid_mask = active_agents[batch_indices_1d]  # 形状 (K, A)
+            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+
+            # 使用高级索引直接赋值
+            # x = repeat_masks[batch_indices, np.arange(A), valid_indices]
+            repeat_masks[batch_indices, np.arange(A), valid_indices] = False
+            # xx =  repeat_masks[batch_indices, np.arange(A), valid_indices]
+            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
+            repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = True
+
             #
             # min_cost_idx =  np.argmin(masked_cost_sl, axis=-1)
             # # 使用高级索引直接赋值
@@ -403,6 +414,7 @@ class MTSPEnv:
         self.actions = actions
         self.step_count += 1
         self.trajectories[..., self.step_count] = actions
+
         # 生成行索引 [B*A]
         self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
 
@@ -413,6 +425,11 @@ class MTSPEnv:
 
         last_pos = self.trajectories[..., self.step_count-1]-1
         self.cur_pos = self.trajectories[...,self.step_count]-1
+        #
+        # stay_up = (last_pos == ori_actions-1) & (ori_actions != 1)
+        # if np.any(stay_up):
+        #     t = np.argwhere(stay_up)
+        #     pass
 
         self.costs += self.graph_matrix[
             self.batch_ar[:, None],
@@ -578,7 +595,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=130000)
-    parser.add_argument("--env_masks_mode", type=int, default=0, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     args = parser.parse_args()

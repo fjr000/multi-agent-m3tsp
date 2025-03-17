@@ -33,18 +33,18 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=3.5e-5)
+    parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--grad_max_norm", type=float, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--accumulation_steps", type=int, default=32)
+    parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=200000)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=1,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=500, help="eval  interval")
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)
-    from envs.MTSP.MTSP4 import MTSPEnv
+    from envs.MTSP.MTSP5 import MTSPEnv
     env = MTSPEnv({
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model":args.use_conflict_model
