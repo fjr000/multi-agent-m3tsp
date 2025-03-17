@@ -2,7 +2,7 @@ import argparse
 import time
 
 from model.RefModel.Model import Model
-from algorithm.DNN5.AgentBase import AgentBase
+from algorithm.RefAgent.AgentBase import AgentBase
 
 
 class AgentV1(AgentBase):
