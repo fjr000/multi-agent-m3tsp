@@ -57,18 +57,18 @@ class CityEncoder(nn.Module):
         :return:
         """
 
-        if city_mask is not None:
-            city_mask[:,0] = False
-            B, A = city_mask.shape
-            expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
-            # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
-        else:
-            expand_masks = None
+        # if city_mask is not None:
+        #     city_mask[:,0] = False
+        #     B, A = city_mask.shape
+        #     expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
+        #     # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
+        # else:
+        #     expand_masks = None
 
         city_embed = self.city_embed(city)
         for model in self.city_self_att:
-            city_embed = model(city_embed, expand_masks)
-        del expand_masks
+            city_embed = model(city_embed, key_padding_mask = city_mask)
+        # del expand_masks
         return city_embed
 
 class AgentEmbedding(nn.Module):

@@ -46,9 +46,9 @@ class SkipConnection(nn.Module):
         super(SkipConnection, self).__init__()
         self.module = module
 
-    def forward(self, inputs, masks = None):
-        if masks is not None:
-            return inputs + self.module(inputs, masks)
+    def forward(self, inputs, key_padding_mask = None, attn_mask = None):
+        if key_padding_mask is not None or attn_mask is not None:
+            return inputs + self.module(inputs, key_padding_mask, attn_mask)
         else:
             return inputs + self.module(inputs)
 
@@ -83,8 +83,8 @@ class MultiHeadAttention(nn.Module):
         super(MultiHeadAttention, self).__init__()
         self.layer = nn.MultiheadAttention(embedding_dim, n_heads, dropout = dropout, batch_first = True)
 
-    def forward(self, x, attn_mask = None):
-        out,_ = self.layer(x, x, x, attn_mask = attn_mask)
+    def forward(self, x, key_padding_mask = None,attn_mask = None):
+        out,_ = self.layer(x, x, x, key_padding_mask = key_padding_mask,attn_mask = attn_mask)
         return out
 
 class MultiHeadAttentionLayer(nn.Module):
@@ -118,8 +118,8 @@ class MultiHeadAttentionLayer(nn.Module):
 
         self.norm2 = nn.LayerNorm(embedding_dim)
 
-    def forward(self, x, masks = None):
-        o = self.attention(x, masks)
+    def forward(self, x, key_padding_mask = None,masks = None):
+        o = self.attention(x, key_padding_mask = key_padding_mask, attn_mask = masks)
         o = self.norm1(o)
         o = self.mlp(o, None)
         o = self.norm2(o)
