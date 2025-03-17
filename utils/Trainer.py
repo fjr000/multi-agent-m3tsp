@@ -41,6 +41,9 @@ if __name__ == "__main__":
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=500, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.2, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     args = parser.parse_args()
@@ -71,6 +74,13 @@ if __name__ == "__main__":
 
     CC = CourseController()
     agent_num, city_nums = args.agent_num, args.city_nums
+
+    train_info={
+        "use_conflict_model": args.use_conflict_model,
+        "train_conflict_model":args.train_conflict_model,
+        "train_actions_model": args.train_actions_model,
+    }
+
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
 
@@ -92,8 +102,7 @@ if __name__ == "__main__":
             graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
 
         act_logp, agents_logp, act_ent, agt_ent, costs = agent.run_batch_episode(env, graph_8, agent_num,
-                                                                                 eval_mode=False, info={
-                "use_conflict_model": args.use_conflict_model})
+                                                                                 eval_mode=False, info=train_info)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(act_logp, agents_logp, act_ent, agt_ent, costs)
 
         EvalTools.tensorboard_write(writer, i,

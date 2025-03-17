@@ -21,7 +21,14 @@ class Model(nn.Module):
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         agent_mask = None if info is None else info.get("masks_in_salesmen", None)
-        agents_embed, actions_logits = self.actions_model(agent, agent_mask, mask)
+        train_actions_model = None if info is None else info.get("train_actions_model", None)
+        train_conflict_model = None if info is None else info.get("train_conflict_model", None)
+        if train_actions_model:
+            agents_embed, actions_logits = self.actions_model(agent, agent_mask, mask)
+        else:
+            with torch.no_grad():
+                agents_embed, actions_logits = self.actions_model(agent, agent_mask, mask)
+
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
@@ -34,7 +41,11 @@ class Model(nn.Module):
         else:
             raise NotImplementedError
         if use_conflict_model:
-            agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
+            if train_conflict_model:
+                agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
+            else:
+                with torch.no_grad():
+                    agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
 
             agents = agents_logits.argmax(dim=-1)
 

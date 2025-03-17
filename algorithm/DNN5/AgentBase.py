@@ -108,7 +108,7 @@ class AgentBase:
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
                     agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
-        adv = 0.3*agents_adv + group_adv
+        adv = self.args.agents_adv_rate*agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         adv_t = _convert_tensor(adv, device=self.device)
@@ -143,8 +143,8 @@ class AgentBase:
         # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
         # 组合优势
-        act_adv = 0.1 * agents_adv + group_adv
-        agt_adv = 0.1 * agents_adv + group_adv
+        act_adv = self.args.agents_adv_rate * agents_adv + group_adv
+        agt_adv = self.args.agents_adv_rate * agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         act_adv_t = _convert_tensor(act_adv, device=self.device)
@@ -174,7 +174,10 @@ class AgentBase:
         else:
             act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        if agents_logp is not None:
+        loss = torch.zeros((1), device=self.device)
+        agt_ent_loss = torch.tensor([0], device=self.device)
+        agents_loss = torch.tensor([0], device=self.device)
+        if agents_logp is not None and self.args.train_conflict_model:
             # 修改为检查 agents_loss 是否包含 NaN
             if not torch.any(torch.isnan(agents_loss)):
                 agt_ent_loss = agt_ent
@@ -182,15 +185,13 @@ class AgentBase:
                 agents_loss = torch.tensor([0], device=self.device)
                 agt_ent_loss = torch.tensor([0], device=self.device)
             # 更新损失计算，确保使用正确的变量名称
-            loss = act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss)
-            loss /= self.args.accumulation_steps
-            loss.backward()
-        else:
-            loss = act_loss + self.args.entropy_coef * (-act_ent_loss)
-            loss /= self.args.accumulation_steps
-            loss.backward()
-            agt_ent_loss = torch.tensor([0], device=self.device)
-            agents_loss = torch.tensor([0], device=self.device)
+            loss += agents_loss + self.args.entropy_coef * (- agt_ent_loss)
+
+        if self.args.train_actions_model:
+            loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
+
+        loss /= self.args.accumulation_steps
+        loss.backward()
 
         if self.train_count % self.args.accumulation_steps == 0:
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
@@ -218,6 +219,7 @@ class AgentBase:
         agents_logp_list = []
         act_ent_list = []
         agt_ent_list = []
+        info = {} if info is None else info
 
         done = False
         use_conflict_model = False
@@ -228,7 +230,6 @@ class AgentBase:
             salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
             masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
             city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
-            info = {} if info is None else info
             info.update({
                 "masks_in_salesmen":masks_in_salesmen_t,
                 "mask":city_mask_t
