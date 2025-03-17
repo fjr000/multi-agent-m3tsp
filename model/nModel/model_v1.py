@@ -57,8 +57,8 @@ class CityEncoder(nn.Module):
         :return:
         """
 
-        # if city_mask is not None:
-        #     city_mask[:,0] = False
+        if city_mask is not None:
+            city_mask[:,0] = False
         #     B, A = city_mask.shape
         #     expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
         #     # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
