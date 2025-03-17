@@ -1,5 +1,7 @@
 
 import numpy as np
+import random
+import torch
 import sys
 
 sys.path.append("../")
@@ -14,6 +16,21 @@ import tqdm
 from EvalTools import EvalTools
 from model.RefModel.config import ModelConfig as Config
 from envs.GraphGenerator import GraphGenerator as GG
+
+
+def set_seed(seed=42):
+    # 基础库
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # PyTorch核心设置
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # 多GPU时
+
+    # # 禁用CUDA不确定算法
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -44,10 +61,13 @@ if __name__ == "__main__":
     parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--agents_adv_rate", type=float, default=0.2, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
+    parser.add_argument("--seed", type=int, default=528, help="random seed")
     args = parser.parse_args()
 
+    set_seed(args.seed)
 
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)

@@ -75,7 +75,7 @@ class MTSPEnv:
             np.random.seed(self.seed)
         self.GG = GG(self.problem_size, self.cities, 2, self.seed)
 
-    def __init(self, graph=None):
+    def _init(self, graph=None):
         """
 
         :param graph: -> self.graph [B, N ,2]
@@ -278,7 +278,7 @@ class MTSPEnv:
     def reset(self, config=None, graph=None):
         if config is not None:
             self.__parse_config(config)
-        self.__init(graph)
+        self._init(graph)
 
         env_info = {
             "graph": self.graph,
