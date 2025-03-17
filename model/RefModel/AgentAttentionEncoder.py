@@ -18,7 +18,7 @@ class AgentEmbedding(nn.Module):
 
         self.position_embed = PositionalEncoder(self.embed_dim)
 
-        self.agent_embed = nn.Linear(3 * self.embed_dim, self.embed_dim)
+        self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
 
     def forward(self,cities_embed, graph_embed, agent_state):
         """
@@ -36,7 +36,7 @@ class AgentEmbedding(nn.Module):
         global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
 
         position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
-        context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed, position_embed ], dim=-1)
+        context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed + position_embed ], dim=-1)
         agent_embed = self.agent_embed(context)
         return agent_embed
 
