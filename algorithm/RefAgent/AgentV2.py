@@ -138,8 +138,8 @@ class AgentV2(AgentBase):
         group_adv_t = _convert_tensor(group_adv, device=self.device)
         act_likelihood = torch.sum(act_logp_8, dim = -1)
         agt_likelihood = torch.sum(agt_logp_8, dim = -1)
-        act_loss = 0.1 * (act_likelihood * group_adv_t).mean()
-        agt_loss = 0.1 * (agt_likelihood * group_adv_t).mean()
+        act_loss = (act_likelihood * group_adv_t).mean()
+        agt_loss = (agt_likelihood * group_adv_t).mean()
 
         returns_8 = returns.reshape(returns.shape[0] // 8, 8, returns.shape[1], -1)
         returns_t = _convert_tensor(returns_8, device=self.device)

@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=1,
+    parser.add_argument("--env_masks_mode", type=int, default=0,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=500, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
