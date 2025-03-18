@@ -203,6 +203,10 @@ class AgentBase:
             loss /= self.args.accumulation_steps
             loss.backward()
             self.train_count += 1
+        else:
+            del agents_logp, agt_ent, act_logp, act_ent,
+            print("empty")
+            torch.cuda.empty_cache()
 
 
         if self.train_count % self.args.accumulation_steps == 0:
