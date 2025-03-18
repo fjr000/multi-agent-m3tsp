@@ -50,7 +50,7 @@ class Model(nn.Module):
             raise NotImplementedError
         if use_conflict_model:
             if train_conflict_model:
-                agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
+                agents_logits = self.conflict_model(agents_embed, self.city_embed, acts)
             else:
                 with torch.no_grad():
                     agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
