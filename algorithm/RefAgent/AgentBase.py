@@ -11,7 +11,7 @@ import numpy as np
 class AgentBase:
     def __init__(self, args, config, model_class):
         self.args = args
-        self.model = model_class(config)
+        self.model = model_class(config, args)
         self.conflict_model = None
 
         self.lr = args.lr

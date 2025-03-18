@@ -97,7 +97,7 @@ class MTSPEnv:
 
         self.step_count = 0
         self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+1), dtype=np.int32)
-        self.cur_pos = self.trajectories[...,self.step_count]
+        self.cur_pos = self.trajectories[...,self.step_count] -1
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
@@ -157,9 +157,8 @@ class MTSPEnv:
         # # denominator = max(self.salesmen - 1, 1) * self.distance_scale
         # denominator = max(self.salesmen - 1, 1)
         # avg_diff_cost = weighted_diff / denominator
-
-        self.states[..., 0] = depot_idx
-        self.states[..., 1] = self.cur_pos
+        self.states[..., 0:2] = self.graph[batch_indices,self.cur_pos] - self.graph[:,0:1,:]
+        # self.states[..., 1] = self.cur_pos
 
 
         self.states[..., 2] = cur_cost / (max_cost + 1e-8)

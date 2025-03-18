@@ -10,7 +10,7 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(self.embed_dim , self.embed_dim)
+        self.depot_pos_embed = nn.Linear(2 , self.embed_dim)
         self.distance_cost_embed = nn.Linear(2, self.embed_dim)
         self.next_cost_embed = nn.Linear(3, self.embed_dim)
         self.problem_scale_embed = nn.Linear(1, self.embed_dim)
@@ -32,8 +32,9 @@ class AgentEmbedding(nn.Module):
         """
 
         # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
-        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:]
-        depot_pos_embed = self.depot_pos_embed(depot_pos[:,:,0,:] - depot_pos[:,:,1,:])
+        # depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:]
+        # depot_pos_embed = self.depot_pos_embed(depot_pos[:,:,0,:] - depot_pos[:,:,1,:])
+        depot_pos_embed = self.depot_pos_embed(agent_state[:,:,0:2])
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:4])
         next_cost_embed = self.next_cost_embed(agent_state[:,:,4:7])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:8])

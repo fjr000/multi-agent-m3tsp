@@ -6,9 +6,10 @@ from model.RefModel.ConflictAttentionModel import ConflictAttentionModel
 from model.RefModel.config import ModelConfig
 
 class Model(nn.Module):
-    def __init__(self, config:ModelConfig):
+    def __init__(self, config:ModelConfig, args = None):
         super(Model, self).__init__()
         self.config = config
+        self.args = args
         self.city_encoder = CityAttentionEncoder(config.city_encoder_config.city_encoder_num_heads,
                                                  config.city_encoder_config.embed_dim,
                                                  config.city_encoder_config.city_encoder_num_layers,
@@ -22,16 +23,19 @@ class Model(nn.Module):
         self.city_embed_mean = None
 
     def init_city(self, city, mask = None):
-        self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
+        if self.args.train_city_encoder:
+            self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
+        else:
+            with torch.no_grad():
+                self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
         self.step = 0
 
     def forward(self, agent, mask, info = None):
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         agent_mask = None if info is None else info.get("masks_in_salesmen", None)
-        train_actions_model = None if info is None else info.get("train_actions_model", None)
-        train_conflict_model = None if info is None else info.get("train_conflict_model", None)
-        if train_actions_model:
+
+        if self.args.train_actions_model:
             agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)
         else:
             with torch.no_grad():
@@ -49,7 +53,7 @@ class Model(nn.Module):
         else:
             raise NotImplementedError
         if use_conflict_model:
-            if train_conflict_model:
+            if self.args.train_conflict_model:
                 agents_logits = self.conflict_model(agents_embed, self.city_embed, acts)
             else:
                 with torch.no_grad():
