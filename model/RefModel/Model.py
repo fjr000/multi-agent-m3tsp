@@ -28,12 +28,18 @@ class Model(nn.Module):
         else:
             with torch.no_grad():
                 self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
-        self.step = 0
+        if mask is None:
+            self.step = 0
 
     def forward(self, agent, mask, info = None):
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         agent_mask = None if info is None else info.get("masks_in_salesmen", None)
+
+        if self.args.use_city_mask:
+            city_mask = None if info is None else info.get("mask", None)
+            assert city_mask is not None, "use_city_mask requires city mask"
+            self.init_city(agent, city_mask)
 
         if self.args.train_actions_model:
             agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)

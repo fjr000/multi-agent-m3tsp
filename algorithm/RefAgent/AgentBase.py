@@ -16,8 +16,8 @@ class AgentBase:
 
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
-        self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
-        self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
+        # self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
+        # self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min",
@@ -245,8 +245,16 @@ class AgentBase:
             # mask: true :not allow  false:allow
 
             salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
-            masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
-            city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
+            if self.args.use_agents_mask:
+                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+            else:
+                masks_in_salesmen_t = None
+
+            if self.args.use_city_mask:
+                city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
+            else:
+                city_mask_t = None
+
             info = {} if info is None else info
             info.update({
                 "masks_in_salesmen":masks_in_salesmen_t,
@@ -309,16 +317,16 @@ class AgentBase:
     def state_dict(self):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            "model_act_optim": self.act_optim.state_dict(),
-            "model_conf_optim": self.conf_optim.state_dict(),
+            # "model_act_optim": self.act_optim.state_dict(),
+            # "model_conf_optim": self.conf_optim.state_dict(),
             "model_optim": self.optim.state_dict(),
         }
         return checkpoint
 
     def load_state_dict(self, checkpoint):
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.act_optim.load_state_dict(checkpoint["model_act_optim"])
-        self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
+        # self.act_optim.load_state_dict(checkpoint["model_act_optim"])
+        # self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
         self.optim.load_state_dict(checkpoint["model_optim"])
 
     def _save_model(self, model_dir, filename):
