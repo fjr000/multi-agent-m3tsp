@@ -176,7 +176,7 @@ class AgentBase:
         else:
             act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        loss = torch.zeros((1), device=self.device)
+        loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
         if agents_logp is not None and self.args.train_conflict_model:
@@ -186,14 +186,17 @@ class AgentBase:
             else:
                 agents_loss = torch.tensor([0], device=self.device)
                 agt_ent_loss = torch.tensor([0], device=self.device)
-            # 更新损失计算，确保使用正确的变量名称
-            loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
+
+            if not torch.isnan(agt_ent_loss):
+                # 更新损失计算，确保使用正确的变量名称
+                loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
 
         if self.args.train_actions_model:
             loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
 
-        loss /= self.args.accumulation_steps
-        loss.backward()
+        if not torch.isnan(agt_ent_loss):
+            loss /= self.args.accumulation_steps
+            loss.backward()
 
         if self.train_count % self.args.accumulation_steps == 0:
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
