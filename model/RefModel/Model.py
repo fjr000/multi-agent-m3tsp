@@ -53,7 +53,7 @@ class Model(nn.Module):
                 agents_logits = self.conflict_model(agents_embed, self.city_embed, acts)
             else:
                 with torch.no_grad():
-                    agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts)
+                    agents_logits = self.conflict_model(agents_embed, self.city_embed, acts)
 
             agents = agents_logits.argmax(dim=-1)
 
