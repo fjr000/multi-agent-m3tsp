@@ -101,14 +101,14 @@ class AgentBase:
         # 智能体间优势
         agents_adv = np.abs(costs_8 - agents_avg_cost)
         agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
-                    agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+                agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
         # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-                    agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
+                agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
-        adv = 0.3*agents_adv + group_adv
+        adv = self.args.agents_adv_rate * agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         adv_t = _convert_tensor(adv, device=self.device)
@@ -138,13 +138,15 @@ class AgentBase:
         # 智能体间优势
         agents_adv = np.abs(costs - agents_avg_cost)
         # agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
-        agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
+                    agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
         # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
-        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (
+                    agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
         # 组合优势
-        act_adv = 0.1 * agents_adv + group_adv
-        agt_adv = 0.1 * agents_adv + group_adv
+        act_adv = self.args.agents_adv_rate * agents_adv + group_adv
+        agt_adv = self.args.agents_adv_rate * agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         act_adv_t = _convert_tensor(act_adv, device=self.device)
@@ -174,7 +176,10 @@ class AgentBase:
         else:
             act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        if agents_logp is not None:
+        loss = torch.zeros((1), device=self.device)
+        agt_ent_loss = torch.tensor([0], device=self.device)
+        agents_loss = torch.tensor([0], device=self.device)
+        if agents_logp is not None and self.args.train_conflict_model:
             # 修改为检查 agents_loss 是否包含 NaN
             if not torch.any(torch.isnan(agents_loss)):
                 agt_ent_loss = agt_ent
@@ -182,21 +187,21 @@ class AgentBase:
                 agents_loss = torch.tensor([0], device=self.device)
                 agt_ent_loss = torch.tensor([0], device=self.device)
             # 更新损失计算，确保使用正确的变量名称
-            loss = act_loss + agents_loss + self.args.entropy_coef * (-act_ent_loss - agt_ent_loss)
-            loss /= self.args.accumulation_steps
-            loss.backward()
-        else:
-            loss = act_loss + self.args.entropy_coef * (-act_ent_loss)
-            loss /= self.args.accumulation_steps
-            loss.backward()
-            agt_ent_loss = torch.tensor([0], device=self.device)
-            agents_loss = torch.tensor([0], device=self.device)
+            loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
+
+        if self.args.train_actions_model:
+            loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
+
+        loss /= self.args.accumulation_steps
+        loss.backward()
 
         if self.train_count % self.args.accumulation_steps == 0:
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
             self.optim.step()
             self.optim.zero_grad()
         return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+
+
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
         states, env_info = env.reset(

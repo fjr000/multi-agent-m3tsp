@@ -1,5 +1,5 @@
 import argparse
-from algorithm.DNN5.AgentV1 import AgentV1 as Agent
+from algorithm.RefAgent.AgentV1 import AgentV1 as Agent
 from utils.EvalTools import EvalTools
 from utils.TspInstanceFileTool import TspInstanceFileTool, result_dict
 if __name__ == '__main__':
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=240000)
+    parser.add_argument("--agent_id", type=int, default=230000)
     parser.add_argument("--env_masks_mode", type=int, default=1,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     from envs.MTSP.MTSP4 import MTSPEnv
 
     env = MTSPEnv({"env_masks_mode":args.env_masks_mode})
-    from model.n4Model.config import Config
+    from model.RefModel.config import ModelConfig as Config
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
 
