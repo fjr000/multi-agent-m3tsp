@@ -196,6 +196,9 @@ class AgentBase:
 
         if self.args.train_actions_model:
             loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
+        else:
+            act_ent_loss = torch.tensor([0], device=self.device)
+            act_ent_loss = torch.tensor([0], device=self.device)
 
         if not torch.isnan(agt_ent_loss):
             loss /= self.args.accumulation_steps
