@@ -171,14 +171,17 @@ class AgentBase:
     def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
         self.train_count += 1
+
+        loss = torch.tensor([0], dtype=torch.float32, device=self.device)
+        agt_ent_loss = torch.tensor([0], device=self.device)
+        agents_loss = torch.tensor([0], device=self.device)
+
         if self.args.only_one_instance:
             act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
         else:
             act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
-        loss = torch.tensor([0], dtype=torch.float32, device=self.device)
-        agt_ent_loss = torch.tensor([0], device=self.device)
-        agents_loss = torch.tensor([0], device=self.device)
+
         if agents_logp is not None and self.args.train_conflict_model:
             # 修改为检查 agents_loss 是否包含 NaN
             if not torch.any(torch.isnan(agents_loss)):
@@ -187,9 +190,9 @@ class AgentBase:
                 agents_loss = torch.tensor([0], device=self.device)
                 agt_ent_loss = torch.tensor([0], device=self.device)
 
-            if not torch.isnan(agt_ent_loss):
+            # if not torch.isnan(agt_ent_loss):
                 # 更新损失计算，确保使用正确的变量名称
-                loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
+            loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
 
         if self.args.train_actions_model:
             loss += act_loss + self.args.entropy_coef * (- act_ent_loss)

@@ -9,13 +9,6 @@ class ActionsAttentionModel(nn.Module):
     def __init__(self, config: ActionsModelConfig):
         super(ActionsAttentionModel, self).__init__()
 
-        self.city_encoder = CityAttentionEncoder(config.city_encoder_num_heads,
-                                                 config.embed_dim,
-                                                 config.city_encoder_num_layers,
-                                                 2,
-                                                 'batch',
-                                                 config.city_encoder_hidden_dim)
-
         self.agent_encoder = AgentAttentionEncoder(input_dim=2,
                                                    hidden_dim=config.agent_encoder_hidden_dim,
                                                    embed_dim=config.embed_dim,
@@ -32,14 +25,13 @@ class ActionsAttentionModel(nn.Module):
         self.city_embed = None
         self.city_embed_mean = None
 
-    def init_city(self, city, mask = None):
-        self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
 
-    def forward(self, agent, agent_mask = None, agent_city_mask = None):
 
-        agent_self_embed = self.agent_encoder(self.city_embed, self.city_embed_mean, agent, agent_mask)
+    def forward(self, city_embed, city_embed_mean, agent, agent_mask = None, agent_city_mask = None):
 
-        agent_city_embed, act_logits = self.agent_city_decoder(agent_self_embed, self.city_embed, masks = agent_city_mask)
+        agent_self_embed = self.agent_encoder(city_embed, city_embed_mean, agent, agent_mask)
+
+        agent_city_embed, act_logits = self.agent_city_decoder(agent_self_embed, city_embed, masks = agent_city_mask)
 
         return agent_city_embed, act_logits
 

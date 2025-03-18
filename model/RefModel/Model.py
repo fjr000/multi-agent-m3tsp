@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
 from model.RefModel.ActionsAttentionModel import ActionsAttentionModel
 from model.RefModel.ConflictAttentionModel import ConflictAttentionModel
 from model.RefModel.config import ModelConfig
@@ -8,13 +9,20 @@ class Model(nn.Module):
     def __init__(self, config:ModelConfig):
         super(Model, self).__init__()
         self.config = config
-
+        self.city_encoder = CityAttentionEncoder(config.city_encoder_config.city_encoder_num_heads,
+                                                 config.city_encoder_config.embed_dim,
+                                                 config.city_encoder_config.city_encoder_num_layers,
+                                                 2,
+                                                 'batch',
+                                                 config.city_encoder_config.city_encoder_hidden_dim,)
         self.actions_model = ActionsAttentionModel(config.actions_model_config)
         self.conflict_model = ConflictAttentionModel(config.conflict_model_config)
         self.step = 0
+        self.city_embed = None
+        self.city_embed_mean = None
 
     def init_city(self, city, mask = None):
-        self.actions_model.init_city(city, mask)
+        self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
         self.step = 0
 
     def forward(self, agent, mask, info = None):
@@ -24,10 +32,10 @@ class Model(nn.Module):
         train_actions_model = None if info is None else info.get("train_actions_model", None)
         train_conflict_model = None if info is None else info.get("train_conflict_model", None)
         if train_actions_model:
-            agents_embed, actions_logits = self.actions_model(agent, agent_mask, mask)
+            agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)
         else:
             with torch.no_grad():
-                agents_embed, actions_logits = self.actions_model(agent, agent_mask, mask)
+                agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)
 
         acts = None
         if mode == "greedy":
