@@ -170,7 +170,6 @@ class AgentBase:
 
     def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
-        self.train_count += 1
 
         loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         agt_ent_loss = torch.tensor([0], device=self.device)
@@ -200,9 +199,11 @@ class AgentBase:
             act_ent_loss = torch.tensor([0], device=self.device)
             act_ent_loss = torch.tensor([0], device=self.device)
 
-        if not torch.isnan(agt_ent_loss):
+        if not torch.isnan(agt_ent_loss) and not torch.isclose(loss, 0):
             loss /= self.args.accumulation_steps
             loss.backward()
+            self.train_count += 1
+
 
         if self.train_count % self.args.accumulation_steps == 0:
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
