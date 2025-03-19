@@ -128,7 +128,7 @@ class AgentCritic(AgentBase):
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
             self.optim.step()
             self.optim.zero_grad()
-        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item(), value_loss.item()
 
 
 

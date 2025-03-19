@@ -125,11 +125,10 @@ if __name__ == "__main__":
             graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
 
         output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
-        act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(*output)
+        loss_s = agent.learn(*output)
 
         EvalTools.tensorboard_write(writer, i,
-                          act_loss, agents_loss,
-                          act_ent_loss, agt_ent_loss,
+                          *loss_s,
                           agent.optim.param_groups[0]["lr"]
                           )
 
