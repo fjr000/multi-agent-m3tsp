@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
 from envs.MTSP.MTSP4 import MTSPEnv
-from algorithm.RefAgent.AgentV1 import AgentV1 as Agent
+from algorithm.RefAgent.AgentCritic import AgentCritic as Agent
 import tqdm
 from EvalTools import EvalTools
 from model.RefModel.config import ModelConfig as Config
@@ -49,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=4)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -130,7 +130,7 @@ if __name__ == "__main__":
         EvalTools.tensorboard_write(writer, i,
                           act_loss, agents_loss,
                           act_ent_loss, agt_ent_loss,
-                          output[-1], agent.optim.param_groups[0]["lr"]
+                          agent.optim.param_groups[0]["lr"]
                           )
 
         if ((i + 1) % args.eval_interval) == 0:

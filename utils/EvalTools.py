@@ -114,12 +114,11 @@ class EvalTools(object):
             return min_sample_cost_mean, None, sample_time
 
     @staticmethod
-    def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, costs, lr):
+    def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, lr):
         writer.add_scalar("train/act_loss", act_loss, train_count)
         writer.add_scalar("train/agents_loss", agents_loss, train_count)
         writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
         writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
-        writer.add_scalar("train/costs", np.mean(np.max(costs, axis=-1)), train_count)
         writer.add_scalar("train/lr", lr, train_count)
 
     @staticmethod

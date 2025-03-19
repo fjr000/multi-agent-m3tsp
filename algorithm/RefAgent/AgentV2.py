@@ -124,7 +124,7 @@ class AgentV2(AgentBase):
                 returns
             )
 
-    def __get_loss(self, act_logp, agents_logp, costs, returns):
+    def _get_loss(self, act_logp, agents_logp, costs, returns):
 
         # # 智能体间平均， 组间最小化最大
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
@@ -151,7 +151,7 @@ class AgentV2(AgentBase):
 
         return act_loss, agt_loss
 
-    def __get_loss_only_instance(self, act_logp, agents_logp, costs,returns):
+    def _get_loss_only_instance(self, act_logp, agents_logp, costs, returns):
         # 智能体间平均， 组间最小化最大
 
         agents_avg_cost = np.mean(costs, keepdims=True, axis=-1)
@@ -197,9 +197,9 @@ class AgentV2(AgentBase):
         agents_loss = torch.tensor([0], device=self.device)
 
         if self.args.only_one_instance:
-            act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs,returns)
+            act_loss, agents_loss = self._get_loss_only_instance(act_logp, agents_logp, costs, returns)
         else:
-            act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs,returns)
+            act_loss, agents_loss = self._get_loss(act_logp, agents_logp, costs, returns)
         act_ent_loss = act_ent
 
         if agents_logp is not None and self.args.train_conflict_model:

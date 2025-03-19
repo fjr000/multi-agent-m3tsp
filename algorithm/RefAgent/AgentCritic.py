@@ -1,45 +1,31 @@
 import argparse
-
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 import torch
-from utils.TensorTools import _convert_tensor
+import torch.nn.functional as F
+import torch.nn as nn
+from model.RefModel.ModelCritic import Model
+from algorithm.RefAgent.AgentBase import AgentBase
 import numpy as np
+from utils.TensorTools import _convert_tensor
 
-
-class AgentBase:
-    def __init__(self, args, config, model_class):
-        self.args = args
-        self.model = model_class(config, args)
-        self.conflict_model = None
-
-        self.lr = args.lr
-        self.grad_max_norm = args.grad_max_norm
-        # self.act_optim = optim.AdamW(self.model.actions_model.parameters(), lr=self.lr)
-        # self.conf_optim = optim.AdamW(self.model.conflict_model.parameters(), lr=self.lr)
-        self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
-        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
-        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min",
-                                                                       patience=10000 / args.eval_interval, factor=0.99,
-                                                                       min_lr=2e-5)
+class AgentCritic(AgentBase):
+    def __init__(self, args, config):
+        super(AgentCritic, self).__init__(args, config, Model)
         self.model.to(self.device)
-        self.train_count = 0
 
-    def reset_graph(self, graph):
-        """
-        :param graph: [B,N,2]
-        :return:
-        """
-        graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
-        self.model.init_city(graph_t)
+    def save_model(self, id):
+        filename = f"RefAgentCritic_{id}"
+        super(AgentCritic, self)._save_model(self.args.model_dir, filename)
+
+    def load_model(self, id):
+        filename = f"RefAgentCritic_{id}"
+        super(AgentCritic, self)._load_model(self.args.model_dir, filename)
 
     def __get_action_logprob(self, states, masks, mode="greedy", info=None):
         info = {} if info is None else info
         info.update({
             "mode": mode,
         })
-        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, info)
+        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask, V = self.model(states, masks, info)
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
@@ -52,133 +38,57 @@ class AgentBase:
             agents_logp = None
             agt_entropy = None
 
-        return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy
+        return acts, acts_no_conflict, act_logp, agents_logp, actions_dist.entropy(), agt_entropy, V
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
-        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.__get_action_logprob(
+        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self.__get_action_logprob(
             states_t, masks_t,
             mode="sample", info=info)
-        return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy
+        return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy, V
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info=info)
+        actions, actions_no_conflict, _, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
-    def __update_net(self, optim, params, loss):
-        optim.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(params, self.grad_max_norm)
-        optim.step()
-
     def __get_logprob(self, states, masks, actions):
-        actions_logits, agents_logits, acts, acts_no_conflict = self.model(states, masks)
+        actions_logits, agents_logits, acts, acts_no_conflict, _ = self.model(states, masks)
         dist = torch.distributions.Categorical(logits=actions_logits)
         agents_dist = torch.distributions.Categorical(logits=agents_logits)
         agents_logp = agents_dist.log_prob(agents_logits.argmax(dim=-1))
         entropy = dist.entropy()
         return dist.log_prob(actions), entropy, agents_logp
 
-    def __get_likelihood(self, actions_logprob, dones):
-        indice = dones.nonzero()[0]
-        likeilihood = torch.empty((indice.shape[0], actions_logprob.size(1)), device=self.device)
-        pre = 0
-        for i in range(indice.shape[0]):
-            clipSum = torch.sum(actions_logprob[pre:indice[i]], dim=0)
-            likeilihood[i] = clipSum
-            pre = indice[i] + 1
-        return likeilihood
+    def _get_gae(self, costs, V):
+        td_error = V[...,1:] - V[...,:-1]
+        td_error[...,-1] += _convert_tensor(-costs, device=self.device)
+        gae = torch.cumsum(td_error.flip(-1), dim=-1).flip(-1)
+        return gae
 
-    def _get_loss(self, act_logp, agents_logp, costs):
+    def __get_value_loss (self, costs, V):
 
-        # 智能体间平均， 组间最小化最大
-        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
-        act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
+        loss = F.mse_loss(V, _convert_tensor(-costs[:,:,None].repeat(V.size(2), axis = 2), device=self.device))
+        return loss
 
-        agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
-        agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
-        # 智能体间优势
-        agents_adv = np.abs(costs_8 - agents_avg_cost)
-        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
-                agents_adv.std(axis=-1, keepdims=True) + 1e-8)
-        # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
-        # 实例间优势
-        # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
-        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-                agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
-        # 组合优势
-        adv = self.args.agents_adv_rate * agents_adv + group_adv
-
-        # 转换为tensor并放到指定的device上
-        adv_t = _convert_tensor(adv, device=self.device)
-
-        # 对动作概率为零的样本进行掩码
-        mask_ = ((act_logp_8 != 0) & (~torch.isnan(act_logp_8)))
-
-        # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp_8[mask_] * adv_t[mask_]).mean()
+    def _get_loss(self, act_logp, agents_logp, gae):
+        act_loss = -( act_logp[...,:-1] * gae).mean()
+        agt_loss = None
         if agents_logp is not None:
-            agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
-            # 对智能体的动作概率进行掩码
-            mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
+            agt_loss = -(agents_logp[...,:-1] * gae).mean()
+        return act_loss, agt_loss
 
-            # 计算智能体的损失，mask之后加权平均
-            agents_loss = (agents_logp_8[mask_] * adv_t[mask_]).mean()
-        else:
-            agents_loss = None
-
-        return act_loss, agents_loss
-
-    def _get_loss_only_instance(self, act_logp, agents_logp, costs):
-        # 智能体间平均， 组间最小化最大
-
-        agents_avg_cost = np.mean(costs, keepdims=True, axis=-1)
-        agents_max_cost = np.max(costs, keepdims=True, axis=-1)
-        # 智能体间优势
-        agents_adv = np.abs(costs - agents_avg_cost)
-        # agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
-        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
-                    agents_adv.std(axis=-1, keepdims=True) + 1e-8)
-        # 实例间优势
-        # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
-        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (
-                    agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
-        # 组合优势
-        act_adv = self.args.agents_adv_rate * agents_adv + group_adv
-        agt_adv = self.args.agents_adv_rate * agents_adv + group_adv
-
-        # 转换为tensor并放到指定的device上
-        act_adv_t = _convert_tensor(act_adv, device=self.device)
-        agt_adv_t = _convert_tensor(agt_adv, device=self.device)
-
-        # 对动作概率为零的样本进行掩码
-        mask_ = ((act_logp != 0) & (~torch.isnan(act_logp)))
-
-        # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp[mask_] * act_adv_t[mask_]).mean()
-        if agents_logp is not None:
-            # 对智能体的动作概率进行掩码
-            mask_ = ((agents_logp != 0) & (~torch.isnan(agents_logp)))
-
-            # 计算智能体的损失，mask之后加权平均
-            agents_loss = (agents_logp[mask_] * agt_adv_t[mask_]).mean()
-        else:
-            agents_loss = None
-
-        return act_loss, agents_loss
-
-    def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
+    def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs, V):
         self.model.train()
 
         loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
 
-        if self.args.only_one_instance:
-            act_loss, agents_loss = self._get_loss_only_instance(act_logp, agents_logp, costs)
-        else:
-            act_loss, agents_loss = self._get_loss(act_logp, agents_logp, costs)
+        gae = self._get_gae(costs, V)
+
+        act_loss, agents_loss = self._get_loss(act_logp, agents_logp, gae)
+
         act_ent_loss = act_ent
 
         if agents_logp is not None and self.args.train_conflict_model:
@@ -201,7 +111,10 @@ class AgentBase:
             act_loss = torch.tensor([0], device=self.device)
             act_ent_loss = torch.tensor([0], device=self.device)
 
+        value_loss = self.__get_value_loss(costs, V)
+
         if not torch.isnan(agt_ent_loss) and not torch.isclose(loss, torch.zeros((1,), device=self.device)):
+            loss += 0.5 * value_loss
             loss /= self.args.accumulation_steps
             loss.backward()
             self.train_count += 1
@@ -239,6 +152,7 @@ class AgentBase:
         agents_logp_list = []
         act_ent_list = []
         agt_ent_list = []
+        V_list = []
 
         done = False
         use_conflict_model = False
@@ -265,11 +179,12 @@ class AgentBase:
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
             else:
-                acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.predict(states_t,
+                acts, acts_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self.predict(states_t,
                                                                                                        salesmen_masks_t,
                                                                                                        info)
                 act_logp_list.append(act_logp.unsqueeze(-1))
                 act_ent_list.append(act_entropy.unsqueeze(-1))
+                V_list.append(V)
                 if agents_logp is not None:
                     use_conflict_model = True
                     agents_logp_list.append(agents_logp.unsqueeze(-1))
@@ -286,26 +201,28 @@ class AgentBase:
             act_ent = torch.cat(act_ent_list, dim=-1).mean()
             act_ent = act_ent.sum() / act_ent.count_nonzero()
             # act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
-            act_likelihood = torch.sum(act_logp, dim=-1)
+            # act_likelihood = torch.sum(act_logp, dim=-1)
 
             if use_conflict_model:
                 agents_logp = torch.cat(agents_logp_list, dim=-1)
                 agt_ent = torch.cat(agt_ent_list, dim=-1)
                 agt_ent = agt_ent.sum() / agt_ent.count_nonzero()
                 # agents_logp = torch.where(agents_logp == 0, 0.0, agents_logp)
-                agents_likelihood = torch.sum(agents_logp, dim=-1)
+                # agents_likelihood = torch.sum(agents_logp, dim=-1)
             else:
                 agents_likelihood = None
                 agt_ent = None
 
             # act_likelihood = torch.sum(act_logp, dim=-1) / act_logp.count_nonzero(dim = -1)
             # agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
+            V_t = torch.cat(V_list, dim=-1)
             return (
-                act_likelihood,
-                agents_likelihood,
+                act_logp,
+                agents_logp,
                 act_ent,
                 agt_ent,
-                env_info["costs"]
+                env_info["costs"],
+                V_t
             )
 
     def eval_episode(self, env, batch_graph, agent_num, exploit_mode="sample", info=None):
@@ -345,3 +262,46 @@ class AgentBase:
             print(f"load {load_path} successfully")
         else:
             print("model file doesn't exist")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--agent_num", type=int, default=5)
+    parser.add_argument("--agent_dim", type=int, default=3)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--embed_dim", type=int, default=128)
+    parser.add_argument("--num_heads", type=int, default=2)
+    parser.add_argument("--num_layers", type=int, default=1)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--grad_max_norm", type=float, default=1.0)
+    parser.add_argument("--cuda_id", type=int, default=0)
+    parser.add_argument("--use_gpu", type=bool, default=True)
+    parser.add_argument("--returns_norm", type=bool, default=True)
+    parser.add_argument("--max_ent", type=bool, default=True)
+    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--batch_size", type=float, default=256)
+    parser.add_argument("--model_dir", type=str, default="../../pth/")
+    args = parser.parse_args()
+
+    from envs.GraphGenerator import GraphGenerator as GG
+
+    graphG = GG(args.batch_size, 50, 2)
+    graph = graphG.generate()
+    from envs.MTSP.MTSP4 import MTSPEnv
+
+    env = MTSPEnv()
+    from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
+
+    # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
+    # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
+    # print(f"or tools :{cost}")
+    from model.n4Model.config import Config
+
+    agent = AgentCritic(args, Config)
+    min_greedy_cost = 1000
+    min_sample_cost = 1000
+    loss_list = []
+    act_logp, agents_logp, costs = agent.run_batch_episode(env, graph, args.agent_num, eval_mode=False,
+                                                           exploit_mode="sample")
+
+    act_loss, agents_loss = agent.learn(act_logp, agents_logp, costs)
