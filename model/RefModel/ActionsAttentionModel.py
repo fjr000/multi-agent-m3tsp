@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
-from model.RefModel.AgentAttentionEncoder import AgentAttentionEncoder
+from model.RefModel.AgentAttentionEncoder import AgentAttentionEncoder, AgentAttentionRNNEncoder
 from model.RefModel.AgentCityAttentionDecoder import AgentCityAttentionDecoder
 from model.RefModel.config import ActionsModelConfig
 
@@ -9,7 +9,7 @@ class ActionsAttentionModel(nn.Module):
     def __init__(self, config: ActionsModelConfig):
         super(ActionsAttentionModel, self).__init__()
 
-        self.agent_encoder = AgentAttentionEncoder(input_dim=2,
+        self.agent_encoder = AgentAttentionRNNEncoder(input_dim=2,
                                                    hidden_dim=config.agent_encoder_hidden_dim,
                                                    embed_dim=config.embed_dim,
                                                    num_heads=config.agent_encoder_num_heads,
@@ -25,7 +25,8 @@ class ActionsAttentionModel(nn.Module):
         self.city_embed = None
         self.city_embed_mean = None
 
-
+    def init_rnn_state(self, batch_size, agent_num,device):
+        self.agent_encoder.init_rnn_state(batch_size, agent_num, device)
 
     def forward(self, city_embed, city_embed_mean, agent, agent_mask = None, agent_city_mask = None):
 
