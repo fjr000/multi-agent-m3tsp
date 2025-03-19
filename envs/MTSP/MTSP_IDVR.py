@@ -18,8 +18,8 @@ class MTSPEnv_IDVR(MTSPEnv):
         self.done = np.all(self.dones, axis=0)
         # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
         # self.rewards = self.last_costs - self.costs
-        # self.last_costs = copy.deepcopy(self.costs)
-        self.rewards = -np.max(self.costs, keepdims=True, axis=1).repeat(self.salesmen, axis=1)
+        self.rewards = self.last_costs -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1)
+        self.last_costs = copy.deepcopy(np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1))
         return self.rewards
 
     def _get_salesmen_masks(self):

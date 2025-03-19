@@ -130,9 +130,9 @@ class AgentV2(AgentBase):
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
         act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8,act_logp.size(1), act_logp.size(2))  # 将动作概率按实例组进行分组
         agt_logp_8 = agents_logp.reshape(agents_logp.size(0) // 8,8 , agents_logp.size(1), agents_logp.size(2))
-        #
+        # #
         agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
-        # # # 智能体间优势
+        # # # # 智能体间优势
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
                 agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         group_adv_t = _convert_tensor(group_adv, device=self.device)
@@ -141,13 +141,13 @@ class AgentV2(AgentBase):
         act_loss = (act_likelihood * group_adv_t).mean()
         agt_loss = (agt_likelihood * group_adv_t).mean()
 
-        returns_8 = returns.reshape(returns.shape[0] // 8, 8, returns.shape[1], -1)
-        returns_t = _convert_tensor(returns_8, device=self.device)
-        returns_t_b = (returns_t - returns_t.mean(keepdims=True,dim=1)) / (
-            returns_t.std(keepdims=True,dim=1) + 1e-8
-        )
-        act_loss += - (act_logp_8 * returns_t_b).mean()
-        agt_loss += - (agt_logp_8 * returns_t_b).mean()
+        # returns_8 = returns.reshape(returns.shape[0] // 8, 8, returns.shape[1], -1)
+        # returns_t = _convert_tensor(returns_8, device=self.device)
+        # returns_t_b = (returns_t - returns_t.mean()) / (
+        #     returns_t.std() + 1e-8
+        # )
+        # act_loss = - (act_logp_8 * returns_t).mean()
+        # agt_loss = - (agt_logp_8 * returns_t).mean()
 
         return act_loss, agt_loss
 
