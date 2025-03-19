@@ -157,10 +157,8 @@ class MTSPEnv:
         # # denominator = max(self.salesmen - 1, 1) * self.distance_scale
         # denominator = max(self.salesmen - 1, 1)
         # avg_diff_cost = weighted_diff / denominator
-        self.states[..., 0:2] = self.graph[batch_indices,self.cur_pos] - self.graph[:,0:1,:]
-        # self.states[..., 1] = self.cur_pos
-
-
+        self.states[..., 0] = 0
+        self.states[..., 1] = self.cur_pos
         self.states[..., 2] = cur_cost / (max_cost + 1e-8)
         self.states[..., 3] = diff_max_cost / (max_cost + 1e-8)
         self.states[..., 4] = dis_depot / np.sqrt(2) / 2
