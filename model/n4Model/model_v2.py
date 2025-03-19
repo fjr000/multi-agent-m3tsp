@@ -193,10 +193,10 @@ class ActionsModel(nn.Module):
 
         # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
         # expand_graph = self.city_embed_mean.unsqueeze(1)
-        city_mask = None if info is None else info.get("mask", None)
-        self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
-        cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
-        self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
+        # city_mask = None if info is None else info.get("mask", None)
+        # self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
+        # cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
+        # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
         # del city_mask
 
         agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))

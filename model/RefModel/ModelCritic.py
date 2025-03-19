@@ -38,8 +38,8 @@ class Model(nn.Module):
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         agent_mask = None if info is None else info.get("masks_in_salesmen", None)
 
-        if self.step == 0:
-            self.actions_model.init_rnn_state(agent.size(0),agent.size(1),agent.device)
+        # if self.step == 0:
+        #     self.actions_model.init_rnn_state(agent.size(0),agent.size(1),agent.device)
 
         if self.args.use_city_mask:
             city_mask = None if info is None else info.get("mask", None)

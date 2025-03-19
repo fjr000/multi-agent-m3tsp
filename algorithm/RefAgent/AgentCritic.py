@@ -86,6 +86,7 @@ class AgentCritic(AgentBase):
         agents_loss = torch.tensor([0], device=self.device)
 
         gae = self._get_gae(costs, V)
+        gae = (gae- gae.mean()) / (gae.std()+1e-8)
 
         act_loss, agents_loss = self._get_loss(act_logp, agents_logp, gae)
 
