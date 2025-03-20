@@ -291,16 +291,16 @@ class AgentBase:
     def state_dict(self):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            "model_act_optim": self.act_optim.state_dict(),
-            "model_conf_optim": self.conf_optim.state_dict(),
+            # "model_act_optim": self.act_optim.state_dict(),
+            # "model_conf_optim": self.conf_optim.state_dict(),
             "model_optim": self.optim.state_dict(),
         }
         return checkpoint
 
     def load_state_dict(self, checkpoint):
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.act_optim.load_state_dict(checkpoint["model_act_optim"])
-        self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
+        # self.act_optim.load_state_dict(checkpoint["model_act_optim"])
+        # self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
         self.optim.load_state_dict(checkpoint["model_optim"])
 
     def _save_model(self, model_dir, filename):
