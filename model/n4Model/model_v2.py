@@ -42,9 +42,9 @@ class CityEncoder(nn.Module):
         )
         self.num_heads = num_heads
         self.city_embed_mean = None
-        self.mean_projection = nn.Linear(embed_dim, embed_dim)
-        self.depot_projection = nn.Linear(embed_dim, embed_dim)
-        self.node_projection = nn.Linear(embed_dim, embed_dim)
+        self.mean_projection = nn.Linear(embed_dim, embed_dim,bias=False)
+        self.depot_projection = nn.Linear(embed_dim, embed_dim,bias=False)
+        self.node_projection = nn.Linear(embed_dim, embed_dim,bias=False)
 
     def forward(self, city, city_mask=None):
         """
@@ -100,10 +100,9 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(self.embed_dim * 2, self.embed_dim)
-        self.distance_cost_embed = nn.Linear(2, self.embed_dim)
-        self.next_cost_embed = nn.Linear(3, self.embed_dim)
-        self.problem_scale_embed = nn.Linear(1, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(2, self.embed_dim, bias=False)
+        self.next_cost_embed = nn.Linear(3, self.embed_dim,bias=False)
+        self.problem_scale_embed = nn.Linear(1, self.embed_dim,bias=True)
 
         self.position_embed = PositionalEncoder(self.embed_dim)
 

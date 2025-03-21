@@ -169,14 +169,15 @@ class AgentBase:
     def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs):
         self.model.train()
         self.train_count += 1
+        agt_ent_loss = torch.tensor([0], device=self.device)
+        agents_loss = torch.tensor([0], device=self.device)
         if self.args.only_one_instance:
             act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
         else:
             act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
         loss = torch.zeros((1), device=self.device)
-        agt_ent_loss = torch.tensor([0], device=self.device)
-        agents_loss = torch.tensor([0], device=self.device)
+
         if agents_logp is not None and self.args.train_conflict_model:
             # 修改为检查 agents_loss 是否包含 NaN
             if not torch.any(torch.isnan(agents_loss)):
