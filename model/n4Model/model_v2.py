@@ -9,6 +9,27 @@ import torch
 import torch.nn as nn
 from model.n4Model.config import Config
 from model.Base.Net import initialize_weights
+import math
+
+class PositionalEncoder(nn.Module):
+    def __init__(self, d_model, max_seq_len=1000):
+        super().__init__()
+        self.d_model = d_model
+
+        # 创建位置编码
+        position_encoding = torch.zeros(max_seq_len, d_model)
+        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+
+        position_encoding[:, 0::2] = torch.sin(position * div_term)
+        position_encoding[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('position_encoding', position_encoding)
+        self.requires_grad_(False)
+
+    def forward(self, seq_len):
+        # positions: [batch_size, seq_len]
+        return self.position_encoding[:seq_len, :]
+
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
@@ -23,7 +44,14 @@ class AgentEmbedding(nn.Module):
         self.problem_scale_embed = nn.Linear(1, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
-        self.agent_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
+        self.position_embed = PositionalEncoder(self.embed_dim)
+
+        self.agent_embed = nn.Sequential(
+            nn.Linear(4 * self.embed_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, self.embed_dim),
+        )
+
 
     def forward(self,cities_embed, graph_embed, agent_state):
         """
@@ -40,11 +68,15 @@ class AgentEmbedding(nn.Module):
         next_cost_embed = self.next_cost_embed(agent_state[:,:,4:7])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:8])
         global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
-
-        # co_embed = self.co_embed(agent_state[:,:,9:10])
-        # agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
-        context = torch.cat([global_graph_embed, depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
+        position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
+        context = torch.cat(
+            [global_graph_embed, depot_pos_embed, distance_cost_embed + next_cost_embed + problem_scale_embed,
+             position_embed], dim=-1)
         agent_embed = self.agent_embed(context)
+        # # co_embed = self.co_embed(agent_state[:,:,9:10])
+        # # agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
+        # context = torch.cat([global_graph_embed, depot_pos_embed,  distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
+        # agent_embed = self.agent_embed(context)
         return agent_embed
 
 class AgentEncoder(nn.Module):
@@ -75,7 +107,7 @@ class AgentEncoder(nn.Module):
         return agent_embed
 
 class ActionDecoder(nn.Module):
-    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0):
+    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2,dropout=0, rnn_type='GRU'):
         super(ActionDecoder, self).__init__()
         self.agent_city_att = nn.ModuleList([
             CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
@@ -84,6 +116,48 @@ class ActionDecoder(nn.Module):
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.action = SingleHeadAttention(embed_dim)
         self.num_heads = num_heads
+
+        self.rnn = None
+        if rnn_type == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=embed_dim,
+                hidden_size=embed_dim,
+                batch_first=True,
+            )
+        elif rnn_type == "GRU":
+            self.rnn = nn.GRU(
+                input_size=embed_dim,
+                hidden_size=embed_dim,
+                batch_first=True,
+            )
+        else:
+            raise NotImplementedError
+
+        self.num_heads = num_heads
+        self.rnn_state = None
+
+
+    def init_rnn_state(self, batch_size, agent_num, device):
+        if isinstance(self.rnn, nn.GRU):
+            self.rnn_state = torch.zeros(
+                (1, batch_size * agent_num, self.rnn.hidden_size),
+                dtype=torch.float32,
+                device=device
+            )
+        elif isinstance(self.rnn, nn.LSTM):
+            self.rnn_state = [torch.zeros(
+                (1, batch_size * agent_num, self.rnn.hidden_size),
+                dtype=torch.float32,
+                device=device
+            ),
+                torch.zeros(
+                    (1, batch_size * agent_num, self.rnn.hidden_size),
+                    dtype=torch.float32,
+                    device=device
+                )
+            ]
+        else:
+            raise NotImplementedError
 
     def forward(self, agent_embed, city_embed, masks):
         # expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
@@ -95,6 +169,12 @@ class ActionDecoder(nn.Module):
         # cross_out = self.linear_forward(aca)
         action_logits = self.action(aca, city_embed, masks)
         del masks, expand_masks
+
+        agent_embed_shape = aca.shape
+        agent_embed_reshape = aca.reshape(-1, 1, aca.size(-1))
+        agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
+        aca = agent_embed_reshape.reshape(*agent_embed_shape)
+
         return action_logits, aca
 
 class ConflictModel(nn.Module):
@@ -227,6 +307,10 @@ class Model(nn.Module):
         self.step = 0
 
     def forward(self, agent, mask, info = None):
+
+        if self.step == 0:
+            self.actions_model.agent_decoder.init_rnn_state(agent.size(0), agent.size(1),agent.device)
+
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         actions_logits, agents_embed = self.actions_model(agent, mask, info)

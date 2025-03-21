@@ -17,10 +17,10 @@ class AgentEmbedding(nn.Module):
         self.problem_scale_embed = nn.Linear(1, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
-        self.position_embed = PositionalEncoder(self.embed_dim)
+        # self.position_embed = PositionalEncoder(self.embed_dim)
 
         self.agent_embed = nn.Sequential(
-            nn.Linear(4 * self.embed_dim, hidden_dim),
+            nn.Linear(3 * self.embed_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, self.embed_dim),
         )
@@ -41,10 +41,9 @@ class AgentEmbedding(nn.Module):
         problem_scale_embed = self.problem_scale_embed(agent_state[:, :, 7:8])
         global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
 
-        position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
+        # position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
         context = torch.cat(
-            [global_graph_embed, depot_pos_embed, distance_cost_embed + next_cost_embed + problem_scale_embed,
-             position_embed], dim=-1)
+            [global_graph_embed, depot_pos_embed, distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
         agent_embed = self.agent_embed(context)
         return agent_embed
 
