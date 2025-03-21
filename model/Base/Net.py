@@ -11,7 +11,8 @@ def initialize_weights(model):
                 nn.init.constant_(layer.bias, 0)
         elif isinstance(layer, nn.Linear):
             nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
-            nn.init.zeros_(layer.bias)
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)
         elif isinstance(layer, nn.GRU):
             for param in layer.parameters():
                 if param.dim() > 1:  # 仅对 weight 参数初始化
