@@ -11,6 +11,68 @@ from model.n4Model.config import Config
 from model.Base.Net import initialize_weights
 import math
 
+class CityEmbedding(nn.Module):
+    def __init__(self, input_dim, hidden_dim, embed_dim):
+        super(CityEmbedding, self).__init__()
+        self.embed_dim = embed_dim
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
+
+    def forward(self, city):
+        """
+        :param city: [B,N,2]
+        :return:
+        """
+        depot_embed = self.depot_embed(city[:, 0:1])
+        city_embed = self.city_embed(city[:, 1:])
+        cities_embed = torch.cat([depot_embed, city_embed], dim=1)
+        return cities_embed
+
+class CityEncoder(nn.Module):
+    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
+        super(CityEncoder, self).__init__()
+        self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
+        self.city_self_att = nn.ModuleList(
+            [
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                for _ in range(num_layers)
+            ]
+        )
+        self.num_heads = num_heads
+        self.city_embed_mean = None
+        self.mean_projection = nn.Linear(embed_dim, embed_dim)
+        self.depot_projection = nn.Linear(embed_dim, embed_dim)
+        self.node_projection = nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, city, city_mask=None):
+        """
+        :param city: [B,N,2]
+        :return:
+        """
+
+        if city_mask is not None:
+            city_mask[:,0] = False
+        #     B, A = city_mask.shape
+        #     expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
+        #     # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
+        # else:
+        #     expand_masks = None
+
+        city_embed = self.city_embed(city)
+        for model in self.city_self_att:
+            city_embed = model(city_embed, key_padding_mask = city_mask)
+
+        mean = city_embed.mean(dim=1, keepdim=True)
+        projection = self.mean_projection(mean)
+
+        depot = self.depot_projection(city_embed[:,0:1,:])
+        nodes = self.node_projection(city_embed[:,1:,:])
+
+        # del expand_masks
+        return city_embed,projection, torch.cat([depot, nodes], dim=1)
+
 class PositionalEncoder(nn.Module):
     def __init__(self, d_model, max_seq_len=1000):
         super().__init__()
@@ -42,15 +104,8 @@ class AgentEmbedding(nn.Module):
         self.distance_cost_embed = nn.Linear(2, self.embed_dim)
         self.next_cost_embed = nn.Linear(3, self.embed_dim)
         self.problem_scale_embed = nn.Linear(1, self.embed_dim)
-        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
         self.position_embed = PositionalEncoder(self.embed_dim)
-
-        self.agent_embed = nn.Sequential(
-            nn.Linear(4 * self.embed_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, self.embed_dim),
-        )
 
 
     def forward(self,cities_embed, graph_embed, agent_state):
@@ -59,24 +114,14 @@ class AgentEmbedding(nn.Module):
         :param agent_state: [B,M,14]
         :return:
         """
-
-
         # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
-        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:,:,:2].long(),:].reshape(agent_state.size(0),agent_state.size(1), 2*self.embed_dim)
-        depot_pos_embed = self.depot_pos_embed(depot_pos)
+        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:, :, :2].long(),: ]
+        depot_pos_embed = depot_pos[:,:,0,:] + depot_pos[:,:,1,:]
         distance_cost_embed = self.distance_cost_embed(agent_state[:,:,2:4])
         next_cost_embed = self.next_cost_embed(agent_state[:,:,4:7])
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:8])
-        global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
-        position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
-        context = torch.cat(
-            [global_graph_embed, depot_pos_embed, distance_cost_embed + next_cost_embed + problem_scale_embed,
-             position_embed], dim=-1)
-        agent_embed = self.agent_embed(context)
-        # # co_embed = self.co_embed(agent_state[:,:,9:10])
-        # # agent_embed = global_graph_embed + depot_pos_embed + distance_cost_embed + problem_scale_embed
-        # context = torch.cat([global_graph_embed, depot_pos_embed,  distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
-        # agent_embed = self.agent_embed(context)
+        position_embed = self.position_embed(agent_state.size(1))[None, :]
+        agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed + position_embed
         return agent_embed
 
 class AgentEncoder(nn.Module):
@@ -252,6 +297,7 @@ class ActionsModel(nn.Module):
         self.city = None
         self.city_embed = None
         self.city_embed_mean = None
+        self.nodes_embed = None
         self.config = config
 
     def init_city(self, city):
@@ -260,8 +306,7 @@ class ActionsModel(nn.Module):
         :return: None
         """
         self.city = city
-        self.city_embed = self.city_encoder(city)
-        self.city_embed_mean = torch.mean(self.city_embed, dim=1)
+        self.city_embed,self.city_embed_mean,self.nodes_embed = self.city_encoder(city)
 
     def forward(self, agent, mask, info = None):
         # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
@@ -279,7 +324,7 @@ class ActionsModel(nn.Module):
         # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
         # del city_mask
 
-        agent_embed = self.agent_encoder(self.city_embed, self.city_embed_mean.unsqueeze(1), agent, None if info is None else info.get("masks_in_salesmen", None))
+        agent_embed = self.agent_encoder(self.nodes_embed, self.city_embed_mean, agent, None if info is None else info.get("masks_in_salesmen", None))
 
         actions_logits, agent_embed = self.agent_decoder( agent_embed, self.city_embed, mask)
         del mask
