@@ -252,7 +252,44 @@ class MTSPEnv:
             #
             # x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             # repeat_masks[batch_indices, min_cost_idx[:,None], x_min_cur_pos[:,None]] = 0
+        elif self.env_masks_mode == 2:
+            # 结合回仓库距离
+            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            expect_dis = self.costs[batch_indices_1d] + dis_depot
 
+            # 返回仓库优化 (新增阶段0排除)
+            masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
+            min_cost_idx = np.argmin(masked_cost, axis=-1)
+            # 仅不允许最小开销的智能体留在原地
+            # 允许所有激活智能体留在原地
+            # 筛选有效批次的 mask 和 indices
+            valid_mask = active_agents[batch_indices_1d]  # 形状 (K, A)
+            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+
+            # 使用高级索引直接赋值
+            repeat_masks[batch_indices, np.arange(A)[None,:], valid_indices] = valid_mask
+            x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
+            repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = 0
+
+        elif self.env_masks_mode == 3:
+            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            expect_dis = self.costs[batch_indices_1d] + dis_depot
+            # 返回仓库优化 (新增阶段0排除)
+            masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
+            max_cost_idx = np.argmax(masked_cost, axis=-1)
+            # 仅允许最大开销的智能体留在原地
+            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
+            repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
+
+            # repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
+            repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
+
+            # valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+            #
+            # # 使用高级索引直接赋值
+            # repeat_masks[batch_indices, np.arange(A), valid_indices] = False
+            # x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
+            # repeat_masks[batch_indices_1d, max_cost_idx, x_max_cur_pos] = True
         else:
             raise NotImplementedError
         #

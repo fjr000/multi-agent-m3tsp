@@ -102,16 +102,16 @@ class MTSPEnv(Env):
             expect_dis = self.costs[batch_indices_1d] + dis_depot
             # 返回仓库优化 (新增阶段0排除)
             masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
-            max_cost_idx = np.argmin(masked_cost, axis=-1)
+            max_cost_idx = np.argmax(masked_cost, axis=-1)
             # 仅允许最大开销的智能体留在原地
             x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
-            repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
-
-            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
-
-            # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A), valid_indices] = False
-            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
+            # repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
+            #
+            # valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+            #
+            # # 使用高级索引直接赋值
+            # repeat_masks[batch_indices, np.arange(A), valid_indices] = False
+            # x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
             repeat_masks[batch_indices_1d, max_cost_idx, x_max_cur_pos] = True
 
         else:
