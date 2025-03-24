@@ -318,6 +318,7 @@ class Model(nn.Module):
         total_act_logits = []
         total_act = []
         totoal_mask = []
+        total_act_logp = []
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
         for idx in range(A):
