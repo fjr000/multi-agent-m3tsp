@@ -158,9 +158,9 @@ class MTSPEnv:
         # denominator = max(self.salesmen - 1, 1)
         # avg_diff_cost = weighted_diff / denominator
         self.states[..., 0] = 0
-        self.states[..., 1] = self.cur_pos
-        self.states[..., 2] = cur_cost / (max_cost + 1e-8)
-        self.states[..., 3] = diff_max_cost / (max_cost + 1e-8)
+        self.states[..., 1] = self.cur_pos / np.sqrt(2) / 2
+        self.states[..., 2] = cur_cost / np.sqrt(2) / 2
+        self.states[..., 3] = diff_max_cost / np.sqrt(2) / 2
         self.states[..., 4] = dis_depot / np.sqrt(2) / 2
         self.states[..., 5] = max_distances_depot / np.sqrt(2) / 2
         self.states[..., 6] = min_distances_depot / np.sqrt(2) / 2
@@ -301,12 +301,9 @@ class MTSPEnv:
         repeat_masks[self.stage_2, 0] = 1  # 对于stage_2为True的位置，将最后维度的0位置置为1
 
         self.salesmen_mask = repeat_masks
-        # allB = np.all(~self.salesmen_mask, axis=-1)
-        # idx = np.argwhere(allB)
-        # assert len(idx)==0, "all actions is ban"
-        a = np.all(~repeat_masks, axis=-1)
-        if np.any(a):
-            pass
+        # a = np.all(~repeat_masks, axis=-1)
+        # if np.any(a):
+        #     pass
         return self.salesmen_mask
 
     def reset(self, config=None, graph=None):
@@ -514,6 +511,8 @@ class MTSPEnv:
                 np.zeros_like(self.cur_pos),
                 self.cur_pos,
             ]
+
+            self._get_reward()
 
             info.update(
                 {

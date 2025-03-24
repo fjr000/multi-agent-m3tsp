@@ -121,6 +121,8 @@ class AgentEmbedding(nn.Module):
         problem_scale_embed = self.problem_scale_embed(agent_state[:,:,7:8])
         position_embed = self.position_embed(agent_state.size(1))[None, :]
         agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed + position_embed
+        # agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed
+        # agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed
         return agent_embed
 
 class AgentEncoder(nn.Module):
@@ -179,6 +181,7 @@ class ActionDecoder(nn.Module):
 
         self.num_heads = num_heads
         self.rnn_state = None
+        self.agent_embed = None
 
 
     def init_rnn_state(self, batch_size, agent_num, device):
@@ -218,6 +221,7 @@ class ActionDecoder(nn.Module):
         agent_embed_reshape = aca.reshape(-1, 1, aca.size(-1))
         agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
         aca = agent_embed_reshape.reshape(*agent_embed_shape)
+        self.agent_embed = aca
 
         return action_logits, aca
 
@@ -361,12 +365,18 @@ class Model(nn.Module):
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
-            acts = actions_logits.argmax(dim=-1)
-            # if self.step == 0:
-            # acts_p = nn.functional.softmax(actions_logits, dim=-1)
-            #     _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
+            if self.step == 0:
+                acts_p = nn.functional.softmax(actions_logits, dim=-1)
+                _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
+            else:
+                acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
+            # if self.step == 0:
+            #     acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            #     _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
+            # else:
             acts = torch.distributions.Categorical(logits=actions_logits).sample()
+
         else:
             raise NotImplementedError
         if use_conflict_model:

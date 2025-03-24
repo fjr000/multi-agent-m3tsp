@@ -49,11 +49,11 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=8)
-    parser.add_argument("--batch_size", type=int, default=96)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=140000)
     parser.add_argument("--env_masks_mode", type=int, default=3,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
@@ -63,9 +63,9 @@ if __name__ == "__main__":
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
-    parser.add_argument("--conflict_loss_rate", type=float, default=0.5, help="rate of adv between agents")
-    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.1, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=0.1, help="rate of adv between agents")
+    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
     args = parser.parse_args()
@@ -88,7 +88,6 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
     x =  str(args)
-    writer.add_text("agent_ff", x, 0)
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
     for lr in agent.optim.param_groups:
@@ -110,7 +109,7 @@ if __name__ == "__main__":
         if args.fixed_agent_num:
             agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
         else:
-            agent_num = np.random.randint(1, args.agent_num + 1)
+            agent_num = np.random.randint(2, args.agent_num + 1)
 
         if args.random_city_num:
             city_nums = np.random.randint(agent_num*5, args.city_nums+1)
