@@ -318,7 +318,6 @@ class Model(nn.Module):
         total_act_logits = []
         total_act = []
         totoal_mask = []
-        total_act_logp = []
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
         for idx in range(A):
@@ -333,8 +332,8 @@ class Model(nn.Module):
             else:
                 dist = Categorical(logits=act_logits)
                 act = dist.sample()
-            total_act.append(act.unsqueeze(1))
-            totoal_mask.append(salesman_mask)
+            total_act.append(act)
+            totoal_mask.append(salesman_mask.clone())
 
             # 提取城市
             if idx < A - 1:
@@ -348,7 +347,7 @@ class Model(nn.Module):
         act_logits = torch.cat(total_act_logits, dim=1)
         act = torch.cat(total_act, dim=1)
         act_mask = torch.cat(totoal_mask, dim=1)
-        return act_logits, act, act_mask, V
+        return act_logits, act, act_mask, V.squeeze(-1)
 
     def parallel_forward(self, batch_graph, expand_step, agent_states, act, salesmen_mask=None):
         self.init_city(batch_graph)
@@ -364,7 +363,7 @@ class Model(nn.Module):
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
-        actions_embed = self.encoder.city_embed[batch_indice, act.squeeze(-1)[..., :-1]]
+        actions_embed = self.encoder.city_embed[batch_indice, act[..., :-1]]
 
         actions_embed = torch.cat([torch.zeros((B, 1, self.embed_dim), device=agent_states.device), actions_embed],
                                   dim=1)
@@ -373,13 +372,17 @@ class Model(nn.Module):
         act_logits = self.decoder(actions_embed, agent_embed,
                                   agents_mask, self.encoder.city_embed, salesmen_mask)
 
-        return act_logits, V
+        return act_logits, V.squeeze(-1)
 
     def forward(self, agent_states, salesmen_mask=None, mode="greedy", act=None, batch_graph=None, expand_step=1):
         if act is None:
             return self.autoregressive_forward(agent_states, salesmen_mask, mode)
         else:
             return self.parallel_forward(batch_graph, expand_step, agent_states, act, salesmen_mask)
+
+    def get_value(self, agent_states, salesmen_mask):
+        agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
+        return V.squeeze(-1)
 
 
 if __name__ == "__main__":
@@ -482,7 +485,7 @@ if __name__ == "__main__":
             city_mask_t = _convert_tensor(~city_mask, dtype=torch.bool, device=device)
 
             logits, act, mask, V = model(states_t, salesmen_mask=salesmen_masks_t, mode="sample")
-            act_np = act.cpu().numpy().squeeze(-1);
+            act_np = act.cpu().numpy();
             states, r, done, env_info = env.step(act_np + 1)
             salesmen_masks = env_info["salesmen_masks"]
             masks_in_salesmen = env_info["masks_in_salesmen"]
