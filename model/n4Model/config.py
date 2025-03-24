@@ -19,4 +19,8 @@ class Config(object):
     conflict_deal_num_layers = 1
     conflict_deal_num_heads = 8
 
+    action_hidden_dim = 128
+    action_num_layers = 1
+    action_num_heads = 8
+
 
