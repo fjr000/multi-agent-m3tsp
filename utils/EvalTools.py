@@ -134,7 +134,7 @@ class EvalTools(object):
                 # writer.add_scalar(f"eval/{graph_name}/{agent_num}/no_conflict_cost", (no_conflict_greedy_cost - best_cost) / best_cost * 100, step)
 
     @staticmethod
-    def eval_random(graph, agent_num, agent, env, writer, step):
+    def eval_random(graph, agent_num, agent, env, writer, step,draw = False):
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env)
         if agent_num == 1:
             cost, traj, time = EvalTools.EvalOrTools(graph, agent_num)
@@ -148,4 +148,14 @@ class EvalTools(object):
               f"costs:{greedy_cost.item():.5f},"
               f"LKH3_OrTools_costs:{cost:.5f}"
               )
+        print(f"traj:\n{greedy_traj}")
+        if draw:
+            env.draw_multi(
+                graph,
+                [greedy_cost, cost],
+                [greedy_traj, traj],
+                [greedy_time, time],
+                ["greedy", "or_tools" if agent_num == 1 else "LKH3"]
+            )
+
         return greedy_gap

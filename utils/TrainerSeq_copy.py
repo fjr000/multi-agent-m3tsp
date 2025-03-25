@@ -98,8 +98,8 @@ def tensorboard_write(writer, train_count, policy_loss, value_loss, entropy_loss
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=1)
-    parser.add_argument("--fixed_agent_num", type=bool, default=True)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -112,8 +112,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--city_nums", type=int, default=30)
+    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
@@ -131,8 +131,8 @@ if __name__ == "__main__":
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
-    parser.add_argument("--buffer_min_size", type=int, default=4096 , help="if buffer size > buffer_min_size train begin")
-    parser.add_argument("--sample_size", type=int, default=1024, help="train size")
+    parser.add_argument("--buffer_min_size", type=int, default=4096 * 4, help="if buffer size > buffer_min_size train begin")
+    parser.add_argument("--sample_size", type=int, default=4096, help="train size")
     parser.add_argument("--K_epoch", type=int, default=4, help="use the old traj train times")
     args = parser.parse_args()
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
         # agent_num, city_nums = CC.get_course()
 
         if args.fixed_agent_num:
-            agent_num = args.agent_num
+            agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
         else:
             agent_num = np.random.randint(1, args.agent_num + 1)
 
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         if ((i + 1) % args.eval_interval) == 0:
             EvalTools.eval_mtsplib(agent, env, writer, i + 1)
             eval_graph = graphG.generate(1, city_nums)
-            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1, True)
+            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1)
             agent.lr_scheduler.step(greedy_gap)
 
         if (i + 1) % (args.save_model_interval ) == 0:

@@ -293,6 +293,10 @@ class AgentBase:
 
             gae, returns = self.compute_gae_returns(r_list, V_list)
 
+            # for i in range(len(r_list)):
+                # r_list[i] = r_list[i][...,None]
+            # rts = self.get_cumulative_returns_batch(np.concatenate(r_list, axis=-1))
+
             state = np.concatenate(state_list, axis=0)
             act_logp = np.concatenate(act_logp_list, axis=0)
             # act_ent = np.concatenate(act_ent_list, axis=0)
@@ -330,6 +334,13 @@ class AgentBase:
         adv.reverse()
         returns.reverse()
         return adv, returns
+
+    def get_cumulative_returns_batch(self, np_batch_multi_reward):
+        return_numpy = np.zeros_like(np_batch_multi_reward)
+        return_numpy[...,-1] = np_batch_multi_reward[...,-1]
+        for idx in range(-2, -np_batch_multi_reward.shape[-1] - 1, -1):
+            return_numpy[...,idx] = np_batch_multi_reward[..., idx] + self._gamma * return_numpy[..., idx + 1]
+        return return_numpy
 
     def eval_episode(self, env, batch_graph, agent_num, exploit_mode="sample", info=None):
         with torch.no_grad():
