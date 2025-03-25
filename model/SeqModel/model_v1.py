@@ -314,7 +314,10 @@ class Model(nn.Module):
 
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
+        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :,1].long(), :]
+        cur_pos_mean = cur_pos.mean(dim = 1)
         actions_embed = torch.zeros((B, A, self.embed_dim), dtype=torch.float32, device=agent_states.device)
+        actions_embed[:, 0, :] = cur_pos_mean
         total_act_logits = []
         total_act = []
         totoal_mask = []
@@ -363,10 +366,11 @@ class Model(nn.Module):
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
-        actions_embed = self.encoder.city_embed[batch_indice, act[..., :-1]]
-
-        actions_embed = torch.cat([torch.zeros((B, 1, self.embed_dim), device=agent_states.device), actions_embed],
-                                  dim=1)
+        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :,1].long(), :]
+        cur_pos_mean = cur_pos.mean(dim = 1)
+        actions_embed = torch.zeros((B, A, self.embed_dim), dtype=torch.float32, device=agent_states.device)
+        actions_embed[:, 0, :] = cur_pos_mean
+        actions_embed[:,1:,:] = self.encoder.city_embed[batch_indice, act[..., :-1]]
 
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         act_logits = self.decoder(actions_embed, agent_embed,

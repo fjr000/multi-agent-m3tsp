@@ -183,7 +183,8 @@ class AgentBase:
             value_loss_original = F.mse_loss(returns, v_new)
 
         value_loss = torch.max(value_loss_clipped, value_loss_original)
-
+        if value_loss.item() > 10:
+            pass
         return value_loss
 
     def _get_entropy_loss(self, entropy, mask = None):
