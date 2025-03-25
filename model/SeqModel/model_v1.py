@@ -11,7 +11,7 @@ from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 from model.Base.Net import SkipConnection, MultiHeadAttention
 import torch
 import torch.nn as nn
-from model.n4Model.config import Config
+from model.SeqModel.config import Config
 from model.Base.Net import initialize_weights
 import math
 

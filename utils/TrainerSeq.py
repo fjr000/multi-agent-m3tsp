@@ -14,7 +14,7 @@ from envs.MTSP.MTSP5_IDVR import MTSPEnv_IDVR as MTSPEnv
 from algorithm.SeqAgent.AgentV1 import AgentV1 as Agent
 import tqdm
 from EvalTools import EvalTools
-from model.n4Model.config import Config as Config
+from model.SeqModel.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
 
 
