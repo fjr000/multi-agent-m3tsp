@@ -191,7 +191,10 @@ class Normalization(nn.Module):
             'layer': nn.LayerNorm,
         }.get(normalization, None)
 
-        self.normalizer = normalizer_class(embed_dim, affine=True)
+        if normalization == 'layer':
+            self.normalizer = nn.LayerNorm(embed_dim)
+        else:
+            self.normalizer = normalizer_class(embed_dim, affine=True)
 
         # Normalization by default initializes affine parameters with bias 0 and weight unif(0,1) which is too large!
         self.init_parameters()

@@ -10,11 +10,11 @@ sys.path.append("./")
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
-from envs.MTSP.MTSP5_IDVR import MTSPEnv_IDVR as MTSPEnv
-from algorithm.DNN5.AgentIDVR import AgentIDVR as Agent
+from envs.MTSP.MTSP5 import MTSPEnv
+from algorithm.RefAgent.AgentV1 import AgentV1 as Agent
 import tqdm
 from EvalTools import EvalTools
-from model.n4Model.config import Config as Config
+from model.RefModel.config import ModelConfig as Config
 from envs.GraphGenerator import GraphGenerator as GG
 
 
@@ -32,15 +32,6 @@ def set_seed(seed=42):
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
 
-
-def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, v_loss, lr):
-    writer.add_scalar("train/act_loss", act_loss, train_count)
-    writer.add_scalar("train/agents_loss", agents_loss, train_count)
-    writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
-    writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
-    writer.add_scalar("train/v_loss", v_loss, train_count)
-    writer.add_scalar("train/lr", lr, train_count)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
@@ -57,24 +48,24 @@ if __name__ == "__main__":
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=4,
+    parser.add_argument("--env_masks_mode", type=int, default=3,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.1, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.5, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=0.1, help="rate of adv between agents")
-    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
     args = parser.parse_args()
@@ -118,7 +109,7 @@ if __name__ == "__main__":
         if args.fixed_agent_num:
             agent_num = np.random.randint(args.agent_num, args.agent_num + 1)
         else:
-            agent_num = np.random.randint(1, args.agent_num + 1)
+            agent_num = np.random.randint(2, args.agent_num + 1)
 
         if args.random_city_num:
             city_nums = np.random.randint(agent_num*5, args.city_nums+1)
@@ -135,7 +126,7 @@ if __name__ == "__main__":
         output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
         loss_s = agent.learn(*output)
 
-        tensorboard_write(writer, i,
+        EvalTools.tensorboard_write(writer, i,
                           *loss_s,
                           agent.optim.param_groups[0]["lr"]
                           )

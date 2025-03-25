@@ -32,6 +32,14 @@ def set_seed(seed=42):
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
 
+def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, costs, lr):
+    writer.add_scalar("train/act_loss", act_loss, train_count)
+    writer.add_scalar("train/agents_loss", agents_loss, train_count)
+    writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
+    writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
+    writer.add_scalar("train/costs", costs, train_count)
+    writer.add_scalar("train/lr", lr, train_count)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
@@ -127,7 +135,7 @@ if __name__ == "__main__":
         output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
         act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(*output)
 
-        EvalTools.tensorboard_write(writer, i,
+        tensorboard_write(writer, i,
                           act_loss, agents_loss,
                           act_ent_loss, agt_ent_loss,
                           output[-2], agent.optim.param_groups[0]["lr"]

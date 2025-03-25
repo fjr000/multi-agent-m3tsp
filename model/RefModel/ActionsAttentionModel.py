@@ -14,13 +14,13 @@ class ActionsAttentionModel(nn.Module):
                                                    embed_dim=config.embed_dim,
                                                    num_heads=config.agent_encoder_num_heads,
                                                    num_layers=config.agent_encoder_num_layers,
-                                                   norm="batch")
+                                                   norm="layer")
 
         self.agent_city_decoder = AgentCityAttentionDecoder(hidden_dim=config.action_decoder_hidden_dim,
                                                             embed_dim=config.embed_dim,
                                                             num_heads=config.action_decoder_num_heads,
                                                             num_layers=config.action_decoder_num_layers,
-                                                            norm="batch")
+                                                            norm="layer")
 
         self.city_embed = None
         self.city_embed_mean = None

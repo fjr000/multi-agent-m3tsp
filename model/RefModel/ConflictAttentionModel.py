@@ -13,7 +13,7 @@ class ConflictAttentionModel(nn.Module):
                                     config.embed_dim,
                                     config.conflict_deal_hidden_dim,
                                     config.conflict_deal_num_heads,
-                                    None)
+                                    'layer')
             for _ in range(config.conflict_deal_num_layers)
         ])
         self.agents = SingleHeadAttention(config.embed_dim)
