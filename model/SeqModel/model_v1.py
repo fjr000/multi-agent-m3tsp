@@ -303,12 +303,12 @@ class AgentEmbedding(nn.Module):
 
 
 class AgentSelfEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
+    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(AgentSelfEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
         self.agent_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
+                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'layer')
                 for _ in range(num_layers)
             ]
         )
@@ -336,7 +336,7 @@ class AgentCityEncoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentCityEncoder, self).__init__()
         self.agent_city_att = nn.ModuleList([
-            MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
+            MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'layer')
             for _ in range(num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -372,7 +372,6 @@ class Encoder(nn.Module):
                                         )
         self.agent_encoder = AgentSelfEncoder(config.agent_dim, config.agent_encoder_hidden_dim, config.embed_dim,
                                               config.agent_encoder_num_heads, config.agent_encoder_num_layers,
-                                              dropout=config.dropout
                                               )
 
         self.agent_city_encoder = AgentCityEncoder(config.action_decoder_hidden_dim, config.embed_dim,
