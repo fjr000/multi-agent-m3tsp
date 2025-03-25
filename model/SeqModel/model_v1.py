@@ -172,7 +172,7 @@ class MultiHeadAttentionLayer(nn.Module):
 
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(hidden_dim, embed_dim)
         )
 
@@ -379,7 +379,7 @@ class Encoder(nn.Module):
                                                    config.dropout)
         self.value = nn.Sequential(
             nn.Linear(config.embed_dim, config.embed_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(config.embed_dim // 2, 1),
         )
 
