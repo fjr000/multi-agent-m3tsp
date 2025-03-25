@@ -29,7 +29,7 @@ class AgentBase:
         self.model.to(self.device)
         self.train_count = 0
         self._gamma = 1
-        self._lambda = 1
+        self._lambda = 0.95
         self.clip = 0.2
         self.value_loss_coef = 0.5
         self.entropy_loss_coef = 0.005
@@ -157,24 +157,25 @@ class AgentBase:
 
         return act_loss, agents_loss
 
-    def _get_policy_loss(self, act_logp_new, act_logp, gae):
-        ratio = torch.exp(act_logp_new - act_logp)
+    def _get_policy_loss(self, act_logp_new, act_logp, adv, mask):
+        ratio = torch.exp(act_logp_new - act_logp)[mask]
 
-        adv_norm = (gae - gae.mean()) / (gae.std() + 1e-8)
+        adv = adv[mask]
 
-        surr1 = ratio * adv_norm
-        surr2 = torch.clamp(ratio, 1.0 -self.clip, 1.0 + self.clip) * adv_norm
-        loss = - torch.min(surr1, surr2).mean()
+        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        surr1 = ratio * adv
+        surr2 = torch.clamp(ratio, 1.0 -self.clip, 1.0 + self.clip) * adv
+        loss = -  torch.min(surr1, surr2).mean()
 
         return loss
 
-    def _get_value_loss(self, returns, v_new, v):
+    def _get_value_loss(self, returns, v_new, v, mask):
         v_clip = v + (v_new - v).clamp(-self.clip, self.clip)
-        value_loss_clipped = F.mse_loss(returns, v_clip)
-        value_loss_original = F.mse_loss(returns, v_new)
+        value_loss_clipped = F.mse_loss(returns[mask], v_clip[mask])
+        value_loss_original = F.mse_loss(returns[mask], v_new[mask])
 
         value_loss = torch.max(value_loss_clipped, value_loss_original)
-        value_loss = value_loss.mean()
 
         return value_loss
 
@@ -194,13 +195,15 @@ class AgentBase:
         returns_t = self.check(returns, dtype = torch.float32)
         V_t = self.check(V, dtype = torch.float32)
 
+        mask = ~torch.isclose(act_logp_t, torch.zeros_like(act_logp_t), rtol=1e-8, atol= 1e-10)
+
         act_logp_new, entropy_new, V_new = self.__eval_logprob_val(states_t, act_mask_t, act_t, batch_graph_t, expand_step)
 
-        policy_loss = self._get_policy_loss(act_logp_new, act_logp_t, gae_t)
+        policy_loss = self._get_policy_loss(act_logp_new, act_logp_t, gae_t, mask)
 
-        value_loss = self._get_value_loss(returns_t, V_new, V_t)
-
-        entropy_loss = entropy_new.mean()
+        value_loss = self._get_value_loss(returns_t, V_new, V_t, mask)
+        entropy_new_mask = entropy_new[mask]
+        entropy_loss = entropy_new_mask.mean()
 
         loss = policy_loss + self.value_loss_coef * value_loss - self.entropy_loss_coef * entropy_loss
 

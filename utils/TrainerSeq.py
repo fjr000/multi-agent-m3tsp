@@ -128,17 +128,19 @@ if __name__ == "__main__":
         else:
             graph = graphG.generate(args.batch_size, city_nums)
             graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
-        x = []
-        for _ in range(4):
-            output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
-            x.append(output)
-        loss = [0,0,0]
-        for _ in range(3):
-            for t in range(4):
-                loss_s = agent.learn(*x[t])
-                loss[0] += loss_s[0] / 3/4
-                loss[1] += loss_s[1] / 3/4
-                loss[2] += loss_s[2] / 3/4
+        # x = []
+        # for _ in range(4):
+        #     output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
+        #     x.append(output)
+        # loss = [0,0,0]
+        # for _ in range(3):
+        #     for t in range(4):
+        #         loss_s = agent.learn(*x[t])
+        #         loss[0] += loss_s[0] / 3/4
+        #         loss[1] += loss_s[1] / 3/4
+        #         loss[2] += loss_s[2] / 3/4
+        output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
+        loss = agent.learn(*output)
 
         tensorboard_write(writer, i,
                           *loss,
