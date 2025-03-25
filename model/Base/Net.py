@@ -91,7 +91,6 @@ class MultiHeadAttention(nn.Module):
 class MultiHeadAttentionLayer(nn.Module):
     def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='batch', dropout = 0):
         super(MultiHeadAttentionLayer, self).__init__()
-        normalization = []
         if normalization == 'batch':
             normalization = [nn.BatchNorm1d(embedding_dim)]
         elif normalization == 'layer':

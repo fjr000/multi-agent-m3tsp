@@ -4,16 +4,186 @@ import numpy as np
 from torch import inference_mode
 from torch.distributions import Categorical
 
-from model.Base.Net import MultiHeadAttentionLayer, SingleHeadAttention, CrossAttentionLayer
-from model.n4Model import config
 from model.nModel.model_v1 import CityEncoder
 from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
-from model.Base.Net import SkipConnection, MultiHeadAttention
+# from model.Base.Net import SkipConnection, MultiHeadAttention
 import torch
 import torch.nn as nn
 from model.SeqModel.config import Config
 from model.Base.Net import initialize_weights
 import math
+
+
+class Normalization(nn.Module):
+
+    def __init__(self, embed_dim, normalization='batch'):
+        super(Normalization, self).__init__()
+
+        normalizer_class = {
+            'batch': nn.BatchNorm1d,
+            'instance': nn.InstanceNorm1d,
+            'layer': nn.LayerNorm,
+        }.get(normalization, None)
+
+        if normalization == 'layer':
+            self.normalizer = nn.LayerNorm(embed_dim)
+        else:
+            self.normalizer = normalizer_class(embed_dim, affine=True)
+
+        # Normalization by default initializes affine parameters with bias 0 and weight unif(0,1) which is too large!
+        self.init_parameters()
+
+    def init_parameters(self):
+
+        for name, param in self.named_parameters():
+            stdv = 1. / math.sqrt(param.size(-1))
+            param.data.uniform_(-stdv, stdv)
+
+    def forward(self, input):
+
+        if isinstance(self.normalizer, nn.BatchNorm1d):
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
+        elif isinstance(self.normalizer, nn.InstanceNorm1d):
+            return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
+        elif isinstance(self.normalizer, nn.LayerNorm):
+            return self.normalizer(input)
+        else:
+            assert self.normalizer is None, "Unknown normalizer type"
+            return input
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(
+            self,
+            n_heads,
+            input_dim,
+            embed_dim,
+            val_dim=None,
+            key_dim=None
+    ):
+        super(MultiHeadAttention, self).__init__()
+
+        if val_dim is None:
+            val_dim = embed_dim // n_heads
+        if key_dim is None:
+            key_dim = val_dim
+
+        self.n_heads = n_heads
+        self.input_dim = input_dim
+        self.embed_dim = embed_dim
+        self.val_dim = val_dim
+        self.key_dim = key_dim
+
+        self.norm_factor = 1 / math.sqrt(key_dim)  # See Attention is all you need
+
+        self.W_query = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
+        self.W_key = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
+        self.W_val = nn.Parameter(torch.Tensor(n_heads, input_dim, val_dim))
+        # self.alpha = nn.Parameter(torch.Tensor(n_heads, 1, 1))
+        self.W_out = nn.Parameter(torch.Tensor(n_heads, val_dim, embed_dim))
+
+        self.init_parameters()
+
+    def init_parameters(self):
+
+        for param in self.parameters():
+            stdv = 1. / math.sqrt(param.size(-1))
+            param.data.uniform_(-stdv, stdv)
+
+    def forward(self, q, h=None, mask=None):
+        """
+
+        :param q: queries (batch_size, n_query, input_dim)
+        :param h: data (batch_size, graph_size, input_dim)
+        :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
+        Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
+        :return:
+        """
+        if h is None:
+            h = q  # compute self-attention
+
+        # h should be (batch_size, graph_size, input_dim)
+        batch_size, graph_size, input_dim = h.size()
+        n_query = q.size(1)
+        assert q.size(0) == batch_size
+        assert q.size(2) == input_dim
+        assert input_dim == self.input_dim, "Wrong embedding dimension of input"
+
+        hflat = h.contiguous().view(-1, input_dim)
+        qflat = q.contiguous().view(-1, input_dim)
+
+        # last dimension can be different for keys and values
+        shp = (self.n_heads, batch_size, graph_size, -1)
+        shp_q = (self.n_heads, batch_size, n_query, -1)
+
+        # Calculate queries, (n_heads, n_query, graph_size, key/val_size)
+        Q = torch.matmul(qflat, self.W_query).view(shp_q)
+        # Calculate keys and values (n_heads, batch_size, graph_size, key/val_size)
+        K = torch.matmul(hflat, self.W_key).view(shp)
+        V = torch.matmul(hflat, self.W_val).view(shp)
+
+        # Calculate compatibility (n_heads, batch_size, n_query, graph_size)
+        compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
+
+        # Optionally apply mask to prevent attention
+        if mask is not None:
+            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
+            compatibility[mask] = -np.inf
+
+        attn = torch.softmax(compatibility, dim=-1)
+
+        # If there are nodes with no neighbours then softmax returns nan so we fix them to 0
+        if mask is not None:
+            attnc = attn.clone()
+            attnc[mask] = 0
+            attn = attnc
+
+        heads = torch.matmul(attn, V)
+
+        out = torch.mm(
+            heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim),
+            self.W_out.view(-1, self.embed_dim)
+        ).view(batch_size, n_query, self.embed_dim)
+
+        # Alternative:
+        # headst = heads.transpose(0, 1)  # swap the dimensions for batch and heads to align it for the matmul
+        # # proj_h = torch.einsum('bhni,hij->bhnj', headst, self.W_out)
+        # projected_heads = torch.matmul(headst, self.W_out)
+        # out = torch.sum(projected_heads, dim=1)  # sum across heads
+
+        # Or:
+        # out = torch.einsum('hbni,hij->bnj', heads, self.W_out)
+
+        return out
+
+
+class MultiHeadAttentionLayer(nn.Module):
+    def __init__(self, input_dim, embed_dim, hidden_dim=256, n_heads=8, norm=None):
+        super(MultiHeadAttentionLayer, self).__init__()
+
+        self.attn = MultiHeadAttention(n_heads, input_dim, embed_dim)
+
+        if norm is None:
+            self.attn_norm = None
+            self.mlp_norm = None
+        else:
+            self.attn_norm = Normalization(embed_dim, normalization=norm)
+            self.mlp_norm = Normalization(embed_dim, normalization=norm)
+
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim)
+        )
+
+    def forward(self, q, kv=None, mask=None):
+        o = self.attn(q, kv, mask)
+        o = q + o
+        n = o if self.attn_norm is None else self.attn_norm(o)
+        o = self.mlp(n)
+        o = n + o
+        n = o if self.mlp_norm is None else self.mlp_norm(o)
+        return n
 
 
 class CityEmbedding(nn.Module):
@@ -42,7 +212,7 @@ class CityEncoder(nn.Module):
         self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
         self.city_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
                 for _ in range(num_layers)
             ]
         )
@@ -68,7 +238,7 @@ class CityEncoder(nn.Module):
 
         city_embed = self.city_embed(city)
         for model in self.city_self_att:
-            city_embed = model(city_embed, key_padding_mask=city_mask)
+            city_embed = model(city_embed, city_embed, city_mask)
 
         mean = city_embed.mean(dim=1, keepdim=True)
         projection = self.mean_projection(mean)
@@ -138,7 +308,7 @@ class AgentSelfEncoder(nn.Module):
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
         self.agent_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
+                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
                 for _ in range(num_layers)
             ]
         )
@@ -157,7 +327,7 @@ class AgentSelfEncoder(nn.Module):
         else:
             expand_masks = None
         for model in self.agent_self_att:
-            agent_embed = model(agent_embed, masks=expand_masks)
+            agent_embed = model(agent_embed, mask=expand_masks)
         del expand_masks
         return agent_embed
 
@@ -166,7 +336,7 @@ class AgentCityEncoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentCityEncoder, self).__init__()
         self.agent_city_att = nn.ModuleList([
-            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
+            MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
             for _ in range(num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -175,14 +345,14 @@ class AgentCityEncoder(nn.Module):
         self.agent_embed = None
 
     def forward(self, agent_embed, city_embed, masks):
-        expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(
-            agent_embed.size(0) * self.num_heads, masks.size(-2), masks.size(-1))
+        # expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(
+        #     agent_embed.size(0) * self.num_heads, masks.size(-2), masks.size(-1))
         aca = agent_embed
         for model in self.agent_city_att:
-            aca = model(aca, city_embed, city_embed, expand_masks)
+            aca = model(aca, city_embed, masks)
         # cross_out = self.linear_forward(aca)
         # action_logits = self.action(aca, city_embed, masks)
-        del masks, expand_masks
+        # del masks, expand_masks
         #
         # agent_embed_shape = aca.shape
         # agent_embed_reshape = aca.reshape(-1, 1, aca.size(-1))
@@ -244,25 +414,25 @@ class ActionDecoderBlock(nn.Module):
         self.hidden_dim = config.action_hidden_dim
 
         self.self_attn = MultiHeadAttention(
-            self.embed_dim,
             self.n_heads,
-            dropout=config.dropout
+            self.embed_dim,
+            self.embed_dim,
         )
         self.norm = nn.LayerNorm(self.embed_dim)
 
-        self.cross_attn = CrossAttentionLayer(
+        self.cross_attn = MultiHeadAttentionLayer(
             self.embed_dim,
-            self.n_heads,
-            True,
+            self.embed_dim,
             self.hidden_dim,
-            dropout=config.dropout
+            self.n_heads,
+            'layer',
         )
 
     def forward(self, action_embed, agent_embed, attn_mask):
-        kv = self.self_attn(action_embed, attn_mask=attn_mask)
+        kv = self.self_attn(action_embed, mask=attn_mask)
         kv = self.norm(action_embed + kv)
 
-        embed = self.cross_attn(agent_embed, kv, kv, attn_mask)
+        embed = self.cross_attn(agent_embed, kv, attn_mask)
 
         return embed
 
@@ -285,10 +455,10 @@ class ActionsDecoder(nn.Module):
 
     def forward(self, action_embed, agent_embed, attn_mask, city_embed, city_mask, idx=None):
         embed = self.act_embed(action_embed)
-        expand_mask = attn_mask[:, None].expand(-1, self.n_heads, -1, -1).reshape(-1, attn_mask.size(-2),
-                                                                                  attn_mask.size(-1))
+        # expand_mask = attn_mask[:, None].expand(-1, self.n_heads, -1, -1).reshape(-1, attn_mask.size(-2),
+        #                                                                           attn_mask.size(-1))
         for model in self.decoders:
-            embed = model(embed, agent_embed, expand_mask)
+            embed = model(embed, agent_embed, attn_mask)
 
         if idx is not None:
             act_logits = self.act(embed[:, idx:idx + 1, :], city_embed, city_mask)
@@ -314,8 +484,8 @@ class Model(nn.Module):
 
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
-        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :,1].long(), :]
-        cur_pos_mean = cur_pos.mean(dim = 1)
+        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :, 1].long(), :]
+        cur_pos_mean = cur_pos.mean(dim=1)
         actions_embed = torch.zeros((B, A, self.embed_dim), dtype=torch.float32, device=agent_states.device)
         actions_embed[:, 0, :] = cur_pos_mean
         total_act_logits = []
@@ -366,11 +536,11 @@ class Model(nn.Module):
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
-        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :,1].long(), :]
-        cur_pos_mean = cur_pos.mean(dim = 1)
+        cur_pos = self.encoder.city_embed[torch.arange(agent_states.size(0))[:, None], agent_states[:, :, 1].long(), :]
+        cur_pos_mean = cur_pos.mean(dim=1)
         actions_embed = torch.zeros((B, A, self.embed_dim), dtype=torch.float32, device=agent_states.device)
         actions_embed[:, 0, :] = cur_pos_mean
-        actions_embed[:,1:,:] = self.encoder.city_embed[batch_indice, act[..., :-1]]
+        actions_embed[:, 1:, :] = self.encoder.city_embed[batch_indice, act[..., :-1]]
 
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         act_logits = self.decoder(actions_embed, agent_embed,
