@@ -112,9 +112,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--city_nums", type=int, default=50)
-    parser.add_argument("--random_city_num", type=bool, default=True)
+    parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=4,
@@ -128,9 +128,12 @@ if __name__ == "__main__":
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--agents_adv_rate", type=float, default=0.5, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=0.1, help="rate of adv between agents")
-    parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
+    parser.add_argument("--buffer_min_size", type=int, default=4096 * 4, help="if buffer size > buffer_min_size train begin")
+    parser.add_argument("--sample_size", type=int, default=4096, help="train size")
+    parser.add_argument("--K_epoch", type=int, default=4, help="use the old traj train times")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -166,7 +169,7 @@ if __name__ == "__main__":
         "train_actions_model": args.train_actions_model,
     }
 
-    buf = BufferSampler(1024)
+    buf = BufferSampler(args.sample_size)
 
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
@@ -201,18 +204,18 @@ if __name__ == "__main__":
         buf.reset()
         len = 0
 
-        while len < 4096:
+        while len < args.buffer_min_size:
             output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
             buf.insert(*output)
             len += buf.size
         buf.ready(agent.device)
 
         loss = [0,0,0]
-        for i in range(4):
-            loss_ = agent.learn(*buf.sample(1024))
-            loss[0] += loss_[0] / 4
-            loss[1] += loss_[1] / 4
-            loss[2] += loss_[2] / 4
+        for _ in range(args.K_epoch):
+            loss_ = agent.learn(*buf.sample(args.sample_size))
+            loss[0] += loss_[0] / args.K_epoch
+            loss[1] += loss_[1] / args.K_epoch
+            loss[2] += loss_[2] / args.K_epoch
 
         tensorboard_write(writer, i,
                           *loss,
