@@ -16,6 +16,63 @@ import tqdm
 from EvalTools import EvalTools
 from model.SeqModel.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
+from utils.TensorTools import _convert_tensor
+from torch.utils.data import RandomSampler
+
+class BufferSampler:
+    def __init__(self, sample_size):
+        self.sample_size = sample_size
+
+        self.reset()
+    def reset(self):
+        self.graph = []
+        self.state = []
+        self.act_logp = []
+        self.act = []
+        self.act_mask = []
+        self.gae = []
+        self.returns = []
+        self.V = []
+        self.size = 0
+
+    def insert(self,batch_graph, states, act_logp, act, act_mask, gae, returns, V):
+        mask = np.any(~np.isclose(act_logp, np.zeros_like(act_logp), 1e-8, 1e-10), axis=1)
+        self.graph.append(batch_graph[mask])
+        self.state.append(states[mask])
+        self.act_logp.append(act_logp[mask])
+        self.act.append(act[mask])
+        self.act_mask.append(act_mask[mask])
+        self.gae.append(gae[mask])
+        self.returns.append(returns[mask])
+        self.V.append(V[mask])
+        self.size += self.V[-1].shape[0]
+
+    def ready(self, device):
+        self.graph = _convert_tensor(np.concatenate(self.graph, axis=0), dtype=torch.float32, device=device)
+        self.state = _convert_tensor(np.concatenate(self.state, axis=0), dtype=torch.float32, device=device)
+        self.act_logp = _convert_tensor(np.concatenate(self.act_logp, axis=0), dtype=torch.float32, device=device)
+        self.act = _convert_tensor(np.concatenate(self.act, axis=0), dtype=torch.int, device=device)
+        self.act_mask = _convert_tensor(np.concatenate(self.act_mask, axis=0), dtype=torch.bool, device=device)
+        self.gae = _convert_tensor(np.concatenate(self.gae, axis=0), dtype=torch.float32, device=device)
+        self.returns = _convert_tensor(np.concatenate(self.returns, axis=0), dtype=torch.float32, device=device)
+        self.V = _convert_tensor(np.concatenate(self.V, axis=0), dtype=torch.float32, device=device)
+
+    def sample(self, sample_size):
+        assert isinstance(self.V,torch.Tensor)
+        # 创建随机采样器（不放回采样）
+        B= self.V.size(0)
+        indices = torch.randperm(B)[:sample_size]  # 生成随机索引
+        return (
+                self.graph[indices].detach(),
+                self.state[indices].detach(),
+                self.act_logp[indices].detach(),
+                self.act[indices].detach(),
+                self.act_mask[indices].detach(),
+                self.gae[indices].detach(),
+                self.returns[indices].detach(),
+                self.V[indices].detach(),
+                )
+
 
 
 def set_seed(seed=42):
@@ -109,6 +166,8 @@ if __name__ == "__main__":
         "train_actions_model": args.train_actions_model,
     }
 
+    buf = BufferSampler(1024)
+
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
 
@@ -139,8 +198,21 @@ if __name__ == "__main__":
         #         loss[0] += loss_s[0] / 3/4
         #         loss[1] += loss_s[1] / 3/4
         #         loss[2] += loss_s[2] / 3/4
-        output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
-        loss = agent.learn(*output)
+        buf.reset()
+        len = 0
+
+        while len < 4096:
+            output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
+            buf.insert(*output)
+            len += buf.size
+        buf.ready(agent.device)
+
+        loss = [0,0,0]
+        for i in range(4):
+            loss_ = agent.learn(*buf.sample(1024))
+            loss[0] += loss_[0] / 4
+            loss[1] += loss_[1] / 4
+            loss[2] += loss_[2] / 4
 
         tensorboard_write(writer, i,
                           *loss,

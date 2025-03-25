@@ -349,16 +349,16 @@ class Model(nn.Module):
         act_mask = torch.cat(totoal_mask, dim=1)
         return act_logits, act, act_mask, V.squeeze(-1)
 
-    def parallel_forward(self, batch_graph, expand_step, agent_states, act, salesmen_mask=None):
+    def parallel_forward(self, batch_graph, agent_states, act, salesmen_mask=None):
         self.init_city(batch_graph)
 
         B, A, _ = agent_states.shape
-        N = batch_graph.size(1)
-
-        self.encoder.city_embed = self.encoder.city_embed[None, :].expand(expand_step, -1, -1, -1).reshape(B, N, -1)
-        self.encoder.nodes_embed = self.encoder.nodes_embed[None, :].expand(expand_step, -1, -1, -1).reshape(B, N, -1)
-        self.encoder.city_embed_mean = self.encoder.city_embed_mean[None, :].expand(expand_step, -1, -1, -1).reshape(B, 1,
-                                                                                                                  -1)
+        # N = batch_graph.size(1)
+        #
+        # self.encoder.city_embed = self.encoder.city_embed[None, :].expand(expand_step, -1, -1, -1).reshape(B, N, -1)
+        # self.encoder.nodes_embed = self.encoder.nodes_embed[None, :].expand(expand_step, -1, -1, -1).reshape(B, N, -1)
+        # self.encoder.city_embed_mean = self.encoder.city_embed_mean[None, :].expand(expand_step, -1, -1, -1).reshape(B, 1,
+        #                                                                                                           -1)
 
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)
 
@@ -374,11 +374,11 @@ class Model(nn.Module):
 
         return act_logits, V.squeeze(-1)
 
-    def forward(self, agent_states, salesmen_mask=None, mode="greedy", act=None, batch_graph=None, expand_step=1):
+    def forward(self, agent_states, salesmen_mask=None, mode="greedy", act=None, batch_graph=None):
         if act is None:
             return self.autoregressive_forward(agent_states, salesmen_mask, mode)
         else:
-            return self.parallel_forward(batch_graph, expand_step, agent_states, act, salesmen_mask)
+            return self.parallel_forward(batch_graph, agent_states, act, salesmen_mask)
 
     def get_value(self, agent_states, salesmen_mask):
         agent_embed, V = self.encoder(agent_states, agents_city_mask=salesmen_mask)

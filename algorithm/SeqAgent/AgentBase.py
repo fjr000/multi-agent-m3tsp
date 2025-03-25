@@ -72,9 +72,9 @@ class AgentBase:
         nn.utils.clip_grad_norm_(params, self.grad_max_norm)
         optim.step()
 
-    def __eval_logprob_val(self, states, salesmen_mask, actions, batch_graph, expand_step):
+    def __eval_logprob_val(self, states, salesmen_mask, actions, batch_graph):
         act_logits, V = self.model(states, salesmen_mask=salesmen_mask, act = actions,
-                                                  batch_graph = batch_graph, expand_step = expand_step)
+                                                  batch_graph = batch_graph)
 
         dist = torch.distributions.Categorical(logits=act_logits)
         act_logp = dist.log_prob(actions)
@@ -157,10 +157,13 @@ class AgentBase:
 
         return act_loss, agents_loss
 
-    def _get_policy_loss(self, act_logp_new, act_logp, adv, mask):
-        ratio = torch.exp(act_logp_new - act_logp)[mask]
-
-        adv = adv[mask]
+    def _get_policy_loss(self, act_logp_new, act_logp, adv, mask = None):
+        if mask is not None:
+            ratio = torch.exp(act_logp_new - act_logp)[mask]
+            adv = adv[mask]
+        else:
+            ratio = torch.exp(act_logp_new - act_logp)
+            adv = adv
 
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
@@ -170,19 +173,29 @@ class AgentBase:
 
         return loss
 
-    def _get_value_loss(self, returns, v_new, v, mask):
+    def _get_value_loss(self, returns, v_new, v, mask = None):
         v_clip = v + (v_new - v).clamp(-self.clip, self.clip)
-        value_loss_clipped = F.mse_loss(returns[mask], v_clip[mask])
-        value_loss_original = F.mse_loss(returns[mask], v_new[mask])
+        if mask is not None:
+            value_loss_clipped = F.mse_loss(returns[mask], v_clip[mask])
+            value_loss_original = F.mse_loss(returns[mask], v_new[mask])
+        else:
+            value_loss_clipped = F.mse_loss(returns, v_clip)
+            value_loss_original = F.mse_loss(returns, v_new)
 
         value_loss = torch.max(value_loss_clipped, value_loss_original)
 
         return value_loss
 
+    def _get_entropy_loss(self, entropy, mask = None):
+        if mask is not None:
+            entropy = entropy[mask]
+
+        entropy_loss = entropy.mean()
+        return entropy_loss
     def check(self, input, dtype):
         return _convert_tensor(input, dtype = dtype, device=self.device)
 
-    def learn(self,batch_graph, states, act_logp, act, act_ent, act_mask, gae, returns, V, expand_step, cost):
+    def learn(self, batch_graph, states, act_logp, act, act_mask, gae, returns, V):
         self.model.train()
         self.train_count += 1
 
@@ -195,15 +208,16 @@ class AgentBase:
         returns_t = self.check(returns, dtype = torch.float32)
         V_t = self.check(V, dtype = torch.float32)
 
-        mask = ~torch.isclose(act_logp_t, torch.zeros_like(act_logp_t), rtol=1e-8, atol= 1e-10)
+        # mask = ~torch.isclose(act_logp_t, torch.zeros_like(act_logp_t), rtol=1e-8, atol= 1e-10)
+        mask = None
 
-        act_logp_new, entropy_new, V_new = self.__eval_logprob_val(states_t, act_mask_t, act_t, batch_graph_t, expand_step)
+        act_logp_new, entropy_new, V_new = self.__eval_logprob_val(states_t, act_mask_t, act_t, batch_graph_t)
 
         policy_loss = self._get_policy_loss(act_logp_new, act_logp_t, gae_t, mask)
 
         value_loss = self._get_value_loss(returns_t, V_new, V_t, mask)
-        entropy_new_mask = entropy_new[mask]
-        entropy_loss = entropy_new_mask.mean()
+
+        entropy_loss = self._get_entropy_loss(entropy_new, mask)
 
         loss = policy_loss + self.value_loss_coef * value_loss - self.entropy_loss_coef * entropy_loss
 
@@ -237,7 +251,8 @@ class AgentBase:
         act_mask_list = []
         act_ent_list = []
         V_list = []
-        r_lsit = []
+        r_list = []
+        batch_graph_list = []
         act, act_logp, entropy, act_mask, V = None, None, None, None, None
         done = False
         expand_step = 0
@@ -258,7 +273,8 @@ class AgentBase:
                     V_list.append(V)
                     act_mask_list.append(act_mask)
                     act_list.append(act)
-                    r_lsit.append(r)
+                    r_list.append(r)
+                    batch_graph_list.append(batch_graph)
                     if not done:
                         state_list.append(states.copy())
 
@@ -275,30 +291,30 @@ class AgentBase:
             return env_info
         else:
 
-            gae, returns = self.compute_gae_returns(r_lsit, V_list)
+            gae, returns = self.compute_gae_returns(r_list, V_list)
 
             state = np.concatenate(state_list, axis=0)
             act_logp = np.concatenate(act_logp_list, axis=0)
-            act_ent = np.concatenate(act_ent_list, axis=0)
+            # act_ent = np.concatenate(act_ent_list, axis=0)
             V = np.concatenate(V_list[:-1],axis=0)
             act_mask = np.concatenate(act_mask_list, axis=0)
             act = np.concatenate(act_list, axis=0)
 
             gae = np.concatenate(gae, axis=0)
             returns = np.concatenate(returns, axis=0)
-
+            batch_graph = np.concatenate(batch_graph_list, axis=0)
             return (
                 batch_graph,
                 state,
                 act_logp,
                 act,
-                act_ent,
                 act_mask,
                 gae,
                 returns,
                 V,
-                expand_step,
-                env_info["costs"]
+                # act_ent,
+                # expand_step,
+                # env_info["costs"]
             )
 
     def compute_gae_returns(self, r_list, V_list):
