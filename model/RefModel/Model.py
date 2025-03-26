@@ -1,24 +1,10 @@
 import torch
 import torch.nn as nn
-from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
-from model.RefModel.ActionsAttentionModel import ActionsAttentionModel
-from model.RefModel.ConflictAttentionModel import ConflictAttentionModel
-from model.RefModel.config import ModelConfig
-def initialize_weights(model):
-    for layer in model.modules():
-        if isinstance(layer, nn.Conv2d):
-            nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
-            if layer.bias is not None:
-                nn.init.constant_(layer.bias, 0)
-        elif isinstance(layer, nn.Linear):
-            nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
-            if layer.bias is not None:
-                nn.init.zeros_(layer.bias)
-        elif isinstance(layer, nn.GRU):
-            for param in layer.parameters():
-                if param.dim() > 1:  # 仅对 weight 参数初始化
-                    nn.init.orthogonal_(param)
-
+from model.Common.CityAttentionEncoder import CityAttentionEncoder
+from model.Common.ActionsAttentionModel import ActionsAttentionModel
+from model.Common.ConflictAttentionModel import ConflictAttentionModel
+from model.Common.config import ModelConfig
+from model.Common.utils import initialize_weights
 
 class Model(nn.Module):
     def __init__(self, config:ModelConfig, args = None):

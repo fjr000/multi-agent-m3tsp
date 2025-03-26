@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model.RefModel.MHA import MultiHeadAttentionLayer
+from model.Common.MHA import MultiHeadAttentionLayer
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
@@ -109,12 +109,12 @@ class AgentAttentionRNNEncoder(nn.Module):
         else:
             raise NotImplementedError
 
-    def forward(self, cities_embed, graph, agent, masks=None):
+    def forward(self, cities_embed, n_depot_embed, graph, agent, masks=None):
         """
         :param agent: [B,N,2]
         :return:
         """
-        agent_embed = self.agent_embed(cities_embed, graph, agent)
+        agent_embed = self.agent_embed(cities_embed, n_depot_embed, graph, agent)
         for model in self.agent_self_att:
             agent_embed = model(agent_embed, mask=masks)
         agent_embed_shape = agent_embed.shape
