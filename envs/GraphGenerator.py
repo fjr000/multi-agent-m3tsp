@@ -54,8 +54,8 @@ class GraphGenerator:
                         # 存储在矩阵中
                         matrix[b, i, j] = distance
         return matrix
-
-    def augment_xy_data_by_8_fold_numpy(self,batch_graph):
+    @staticmethod
+    def augment_xy_data_by_8_fold_numpy(batch_graph):
         # problems.shape: (batch, problem, 2)
 
         x = batch_graph[:, :, [0]]  # 提取 x 坐标

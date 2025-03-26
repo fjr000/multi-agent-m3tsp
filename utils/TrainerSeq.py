@@ -195,10 +195,10 @@ if __name__ == "__main__":
 
         if args.only_one_instance:
             graph = graphG.generate(1).repeat(args.batch_size, axis=0)
-            graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
+            graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
         else:
             graph = graphG.generate(args.batch_size, city_nums)
-            graph_8 = graphG.augment_xy_data_by_8_fold_numpy(graph)
+            graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
         # x = []
         # for _ in range(4):
         #     output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)

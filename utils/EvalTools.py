@@ -6,6 +6,7 @@ from utils.TspInstanceFileTool import TspInstanceFileTool
 import time
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 from TspInstanceFileTool import TspInstanceFileTool, result_dict
+from envs.GraphGenerator import GraphGenerator as GG
 
 class EvalTools(object):
 
@@ -76,12 +77,21 @@ class EvalTools(object):
 
 
     @staticmethod
-    def EvalGreedy(graph, agent_num, agent, env, info = None, instance_name = "mtsp"):
+    def EvalGreedy(graph, agent_num, agent, env, info = None, instance_name = "mtsp", aug = True):
         B, graph = EvalTools.CheckGraph(graph)
 
         st = time.time_ns()
+        if aug:
+            graph = GG.augment_xy_data_by_8_fold_numpy(graph)
         cost,greedy_trajectory = agent.eval_episode(env, graph, agent_num, "greedy", info = info)
         ed = time.time_ns()
+        if aug:
+            cost_8 = cost.reshape(B,8,-1)
+            min_max_arg = np.argmin(cost_8, axis = 1)
+            cost = cost_8[np.arange(B)[:, None],min_max_arg]
+            greedy_trajectory_8 = greedy_trajectory.reshape(B,8,greedy_trajectory.shape[1],greedy_trajectory.shape[2])
+            greedy_trajectory = greedy_trajectory_8[np.arange(B)[:, None],min_max_arg].squeeze(1)
+
         greedy_cost = np.mean(cost)
         greedy_time = (ed- st) / 1e9
         traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)
