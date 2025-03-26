@@ -14,7 +14,7 @@ from envs.MTSP.MTSP5_IDVR import MTSPEnv_IDVR as MTSPEnv
 from algorithm.SeqAgent.AgentV1 import AgentV1 as Agent
 import tqdm
 from EvalTools import EvalTools
-from model.SeqModel.config import Config as Config
+from model.SeqModel.config import ModelConfig as Config
 from envs.GraphGenerator import GraphGenerator as GG
 from utils.TensorTools import _convert_tensor
 from torch.utils.data import RandomSampler
@@ -22,9 +22,18 @@ from torch.utils.data import RandomSampler
 class BufferSampler:
     def __init__(self, sample_size):
         self.sample_size = sample_size
-
+        self.graph = []
+        self.state = []
+        self.act_logp = []
+        self.act = []
+        self.act_mask = []
+        self.gae = []
+        self.returns = []
+        self.V = []
+        self.size = 0
         self.reset()
     def reset(self):
+        del self.graph, self.state, self.act_logp, self.act, self.act_mask, self.gae, self.returns, self.V
         self.graph = []
         self.state = []
         self.act_logp = []
@@ -153,7 +162,7 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
-    x =  str(args)
+    x = str(args)
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
     for lr in agent.optim.param_groups:

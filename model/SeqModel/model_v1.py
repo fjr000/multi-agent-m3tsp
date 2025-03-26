@@ -9,376 +9,42 @@ from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 # from model.Base.Net import SkipConnection, MultiHeadAttention
 import torch
 import torch.nn as nn
-from model.SeqModel.config import Config
+from model.SeqModel.config import ModelConfig as Config
 from model.Base.Net import initialize_weights
 import math
 
-
-class Normalization(nn.Module):
-
-    def __init__(self, embed_dim, normalization='batch'):
-        super(Normalization, self).__init__()
-
-        normalizer_class = {
-            'batch': nn.BatchNorm1d,
-            'instance': nn.InstanceNorm1d,
-            'layer': nn.LayerNorm,
-        }.get(normalization, None)
-
-        if normalization == 'layer':
-            self.normalizer = nn.LayerNorm(embed_dim)
-        else:
-            self.normalizer = normalizer_class(embed_dim, affine=True)
-
-        # Normalization by default initializes affine parameters with bias 0 and weight unif(0,1) which is too large!
-        self.init_parameters()
-
-    def init_parameters(self):
-
-        for name, param in self.named_parameters():
-            stdv = 1. / math.sqrt(param.size(-1))
-            param.data.uniform_(-stdv, stdv)
-
-    def forward(self, input):
-
-        if isinstance(self.normalizer, nn.BatchNorm1d):
-            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
-        elif isinstance(self.normalizer, nn.InstanceNorm1d):
-            return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
-        elif isinstance(self.normalizer, nn.LayerNorm):
-            return self.normalizer(input)
-        else:
-            assert self.normalizer is None, "Unknown normalizer type"
-            return input
-
-
-class MultiHeadAttention(nn.Module):
-    def __init__(
-            self,
-            n_heads,
-            input_dim,
-            embed_dim,
-            val_dim=None,
-            key_dim=None
-    ):
-        super(MultiHeadAttention, self).__init__()
-
-        if val_dim is None:
-            val_dim = embed_dim // n_heads
-        if key_dim is None:
-            key_dim = val_dim
-
-        self.n_heads = n_heads
-        self.input_dim = input_dim
-        self.embed_dim = embed_dim
-        self.val_dim = val_dim
-        self.key_dim = key_dim
-
-        self.norm_factor = 1 / math.sqrt(key_dim)  # See Attention is all you need
-
-        self.W_query = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
-        self.W_key = nn.Parameter(torch.Tensor(n_heads, input_dim, key_dim))
-        self.W_val = nn.Parameter(torch.Tensor(n_heads, input_dim, val_dim))
-        # self.alpha = nn.Parameter(torch.Tensor(n_heads, 1, 1))
-        self.W_out = nn.Parameter(torch.Tensor(n_heads, val_dim, embed_dim))
-
-        self.init_parameters()
-
-    def init_parameters(self):
-
-        for param in self.parameters():
-            stdv = 1. / math.sqrt(param.size(-1))
-            param.data.uniform_(-stdv, stdv)
-
-    def forward(self, q, h=None, mask=None):
-        """
-
-        :param q: queries (batch_size, n_query, input_dim)
-        :param h: data (batch_size, graph_size, input_dim)
-        :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
-        Mask should contain 1 if attention is not possible (i.e. mask is negative adjacency)
-        :return:
-        """
-        if h is None:
-            h = q  # compute self-attention
-
-        # h should be (batch_size, graph_size, input_dim)
-        batch_size, graph_size, input_dim = h.size()
-        n_query = q.size(1)
-        assert q.size(0) == batch_size
-        assert q.size(2) == input_dim
-        assert input_dim == self.input_dim, "Wrong embedding dimension of input"
-
-        hflat = h.contiguous().view(-1, input_dim)
-        qflat = q.contiguous().view(-1, input_dim)
-
-        # last dimension can be different for keys and values
-        shp = (self.n_heads, batch_size, graph_size, -1)
-        shp_q = (self.n_heads, batch_size, n_query, -1)
-
-        # Calculate queries, (n_heads, n_query, graph_size, key/val_size)
-        Q = torch.matmul(qflat, self.W_query).view(shp_q)
-        # Calculate keys and values (n_heads, batch_size, graph_size, key/val_size)
-        K = torch.matmul(hflat, self.W_key).view(shp)
-        V = torch.matmul(hflat, self.W_val).view(shp)
-
-        # Calculate compatibility (n_heads, batch_size, n_query, graph_size)
-        compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
-
-        # Optionally apply mask to prevent attention
-        if mask is not None:
-            mask = mask.view(1, batch_size, n_query, graph_size).expand_as(compatibility)
-            compatibility[mask] = -np.inf
-
-        attn = torch.softmax(compatibility, dim=-1)
-
-        # If there are nodes with no neighbours then softmax returns nan so we fix them to 0
-        if mask is not None:
-            attnc = attn.clone()
-            attnc[mask] = 0
-            attn = attnc
-
-        heads = torch.matmul(attn, V)
-
-        out = torch.mm(
-            heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim),
-            self.W_out.view(-1, self.embed_dim)
-        ).view(batch_size, n_query, self.embed_dim)
-
-        # Alternative:
-        # headst = heads.transpose(0, 1)  # swap the dimensions for batch and heads to align it for the matmul
-        # # proj_h = torch.einsum('bhni,hij->bhnj', headst, self.W_out)
-        # projected_heads = torch.matmul(headst, self.W_out)
-        # out = torch.sum(projected_heads, dim=1)  # sum across heads
-
-        # Or:
-        # out = torch.einsum('hbni,hij->bnj', heads, self.W_out)
-
-        return out
-
-class MultiHeadAttentionLayer(nn.Module):
-    def __init__(self, input_dim, embed_dim, hidden_dim=256, n_heads=8, norm=None):
-        super(MultiHeadAttentionLayer, self).__init__()
-
-        self.attn = MultiHeadAttention(n_heads, input_dim, embed_dim)
-
-        if norm is None:
-            self.attn_norm = None
-            self.mlp_norm = None
-        else:
-            self.attn_norm = Normalization(embed_dim, normalization=norm)
-            self.mlp_norm = Normalization(embed_dim, normalization=norm)
-
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, embed_dim)
-        )
-
-    def forward(self, q, kv=None, mask=None):
-        o = self.attn(q, kv, mask)
-        o = q + o
-        n = o if self.attn_norm is None else self.attn_norm(o)
-        o = self.mlp(n)
-        o = n + o
-        n = o if self.mlp_norm is None else self.mlp_norm(o)
-        return n
-
-
-class CityEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(CityEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
-        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
-
-    def forward(self, city):
-        """
-        :param city: [B,N,2]
-        :return:
-        """
-        depot_embed = self.depot_embed(city[:, 0:1])
-        city_embed = self.city_embed(city[:, 1:])
-        cities_embed = torch.cat([depot_embed, city_embed], dim=1)
-        return cities_embed
-
-
-class CityEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
-        super(CityEncoder, self).__init__()
-        self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
-        self.city_self_att = nn.ModuleList(
-            [
-                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'batch')
-                for _ in range(num_layers)
-            ]
-        )
-        self.num_heads = num_heads
-        self.city_embed_mean = None
-        self.mean_projection = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.depot_projection = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.node_projection = nn.Linear(embed_dim, embed_dim, bias=False)
-
-    def forward(self, city, city_mask=None):
-        """
-        :param city: [B,N,2]
-        :return:
-        """
-
-        if city_mask is not None:
-            city_mask[:, 0] = False
-        #     B, A = city_mask.shape
-        #     expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
-        #     # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
-        # else:
-        #     expand_masks = None
-
-        city_embed = self.city_embed(city)
-        for model in self.city_self_att:
-            city_embed = model(city_embed, city_embed, city_mask)
-
-        mean = city_embed.mean(dim=1, keepdim=True)
-        projection = self.mean_projection(mean)
-
-        depot = self.depot_projection(city_embed[:, 0:1, :])
-        nodes = self.node_projection(city_embed[:, 1:, :])
-
-        # del expand_masks
-        return city_embed, projection, torch.cat([depot, nodes], dim=1)
-
-
-class PositionalEncoder(nn.Module):
-    def __init__(self, d_model, max_seq_len=1000):
-        super().__init__()
-        self.d_model = d_model
-
-        # 创建位置编码
-        position_encoding = torch.zeros(max_seq_len, d_model)
-        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-
-        position_encoding[:, 0::2] = torch.sin(position * div_term)
-        position_encoding[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('position_encoding', position_encoding)
-        self.requires_grad_(False)
-
-    def forward(self, seq_len):
-        # positions: [batch_size, seq_len]
-        return self.position_encoding[:seq_len, :]
-
-
-class AgentEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(AgentEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-
-        self.distance_cost_embed = nn.Linear(2, self.embed_dim, bias=False)
-        self.next_cost_embed = nn.Linear(3, self.embed_dim, bias=False)
-        self.problem_scale_embed = nn.Linear(1, self.embed_dim, bias=True)
-
-        self.position_embed = PositionalEncoder(self.embed_dim)
-
-    def forward(self, cities_embed, graph_embed, agent_state):
-        """
-        :param graph_embed
-        :param agent_state: [B,M,14]
-        :return:
-        """
-        # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
-        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:, :, :2].long(), :]
-        depot_pos_embed = depot_pos[:, :, 0, :] + depot_pos[:, :, 1, :]
-        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:4])
-        next_cost_embed = self.next_cost_embed(agent_state[:, :, 4:7])
-        problem_scale_embed = self.problem_scale_embed(agent_state[:, :, 7:8])
-        position_embed = self.position_embed(agent_state.size(1))[None, :]
-        agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed + position_embed
-        # agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed + problem_scale_embed
-        # agent_embed = graph_embed + depot_pos_embed + distance_cost_embed + next_cost_embed
-        return agent_embed
-
-
-class AgentSelfEncoder(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
-        super(AgentSelfEncoder, self).__init__()
-        self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.ModuleList(
-            [
-                MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'layer')
-                for _ in range(num_layers)
-            ]
-        )
-        self.num_heads = num_heads
-
-    def forward(self, cities_embed, graph, agent, masks=None):
-        """
-        :param agent: [B,N,2]
-        :return:
-        """
-        agent_embed = self.agent_embed(cities_embed, graph, agent)
-        if masks is not None:
-            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1),
-                                                     masks.size(2)).reshape(masks.size(0) * self.num_heads,
-                                                                            masks.size(1), masks.size(2))
-        else:
-            expand_masks = None
-        for model in self.agent_self_att:
-            agent_embed = model(agent_embed, mask=expand_masks)
-        del expand_masks
-        return agent_embed
-
-
-class AgentCityEncoder(nn.Module):
-    def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
-        super(AgentCityEncoder, self).__init__()
-        self.agent_city_att = nn.ModuleList([
-            MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, num_heads, 'layer')
-            for _ in range(num_layers)
-        ])
-        # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        # self.action = SingleHeadAttention(embed_dim)
-        self.num_heads = num_heads
-        self.agent_embed = None
-
-    def forward(self, agent_embed, city_embed, masks):
-        # expand_masks = masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(
-        #     agent_embed.size(0) * self.num_heads, masks.size(-2), masks.size(-1))
-        aca = agent_embed
-        for model in self.agent_city_att:
-            aca = model(aca, city_embed, masks)
-        # cross_out = self.linear_forward(aca)
-        # action_logits = self.action(aca, city_embed, masks)
-        # del masks, expand_masks
-        #
-        # agent_embed_shape = aca.shape
-        # agent_embed_reshape = aca.reshape(-1, 1, aca.size(-1))
-        # agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
-        # aca = agent_embed_reshape.reshape(*agent_embed_shape)
-        self.agent_embed = aca
-
-        return self.agent_embed
-
+from model.RefModel.AgentAttentionCritic import AgentAttentionCritic
+from model.RefModel.MHA import MultiHeadAttentionLayer, MultiHeadAttention, Normalization
+from model.RefModel.PositionEncoder import PositionalEncoder
+from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
+from model.RefModel.AgentAttentionEncoder import AgentAttentionEncoder, AgentAttentionRNNEncoder
+from model.RefModel.AgentCityAttentionDecoder import AgentCityAttentionDecoder
 
 class Encoder(nn.Module):
     def __init__(self, config: Config):
         super(Encoder, self).__init__()
         self.config = config
-        self.city_encoder = CityEncoder(2, config.city_encoder_hidden_dim, config.embed_dim,
-                                        config.city_encoder_num_heads, config.city_encoder_num_layers,
-                                        )
-        self.agent_encoder = AgentSelfEncoder(config.agent_dim, config.agent_encoder_hidden_dim, config.embed_dim,
-                                              config.agent_encoder_num_heads, config.agent_encoder_num_layers,
-                                              )
+        self.city_encoder = CityAttentionEncoder(config.city_encoder_config.city_encoder_num_heads,
+                                                 config.city_encoder_config.embed_dim,
+                                                 config.city_encoder_config.city_encoder_num_layers,
+                                                 2,
+                                                 'batch',
+                                                 config.city_encoder_config.city_encoder_hidden_dim,)
+        self.agent_encoder = AgentAttentionEncoder(input_dim=2,
+                                                   hidden_dim=config.actions_model_config.agent_encoder_hidden_dim,
+                                                   embed_dim=config.embed_dim,
+                                                   num_heads=config.actions_model_config.agent_encoder_num_heads,
+                                                   num_layers=config.actions_model_config.agent_encoder_num_layers,
+                                                   norm="layer")
 
-        self.agent_city_encoder = AgentCityEncoder(config.action_decoder_hidden_dim, config.embed_dim,
-                                                   config.action_decoder_num_heads, config.action_decoder_num_layers,
-                                                   config.dropout)
+        self.agent_city_encoder = AgentCityAttentionDecoder(hidden_dim=config.actions_model_config.action_decoder_hidden_dim,
+                                                            embed_dim=config.embed_dim,
+                                                            num_heads=config.actions_model_config.action_decoder_num_heads,
+                                                            num_layers=config.actions_model_config.action_decoder_num_layers,
+                                                            norm="layer")
         self.value = nn.Sequential(
             nn.Linear(config.embed_dim, config.embed_dim // 2),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(config.embed_dim // 2, 1),
         )
 
@@ -387,17 +53,19 @@ class Encoder(nn.Module):
         self.city_embed_mean = None
         self.nodes_embed = None
 
-    def init_city(self, city):
+    def init_city(self, city, n_agents):
         """
         :param city: [B,N,2]
         :return: None
         """
         self.city = city
-        self.city_embed, self.city_embed_mean, self.nodes_embed = self.city_encoder(city)
+        self.city_embed, self.city_embed_mean = self.city_encoder(city, n_agents)
 
     def forward(self, agent_states, agents_self_mask=None, agents_city_mask=None):
-        agent_embed = self.agent_encoder(self.nodes_embed, self.city_embed_mean, agent_states, agents_self_mask)
-        agent_embed = self.agent_city_encoder(agent_embed, self.city_embed, agents_city_mask)
+
+        n_agents = agent_states.size(1)
+        agent_embed = self.agent_encoder(self.city_embed[:,:-n_agents,:], self.city_embed[:,-n_agents:,:], self.city_embed_mean, agent_states, agents_self_mask)
+        agent_embed,_ = self.agent_city_encoder(agent_embed, self.city_embed, agents_city_mask)
         value = self.value(agent_embed)
 
         return agent_embed, value
@@ -458,10 +126,12 @@ class ActionsDecoder(nn.Module):
         for model in self.decoders:
             embed = model(embed, agent_embed, attn_mask)
 
+        n_agent = agent_embed.size(1)
+
         if idx is not None:
-            act_logits = self.act(embed[:, idx:idx + 1, :], city_embed, city_mask)
+            act_logits = self.act(embed[:, idx:idx + 1, :], city_embed[:,:-n_agent,:], city_mask)
         else:
-            act_logits = self.act(embed, city_embed, city_mask)
+            act_logits = self.act(embed, city_embed[:,:-n_agent,:], city_mask)
         return act_logits
 
 
@@ -473,8 +143,8 @@ class Model(nn.Module):
         self.encoder = Encoder(config)
         self.decoder = ActionsDecoder(config)
 
-    def init_city(self, city):
-        self.encoder.init_city(city)
+    def init_city(self, city, n_agents):
+        self.encoder.init_city(city, n_agents)
 
     def autoregressive_forward(self, agent_states, salesmen_mask=None, mode="greedy"):
         # seq
@@ -521,7 +191,7 @@ class Model(nn.Module):
         return act_logits, act, act_mask, V.squeeze(-1)
 
     def parallel_forward(self, batch_graph, agent_states, act, salesmen_mask=None):
-        self.init_city(batch_graph)
+        self.init_city(batch_graph, agent_states.size(1))
 
         B, A, _ = agent_states.shape
         # N = batch_graph.size(1)

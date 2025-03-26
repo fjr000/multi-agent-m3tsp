@@ -10,7 +10,7 @@ class CityAttentionEncoder(nn.Module):
             embed_dim,
             n_layers,
             input_dim=None,
-            norm=None,
+            norm='batch',
             hidden_dim=512
     ):
         super(CityAttentionEncoder, self).__init__()

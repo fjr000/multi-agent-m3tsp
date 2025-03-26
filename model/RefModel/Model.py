@@ -4,7 +4,21 @@ from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
 from model.RefModel.ActionsAttentionModel import ActionsAttentionModel
 from model.RefModel.ConflictAttentionModel import ConflictAttentionModel
 from model.RefModel.config import ModelConfig
-from model.RefModel.PositionEncoder import PositionalEncoder
+def initialize_weights(model):
+    for layer in model.modules():
+        if isinstance(layer, nn.Conv2d):
+            nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
+            if layer.bias is not None:
+                nn.init.constant_(layer.bias, 0)
+        elif isinstance(layer, nn.Linear):
+            nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)
+        elif isinstance(layer, nn.GRU):
+            for param in layer.parameters():
+                if param.dim() > 1:  # 仅对 weight 参数初始化
+                    nn.init.orthogonal_(param)
+
 
 class Model(nn.Module):
     def __init__(self, config:ModelConfig, args = None):
@@ -22,6 +36,7 @@ class Model(nn.Module):
         self.step = 0
         self.city_embed = None
         self.city_embed_mean = None
+        initialize_weights(self)
 
     def init_city(self, city, n_agents, mask = None):
         if self.args.train_city_encoder:

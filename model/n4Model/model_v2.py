@@ -1,9 +1,7 @@
 import argparse
 
 import numpy as np
-from torch import inference_mode
-from model.Base.Net import MultiHeadAttentionLayer, SingleHeadAttention, CrossAttentionLayer
-from model.nModel.model_v1 import CityEncoder
+from model.Base.Net import MultiHeadAttentionLayer
 from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 import torch
 import torch.nn as nn
