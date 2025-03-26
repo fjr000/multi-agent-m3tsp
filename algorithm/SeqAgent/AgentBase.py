@@ -34,13 +34,13 @@ class AgentBase:
         self.value_loss_coef = 0.5
         self.entropy_loss_coef = 0.005
 
-    def reset_graph(self, graph):
+    def reset_graph(self, graph, n_agents):
         """
         :param graph: [B,N,2]
         :return:
         """
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
-        self.model.init_city(graph_t)
+        self.model.init_city(graph_t, n_agents)
 
     def __get_action_logprob(self, states, salesmen_mask, mode="greedy"):
         act_logits, act, act_mask, V = self.model(states, salesmen_mask=salesmen_mask, mode=mode)
@@ -244,7 +244,7 @@ class AgentBase:
         )
         salesmen_masks = env_info["salesmen_masks"]
 
-        self.reset_graph(batch_graph)
+        self.reset_graph(batch_graph, agent_num)
 
         state_list = [states.copy(),]
         act_list = []

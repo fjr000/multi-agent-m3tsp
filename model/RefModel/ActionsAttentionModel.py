@@ -33,7 +33,8 @@ class ActionsAttentionModel(nn.Module):
 
     def forward(self, city_embed, city_embed_mean, agent, agent_mask = None, agent_city_mask = None):
 
-        agent_self_embed = self.agent_encoder(city_embed, city_embed_mean, agent, agent_mask)
+        n_agents = agent.size(1)
+        agent_self_embed = self.agent_encoder(city_embed[:,:-n_agents,:], city_embed[:,-n_agents:,:], city_embed_mean, agent, agent_mask)
 
         agent_city_embed, act_logits = self.agent_city_decoder(agent_self_embed, city_embed, masks = agent_city_mask)
 

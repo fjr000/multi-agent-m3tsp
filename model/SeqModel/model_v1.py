@@ -156,7 +156,6 @@ class MultiHeadAttention(nn.Module):
 
         return out
 
-
 class MultiHeadAttentionLayer(nn.Module):
     def __init__(self, input_dim, embed_dim, hidden_dim=256, n_heads=8, norm=None):
         super(MultiHeadAttentionLayer, self).__init__()

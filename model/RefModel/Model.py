@@ -4,6 +4,7 @@ from model.RefModel.CityAttentionEncoder import CityAttentionEncoder
 from model.RefModel.ActionsAttentionModel import ActionsAttentionModel
 from model.RefModel.ConflictAttentionModel import ConflictAttentionModel
 from model.RefModel.config import ModelConfig
+from model.RefModel.PositionEncoder import PositionalEncoder
 
 class Model(nn.Module):
     def __init__(self, config:ModelConfig, args = None):
@@ -22,12 +23,12 @@ class Model(nn.Module):
         self.city_embed = None
         self.city_embed_mean = None
 
-    def init_city(self, city, mask = None):
+    def init_city(self, city, n_agents, mask = None):
         if self.args.train_city_encoder:
-            self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
+            self.city_embed, self.city_embed_mean = self.city_encoder(city,n_agents, mask)
         else:
             with torch.no_grad():
-                self.city_embed, self.city_embed_mean = self.city_encoder(city, mask)
+                self.city_embed, self.city_embed_mean = self.city_encoder(city,n_agents, mask)
         if mask is None:
             self.step = 0
 
@@ -45,10 +46,10 @@ class Model(nn.Module):
             self.init_city(agent, city_mask)
 
         if self.args.train_actions_model:
-            agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)
+            agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean, agent, agent_mask, mask)
         else:
             with torch.no_grad():
-                agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean,agent, agent_mask, mask)
+                agents_embed, actions_logits = self.actions_model(self.city_embed, self.city_embed_mean, agent, agent_mask, mask)
 
         acts = None
         if mode == "greedy":

@@ -11,21 +11,19 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
-        self.distance_cost_embed = nn.Linear(2, self.embed_dim)
-        self.next_cost_embed = nn.Linear(3, self.embed_dim)
-        self.problem_scale_embed = nn.Linear(1, self.embed_dim)
-        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
+        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
+        self.distance_cost_embed = nn.Linear(6, self.embed_dim, bias= False)
+        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim, bias= False)
 
         # self.position_embed = PositionalEncoder(self.embed_dim)
+        #
+        # self.agent_embed = nn.Sequential(
+        #     nn.Linear(3 * self.embed_dim, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, self.embed_dim),
+        # )
 
-        self.agent_embed = nn.Sequential(
-            nn.Linear(3 * self.embed_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, self.embed_dim),
-        )
-
-    def forward(self, cities_embed, graph_embed, agent_state):
+    def forward(self, cities_embed, n_depot_embed, graph_embed, agent_state):
         """
         :param graph_embed
         :param agent_state: [B,M,14]
@@ -33,18 +31,16 @@ class AgentEmbedding(nn.Module):
         """
 
         # cities_expand = cities_embed.expand(agent_state.size(0), -1, -1)
-        depot_pos = cities_embed[torch.arange(agent_state.size(0))[:, None, None], agent_state[:, :, :2].long(),
-                    :].reshape(agent_state.size(0), agent_state.size(1), 2 * self.embed_dim)
-        depot_pos_embed = self.depot_pos_embed(depot_pos)
-        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:4])
-        next_cost_embed = self.next_cost_embed(agent_state[:, :, 4:7])
-        problem_scale_embed = self.problem_scale_embed(agent_state[:, :, 7:8])
-        global_graph_embed = self.graph_embed(graph_embed).expand_as(depot_pos_embed)
 
-        # position_embed = self.position_embed(agent_state.size(1))[None, :].expand_as(depot_pos_embed)
-        context = torch.cat(
-            [global_graph_embed, depot_pos_embed, distance_cost_embed + next_cost_embed + problem_scale_embed], dim=-1)
-        agent_embed = self.agent_embed(context)
+        cur_pos = cities_embed[torch.arange(agent_state.size(0))[:, None], agent_state[:, :, 1].long(),:]
+        depot_pos = torch.cat([n_depot_embed, cur_pos], dim=-1)
+        depot_pos_embed = self.depot_pos_embed(depot_pos)
+        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:8])
+        global_graph_embed = self.graph_embed(graph_embed)
+
+        context = depot_pos_embed + distance_cost_embed + global_graph_embed
+
+        agent_embed = context
         return agent_embed
 
 
@@ -60,12 +56,12 @@ class AgentAttentionEncoder(nn.Module):
         )
         self.num_heads = num_heads
 
-    def forward(self, cities_embed, graph, agent, masks=None):
+    def forward(self, cities_embed, n_depot_embed, graph, agent, masks=None):
         """
         :param agent: [B,N,2]
         :return:
         """
-        agent_embed = self.agent_embed(cities_embed, graph, agent)
+        agent_embed = self.agent_embed(cities_embed, n_depot_embed, graph, agent)
         for model in self.agent_self_att:
             agent_embed = model(agent_embed, mask=masks)
         return agent_embed
