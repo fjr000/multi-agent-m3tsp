@@ -91,12 +91,6 @@ class MultiHeadAttention(nn.Module):
 class MultiHeadAttentionLayer(nn.Module):
     def __init__(self, n_heads, embedding_dim, hidden_dim, normalization='batch', dropout = 0):
         super(MultiHeadAttentionLayer, self).__init__()
-        if normalization == 'batch':
-            normalization = [nn.BatchNorm1d(embedding_dim)]
-        elif normalization == 'layer':
-            normalization = [nn.LayerNorm(embedding_dim)]
-        else:
-            normalization = []
 
         self.attention = SkipConnection(
                     MultiHeadAttention(
@@ -106,7 +100,7 @@ class MultiHeadAttentionLayer(nn.Module):
                     )
                 )
 
-        self.norm1 = nn.LayerNorm(embedding_dim)
+        self.norm1 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
 
         self.mlp = SkipConnection(
                     nn.Sequential(
@@ -116,13 +110,22 @@ class MultiHeadAttentionLayer(nn.Module):
                     )
                 )
 
-        self.norm2 = nn.LayerNorm(embedding_dim)
+        self.norm2 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
+        self.embed_dim = embedding_dim
 
     def forward(self, x, key_padding_mask = None,masks = None):
         o = self.attention(x, key_padding_mask = key_padding_mask, attn_mask = masks)
-        o = self.norm1(o)
-        o = self.mlp(o, None)
-        o = self.norm2(o)
+        if isinstance(self.norm1, nn.BatchNorm1d):
+            _shape = o.shape
+            x = self.norm1((o + x).reshape(-1, self.embed_dim))
+            o = self.mlp(x, None)
+            o = self.norm2(o + x).reshape(*_shape)
+        elif isinstance(self.norm2, nn.LayerNorm):
+            x = self.norm1((o + x))
+            o = self.mlp(x, None)
+            o = self.norm2(o + x)
+        else:
+            raise NotImplementedError
         return o
 
 

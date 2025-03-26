@@ -34,7 +34,7 @@ class CityEncoder(nn.Module):
         self.city_embed = CityEmbedding(input_dim, hidden_dim, embed_dim)
         self.city_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim)
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, normalization='batch')
                 for _ in range(num_layers)
             ]
         )
@@ -132,7 +132,7 @@ class AgentEncoder(nn.Module):
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
         self.agent_self_att = nn.ModuleList(
             [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, dropout=dropout)
+                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, normalization='layer', dropout=dropout)
                 for _ in range(num_layers)
             ]
         )
