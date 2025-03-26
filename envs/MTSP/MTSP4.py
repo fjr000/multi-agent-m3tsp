@@ -158,10 +158,10 @@ class MTSPEnv:
         # denominator = max(self.salesmen - 1, 1)
         # avg_diff_cost = weighted_diff / denominator
         self.states[..., 0] = 0
-        self.states[..., 1] = self.cur_pos / np.sqrt(2) / 2
-        self.states[..., 2] = cur_cost / np.sqrt(2) / 2
-        self.states[..., 3] = diff_max_cost / np.sqrt(2) / 2
-        self.states[..., 4] = dis_depot / np.sqrt(2) / 2
+        self.states[..., 1] = self.cur_pos
+        self.states[..., 2] = cur_cost / np.sqrt(2)
+        self.states[..., 3] = diff_max_cost / np.sqrt(2)
+        self.states[..., 4] = dis_depot / np.sqrt(2)
         self.states[..., 5] = max_distances_depot / np.sqrt(2) / 2
         self.states[..., 6] = min_distances_depot / np.sqrt(2) / 2
         self.states[..., 7] = remain_salesmen_city_ratio.repeat(A,axis = -1)

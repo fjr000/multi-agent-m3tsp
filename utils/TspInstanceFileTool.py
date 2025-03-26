@@ -1,7 +1,9 @@
 import os.path
+import pickle
 
 import numpy as np
 import tsplib95
+from sympy.external.tests.test_numpy import array
 
 result_dict={
     "eil51":{
@@ -160,7 +162,20 @@ class TspInstanceFileTool(object):
         norm_graph = graph / max_V
         return norm_graph[None,:], max_V
 
+    @staticmethod
+    def saveDataSet(filename, data:np.ndarray):
+        filedir = os.path.split(filename)[0]
 
+        if not os.path.isdir(filedir):
+            os.makedirs(filedir)
+
+        np.savez_compressed(filename + '.npz', data)
+        return filename + '.npz'
+
+    @staticmethod
+    def loadDataSet(filename:str):
+        graph = np.load(filename)
+        return graph
 
 if __name__ == "__main__":
     import envs.GraphGenerator as GG
