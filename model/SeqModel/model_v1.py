@@ -119,14 +119,12 @@ class ActionsDecoder(nn.Module):
         )
         self.act = SingleHeadAttention(self.embed_dim)
 
-    def forward(self, action_embed, agent_embed, attn_mask, city_embed, city_mask, idx=None):
+    def forward(self, action_embed, agent_embed, attn_mask, city_embed, city_mask, n_agent, idx=None):
         embed = self.act_embed(action_embed)
         # expand_mask = attn_mask[:, None].expand(-1, self.n_heads, -1, -1).reshape(-1, attn_mask.size(-2),
         #                                                                           attn_mask.size(-1))
         for model in self.decoders:
             embed = model(embed, agent_embed, attn_mask)
-
-        n_agent = agent_embed.size(1)
 
         if idx is not None:
             act_logits = self.act(embed[:, idx:idx + 1, :], city_embed[:,:-n_agent,:], city_mask)
@@ -161,10 +159,11 @@ class Model(nn.Module):
         totoal_mask = []
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         batch_indice = torch.arange(B, device=agent_states.device)[:, None]
+
         for idx in range(A):
             salesman_mask = salesmen_mask[:, idx:idx + 1, ]
             act_logits = self.decoder(actions_embed[:, :idx + 1], agent_embed[:, :idx + 1],
-                                      agents_mask[:, :idx + 1, :idx + 1], self.encoder.city_embed, salesman_mask,
+                                      agents_mask[:, :idx + 1, :idx + 1], self.encoder.city_embed, salesman_mask, A,
                                       idx=idx)
             total_act_logits.append(act_logits)
 
@@ -212,7 +211,7 @@ class Model(nn.Module):
 
         agents_mask = torch.triu(torch.ones(A, A), diagonal=1).to(agent_embed.device).bool()[None,].expand(B, A, A)
         act_logits = self.decoder(actions_embed, agent_embed,
-                                  agents_mask, self.encoder.city_embed, salesmen_mask)
+                                  agents_mask, self.encoder.city_embed, salesmen_mask, n_agent = A)
 
         return act_logits, V.squeeze(-1)
 
