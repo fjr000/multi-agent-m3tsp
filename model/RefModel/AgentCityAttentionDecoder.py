@@ -7,7 +7,7 @@ class AgentCityAttentionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, norm = "layer"):
         super(AgentCityAttentionDecoder, self).__init__()
 
-        self.agent_self_att = nn.ModuleList(
+        self.agent_city_att = nn.ModuleList(
             [
                 MultiHeadAttentionLayer(embed_dim, embed_dim, hidden_dim, n_heads=num_heads, norm=norm)
                 for _ in range(num_layers)
@@ -23,7 +23,7 @@ class AgentCityAttentionDecoder(nn.Module):
         """
         extra_masks = ~torch.eye(agent_embed.size(1), device=agent_embed.device).bool()[None,:].expand(agent_embed.size(0),-1,-1)
         expand_masks = torch.cat([masks, extra_masks], dim=-1)
-        for model in self.agent_self_att:
+        for model in self.agent_city_att:
             agent_embed = model(agent_embed, city_embed,mask = expand_masks)
 
         logits = self._logp(agent_embed, city_embed[:,:-agent_embed.size(1),:], masks)

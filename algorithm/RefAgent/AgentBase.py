@@ -191,7 +191,7 @@ class AgentBase:
 
             # if not torch.isnan(agt_ent_loss):
                 # 更新损失计算，确保使用正确的变量名称
-            loss += self.args.conflict_loss_rate * agents_loss + self.args.entropy_coef * (- agt_ent_loss)
+            loss += self.args.conflict_loss_rate*( agents_loss + self.args.entropy_coef * (- agt_ent_loss))
         else:
             agents_loss = torch.tensor([0], device=self.device)
             agt_ent_loss = torch.tensor([0], device=self.device)

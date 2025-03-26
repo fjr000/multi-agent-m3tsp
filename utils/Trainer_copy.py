@@ -35,23 +35,23 @@ def set_seed(seed=42):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--agent_num", type=int, default=6)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--accumulation_steps", type=int, default=8)
-    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=30)
-    parser.add_argument("--random_city_num", type=bool, default=False)
+    parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=4,
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         if ((i + 1) % args.eval_interval) == 0:
             EvalTools.eval_mtsplib(agent, env, writer, i + 1)
             eval_graph = graphG.generate(1, city_nums)
-            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1, False)
+            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1, True)
             agent.lr_scheduler.step(greedy_gap)
 
         if (i + 1) % (args.save_model_interval ) == 0:

@@ -26,13 +26,13 @@ class AgentBase:
         self.model.to(self.device)
         self.train_count = 0
 
-    def reset_graph(self, graph):
+    def reset_graph(self, graph, n_agents):
         """
         :param graph: [B,N,2]
         :return:
         """
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
-        self.model.init_city(graph_t)
+        self.model.init_city(graph_t, n_agents)
 
     def __get_action_logprob(self, states, masks, mode="greedy", info=None):
         info = {} if info is None else info
@@ -215,7 +215,7 @@ class AgentBase:
         masks_in_salesmen = env_info["masks_in_salesmen"]
         city_mask = env_info["mask"]
 
-        self.reset_graph(batch_graph)
+        self.reset_graph(batch_graph, agent_num)
         act_logp_list = []
         agents_logp_list = []
         act_ent_list = []
