@@ -91,6 +91,7 @@ class MultiHeadAttention(nn.Module):
             n_heads,
             batch_first=True,
         )
+        self.n_heads = n_heads
 
     def forward(self, q, h=None, mask=None):
         """
@@ -105,7 +106,7 @@ class MultiHeadAttention(nn.Module):
             h = q  # compute self-attention
 
         if mask is not None:
-            expand_mask = mask.unsqueeze(1).expand(-1,self.n_heads,-1,-1)
+            expand_mask = mask.unsqueeze(1).expand(-1,self.n_heads,-1,-1).reshape(-1,mask.size(1), mask.size(2))
             out, _ = self.att(q, h, h, attn_mask = expand_mask)
         else:
             out, _ = self.att(q, h, h)
