@@ -35,8 +35,8 @@ def set_seed(seed=42):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=2)
-    parser.add_argument("--fixed_agent_num", type=bool, default=True)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
