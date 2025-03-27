@@ -144,10 +144,25 @@ class AgentEncoder(nn.Module):
         :return:
         """
         agent_embed = self.agent_embed(cities_embed, n_depot_embed, graph, agent)
+
+        n_agents= n_depot_embed.shape[1]
+        # 禁掉自注意力
+        if n_agents > 1:
+            self_mask = torch.eye(n_agents, dtype=torch.bool,device=graph.device)[None,:].expand_as(masks)  # 对角线为True
+        else:
+            self_mask = None
+
         if masks is not None:
+            if self_mask is not None:
+                masks = self_mask | masks
             expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1), masks.size(2)).reshape(masks.size(0)*self.num_heads, masks.size(1), masks.size(2))
         else:
-            expand_masks = None
+            if self_mask is not None:
+                masks = self_mask
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1),
+                                                     masks.size(2)).reshape(masks.size(0) * self.num_heads,
+                                                                            masks.size(1), masks.size(2))
+
         for model in self.agent_self_att:
             agent_embed = model(agent_embed, masks = expand_masks)
         del expand_masks

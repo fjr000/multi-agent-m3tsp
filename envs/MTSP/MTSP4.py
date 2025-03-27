@@ -48,7 +48,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 10
+        self.dim = 14
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -244,10 +244,10 @@ class MTSPEnv:
         self.states[..., 3] = self.costs / self.distance_scale.squeeze(-1)
         self.states[..., 4] = diff_costs
 
-        self.states[..., 5] = depot_dist
-        self.states[..., 6] = mean_dists
-        self.states[..., 7] = max_dists
-        self.states[..., 8] = min_dists
+        self.states[..., 5] = mean_dists
+        self.states[..., 6] = max_dists
+        self.states[..., 7] = min_dists
+        self.states[..., 8] = depot_dist
 
         self.states[..., 9] = mean_dist_depot / 2
         self.states[..., 10] = max_dist_depot / 2
