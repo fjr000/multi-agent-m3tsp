@@ -483,8 +483,8 @@ class MTSPEnv:
         true_batch, true_agents = np.where(self.stage_2)
         self.masks_in_salesmen[true_batch, true_agents, true_agents] = True
 
-        return self.masks_in_salesmen
-
+        # return self.masks_in_salesmen
+        return None
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
 

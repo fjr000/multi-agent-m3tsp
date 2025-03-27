@@ -229,7 +229,10 @@ class AgentBase:
             # mask: true :not allow  false:allow
 
             salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
-            masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+            if masks_in_salesmen is not None:
+                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+            else:
+                masks_in_salesmen_t = None
             city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
             info.update({
                 "masks_in_salesmen":masks_in_salesmen_t,
