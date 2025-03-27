@@ -202,29 +202,39 @@ class MTSPEnv:
         # Constants and basic indices
         depot_idx = 0
         batch_indices = self.batch_ar[:, None]  # [B, 1]
+        city_mask = self.mask[:,None,:]
+        cur_pos_dists = self.norm_graph[batch_indices, self.cur_pos, :]
+        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
 
         # === 2. 智能体级特征 ===
         # 成本特征
         max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
+        mean_cost = np.mean(self.costs, axis=1, keepdims=True)  # [B,1]
+
         norm_costs = self.costs / (max_cost + 1e-8)  # [B,A]
-        # ranks = np.argsort(np.argsort(self.costs, axis=1), axis=1) / (max(A-1,1))
+        diff_costs = (self.costs - mean_cost) / (max_cost + 1e-8)
+        depot_dist = self.norm_graph[batch_indices, self.cur_pos, 0]  # [B,A] 到仓库距离
 
         # 位置特征
-        depot_dist = self.norm_graph[batch_indices, self.cur_pos, 0]  # [B,A] 到仓库距离
-        # current_dists = self.norm_graph[batch_indices, self.cur_pos, :]  # [B,A,N]
-
-        # 未访问城市的统计特征（替代TOPK）
-        masked_dists = np.where(self.mask[:, None, :], self.norm_graph[batch_indices, self.cur_pos, :], np.nan)
+        masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
         mean_dists = np.nanmean(masked_dists, axis=2)
+        max_dists = np.nanmax(masked_dists, axis=2)
         min_dists = np.nanmin(masked_dists, axis=2)
-        # 标准差改用变异系数
-        std_dists = np.nanstd(masked_dists, axis=2)
+
+        # 3. Future distance estimation features
+        selected_dists = cur_pos_dists  # [B,A,N]
+        each_depot_dist = self.norm_graph[:, 0:1, :]  # Depot to all cities [B,1,N]
+        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
+
+        # Masked distance calculations
+        masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
+        mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
+        max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
+        min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
 
         # === 4. 全局任务特征 ===
-        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
         progress = 1 - remain_cities / (N-1)  # [B,1]
         workload_ratio = remain_cities / (remain_cities + A)
-
 
         self.states[..., 0] = depot_idx
         self.states[..., 1] = self.cur_pos
@@ -232,13 +242,19 @@ class MTSPEnv:
         # scale = (max_cost + 1e-8)
         self.states[..., 2] = norm_costs
         self.states[..., 3] = self.costs / self.distance_scale.squeeze(-1)
-        self.states[..., 4] = depot_dist
-        self.states[..., 5] = mean_dists
-        self.states[..., 6] = min_dists
-        self.states[..., 7] = std_dists
+        self.states[..., 4] = diff_costs
 
-        self.states[..., 8] = progress
-        self.states[..., 9] = workload_ratio
+        self.states[..., 5] = depot_dist
+        self.states[..., 6] = mean_dists
+        self.states[..., 7] = max_dists
+        self.states[..., 8] = min_dists
+
+        self.states[..., 9] = mean_dist_depot / 2
+        self.states[..., 10] = max_dist_depot / 2
+        self.states[..., 11] = min_dist_depot / 2
+
+        self.states[..., 12] = progress
+        self.states[..., 13] = workload_ratio
 
         return self.states
 
