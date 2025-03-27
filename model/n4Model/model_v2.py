@@ -42,7 +42,7 @@ class CityEncoder(nn.Module):
         self.city_embed_mean = None
         self.position_encoder = PositionalEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.alpha = nn.Parameter(torch.ones(1))
+        self.alpha = nn.Parameter(torch.zeros(1))
 
     def forward(self, city,n_agents, city_mask=None):
         """
@@ -62,7 +62,7 @@ class CityEncoder(nn.Module):
 
         pos_embed = self.position_encoder(n_agents+1)
         depot_embed_repeat = depot_embed.expand(-1, n_agents+1, -1)
-        pos_embed = self.alpha * self.pos_embed_proj(pos_embed) / n_agents
+        pos_embed = self.alpha * self.pos_embed_proj(pos_embed)
         depot_pos_embed = depot_embed_repeat + pos_embed[None,:]
 
 
@@ -105,7 +105,7 @@ class AgentEmbedding(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
-        self.distance_cost_embed = nn.Linear(6, self.embed_dim, bias=False)
+        self.distance_cost_embed = nn.Linear(8, self.embed_dim, bias=False)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
 
 
@@ -118,7 +118,7 @@ class AgentEmbedding(nn.Module):
         cur_pos = cities_embed[torch.arange(agent_state.size(0))[:, None], agent_state[:, :, 1].long(),:]
         depot_pos = torch.cat([n_depot_embed, cur_pos], dim=-1)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
-        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:8])
+        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:])
         global_graph_embed = self.graph_embed(graph_embed)
 
         context = depot_pos_embed + distance_cost_embed + global_graph_embed

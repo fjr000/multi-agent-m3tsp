@@ -21,7 +21,7 @@ class AgentBase:
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min",
-                                                                       patience=10000 / args.eval_interval, factor=0.99,
+                                                                       patience=10000 / args.eval_interval, factor=0.95,
                                                                        min_lr=2e-5)
         self.model.to(self.device)
         self.train_count = 0

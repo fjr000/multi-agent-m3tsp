@@ -15,7 +15,7 @@ class Model(nn.Module):
                                                  config.city_encoder_config.embed_dim,
                                                  config.city_encoder_config.city_encoder_num_layers,
                                                  2,
-                                                 'batch',
+                                                 'layer',
                                                  config.city_encoder_config.city_encoder_hidden_dim,)
         self.actions_model = ActionsAttentionModel(config.actions_model_config)
         self.conflict_model = ConflictAttentionModel(config.conflict_model_config)

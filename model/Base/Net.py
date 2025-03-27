@@ -99,7 +99,7 @@ class MultiHeadAttentionLayer(nn.Module):
                         dropout=dropout
                     )
                 )
-
+        self.alpha1 = nn.Parameter(torch.zeros((1,)))
         self.norm1 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
 
         self.mlp = SkipConnection(
@@ -109,7 +109,7 @@ class MultiHeadAttentionLayer(nn.Module):
                         nn.Linear(hidden_dim, embedding_dim)
                     )
                 )
-
+        self.alpha2 = nn.Parameter(torch.zeros((1,)))
         self.norm2 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
         self.embed_dim = embedding_dim
 
@@ -117,13 +117,13 @@ class MultiHeadAttentionLayer(nn.Module):
         o = self.attention(x, key_padding_mask = key_padding_mask, attn_mask = masks)
         if isinstance(self.norm1, nn.BatchNorm1d):
             _shape = o.shape
-            x = self.norm1((o + x).reshape(-1, self.embed_dim))
+            x = self.norm1((self.alpha1 * o + x).reshape(-1, self.embed_dim))
             o = self.mlp(x, None)
             o = self.norm2(o + x).reshape(*_shape)
         elif isinstance(self.norm2, nn.LayerNorm):
-            x = self.norm1((o + x))
+            x = self.norm1((self.alpha1 * o + x))
             o = self.mlp(x, None)
-            o = self.norm2(o + x)
+            o = self.norm2(self.alpha2*o + x)
         else:
             raise NotImplementedError
         return o
@@ -228,6 +228,8 @@ class CrossAttentionLayer(nn.Module):
         self.use_FFN = use_FFN
         self.multiHeadAttention = nn.MultiheadAttention(embedding_dim, num_heads, batch_first=True, dropout=dropout)
         self.normalization1 = nn.LayerNorm(embedding_dim)
+        self.alpha1 = nn.Parameter(torch.zeros(1))
+        self.alpha2 = nn.Parameter(torch.zeros(1))
         if self.use_FFN:
             self.feedForward = nn.Sequential(nn.Linear(embedding_dim, hidden_size),
                                              nn.ReLU(inplace=True),
@@ -240,11 +242,11 @@ class CrossAttentionLayer(nn.Module):
             f"q.shape == k.shape == v.shape  is [B,S,{self.embedding_dim}]"
 
         att_out, _ = self.multiHeadAttention(q, k, v, attn_mask=attn_mask)
-        hidden = att_out + q
+        hidden = self.alpha1 * att_out + q
         hidden_ln = self.normalization1(hidden)
         if self.use_FFN:
             fn_out = self.feedForward(hidden_ln)
-            out = fn_out + hidden_ln
+            out = self.alpha2 * fn_out + hidden_ln
             out = self.normalization2(out)
         else:
             out = hidden_ln
