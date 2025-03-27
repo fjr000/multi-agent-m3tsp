@@ -154,17 +154,15 @@ class AgentEncoder(nn.Module):
         else:
             self_mask = None
 
-        expand_masks = None
-        if masks is not None:
-            if self_mask is not None:
-                masks = self_mask | masks
-            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1),
-                                                     masks.size(2)).reshape(masks.size(0) * self.num_heads,
-                                                                            masks.size(1), masks.size(2))
+        if masks is not None and self_mask is not None:
+            masks = masks | self_mask
+        elif self_mask is not None:
+            masks = self_mask
+
+        if masks is None:
+            expand_masks = None
         else:
-            if self_mask is not None:
-                masks = self_mask
-                expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1),
+            expand_masks = masks.unsqueeze(1).expand(masks.size(0), self.num_heads, masks.size(1),
                                                      masks.size(2)).reshape(masks.size(0) * self.num_heads,
                                                                             masks.size(1), masks.size(2))
 
