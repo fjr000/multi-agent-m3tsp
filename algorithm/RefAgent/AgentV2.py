@@ -42,7 +42,7 @@ class AgentV2(AgentBase):
         masks_in_salesmen = env_info["masks_in_salesmen"]
         city_mask = env_info["mask"]
 
-        self.reset_graph(batch_graph)
+        self.reset_graph(batch_graph, agent_num)
         act_logp_list = []
         agents_logp_list = []
         act_ent_list = []

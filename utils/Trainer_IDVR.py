@@ -10,11 +10,11 @@ sys.path.append("./")
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
-from envs.MTSP.MTSP_IDVR import MTSPEnv_IDVR as MTSPEnv
-from algorithm.RefAgent.AgentV2 import AgentV2 as Agent
+from envs.MTSP.MTSP5_IDVR import MTSPEnv_IDVR as MTSPEnv
+from algorithm.DNN5.AgentIDVR import AgentIDVR as Agent
 import tqdm
 from EvalTools import EvalTools
-from model.RefModel.config import ModelConfig as Config
+from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
 
 
@@ -32,12 +32,13 @@ def set_seed(seed=42):
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
 
-def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, costs, lr):
+def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, value_loss, costs, lr):
     writer.add_scalar("train/act_loss", act_loss, train_count)
     writer.add_scalar("train/agents_loss", agents_loss, train_count)
     writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
     writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
-    writer.add_scalar("train/costs", costs, train_count)
+    writer.add_scalar("train/value_loss", value_loss, train_count)
+    writer.add_scalar("train/costs", np.max(costs, axis=-1).mean(), train_count)
     writer.add_scalar("train/lr", lr, train_count)
 
 if __name__ == "__main__":
@@ -50,29 +51,29 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=5e-5)
-    parser.add_argument("--grad_max_norm", type=float, default=1)
+    parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
-    parser.add_argument("--accumulation_steps", type=int, default=8)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--city_nums", type=int, default=50)
-    parser.add_argument("--random_city_num", type=bool, default=True)
+    parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=30000)
-    parser.add_argument("--env_masks_mode", type=int, default=0,
+    parser.add_argument("--agent_id", type=int, default=200000)
+    parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=500, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--use_agents_mask", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.2, help="rate of adv between agents")
-    parser.add_argument("--conflict_loss_rate", type=float, default=0.5+0.5, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.1, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=0.1, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
@@ -133,12 +134,12 @@ if __name__ == "__main__":
             graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
         output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
-        act_loss, agents_loss, act_ent_loss, agt_ent_loss = agent.learn(*output)
+        act_loss, agents_loss, act_ent_loss, agt_ent_loss, value_loss = agent.learn(*output)
 
         tensorboard_write(writer, i,
                           act_loss, agents_loss,
-                          act_ent_loss, agt_ent_loss,
-                          output[-2], agent.optim.param_groups[0]["lr"]
+                          act_ent_loss, agt_ent_loss, value_loss,
+                          output[-3], agent.optim.param_groups[0]["lr"]
                           )
 
         if ((i + 1) % args.eval_interval) == 0:

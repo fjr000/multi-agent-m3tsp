@@ -105,9 +105,9 @@ class AgentBase:
         #             agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
-        group_adv = agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)
-        # group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-        #             agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
+        # group_adv = agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
+                    agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
         adv = self.args.agents_adv_rate*agents_adv + group_adv
 

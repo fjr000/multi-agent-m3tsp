@@ -118,6 +118,7 @@ class MTSPEnv:
         self.ori_actions = None
         self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
         self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
+        self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
 
     def _get_salesmen_states2(self):
 
@@ -580,6 +581,15 @@ class MTSPEnv:
         # self.salesmen_masks_list.append(info["salesmen_masks"])
         # self.traj_stage_list.append(self.traj_stages)
 
+        self.path_count = np.where(
+            ((self.cur_pos != last_pos)
+             &(self.cur_pos != 0)),
+            # |
+            # (np.all(actions == 1)),
+            self.path_count + 1,  # 满足条件时阶段+1
+            self.path_count  # 否则保持原值
+        )
+
         if self.done:
 
             # valid = self.check_array_structure()
@@ -725,7 +735,7 @@ if __name__ == '__main__':
     batch_graph = g.generate(batch_size=args.batch_size,num=args.city_nums)
     states, info = env.reset(graph = batch_graph)
     salesmen_masks = info["salesmen_masks"]
-    agent.reset_graph(batch_graph)
+    agent.reset_graph(batch_graph, 3)
     done =False
     agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
                 "use_conflict_model": args.use_conflict_model})

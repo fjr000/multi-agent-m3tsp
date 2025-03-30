@@ -8,7 +8,6 @@ import torch
 from utils.TensorTools import _convert_tensor
 import numpy as np
 from algorithm.DNN5.AgentBase import AgentBase
-import tqdm
 import torch.nn.functional as F
 
 class AgentIDVR(AgentBase):
@@ -81,8 +80,14 @@ class AgentIDVR(AgentBase):
         loss = F.mse_loss(V[...,:-1], returns)
         return loss
 
-    def _get_loss(self, act_logp, agents_logp, gae):
-        act_loss = -( act_logp * gae).mean()
+    def _get_loss(self, act_logp, agents_logp, gae, costs):
+        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
+        max_cost_8 = np.max(costs_8, axis=-1, keepdims=True)
+        adv = (max_cost_8 - max_cost_8.mean(axis = 1, keepdims = True)) / (max_cost_8.std(axis = 1, keepdims = True) + 1e-6)
+        adv = - adv.reshape(-1,1,1)
+        adv_t = _convert_tensor(adv, device=self.device)
+        gae = (gae- gae.mean()) / (gae.std()+1e-8)
+        act_loss = -( act_logp * (0.3 * gae + adv_t)).mean()
         agt_loss = None
         if agents_logp is not None:
             agt_loss = -(agents_logp * gae).mean()
@@ -96,9 +101,8 @@ class AgentIDVR(AgentBase):
         agents_loss = torch.tensor([0], device=self.device)
 
         gae, returns = self._get_gae(rewards, V)
-        gae = (gae- gae.mean()) / (gae.std()+1e-8)
 
-        act_loss, agents_loss = self._get_loss(act_logp, agents_logp, gae)
+        act_loss, agents_loss = self._get_loss(act_logp, agents_logp, gae, costs)
 
         act_ent_loss = act_ent
 
@@ -152,21 +156,28 @@ class AgentIDVR(AgentBase):
         return return_numpy
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
+        config = {
+            "cities": batch_graph.shape[1],
+            "salesmen": agent_num,
+            "mode": "fixed",
+            "N_aug": batch_graph.shape[0],
+            "use_conflict_model": info.get("use_conflict_model", False) if info is not None else False,
+        }
+        if info is not None and info.get("trajs", None) is not None:
+            config.update({
+                "trajs": info["trajs"]
+            })
         states, env_info = env.reset(
-            config={
-                "cities": batch_graph.shape[1],
-                "salesmen": agent_num,
-                "mode": "fixed",
-                "N_aug": batch_graph.shape[0],
-                "use_conflict_model":info.get("use_conflict_model", False) if info is not None else False,
-            },
+            config=config,
             graph=batch_graph
         )
         salesmen_masks = env_info["salesmen_masks"]
         masks_in_salesmen = env_info["masks_in_salesmen"]
         city_mask = env_info["mask"]
 
-        self.reset_graph(batch_graph)
+        graph = env_info["graph"]
+
+        self.reset_graph(graph, agent_num)
         act_logp_list = []
         agents_logp_list = []
         act_ent_list = []
@@ -180,16 +191,12 @@ class AgentIDVR(AgentBase):
             states_t = _convert_tensor(states, device=self.device)
             # mask: true :not allow  false:allow
 
-            salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
-            if self.args.use_agents_mask:
-                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+            salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype=torch.bool, device=self.device)
+            if masks_in_salesmen is not None:
+                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype=torch.bool, device=self.device)
             else:
                 masks_in_salesmen_t = None
-
-            if self.args.use_city_mask:
-                city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
-            else:
-                city_mask_t = None
+            city_mask_t = _convert_tensor(~city_mask, dtype=torch.bool, device=self.device)
 
             info = {} if info is None else info
             info.update({

@@ -1,28 +1,12 @@
 import sys
-import time
-
-import matplotlib.pyplot as plt
-import numpy as np
-import sys
-import os
-from utils.TspInstanceFileTool import *
-from sympy.strategies.tree import greedy
 
 sys.path.append("../")
 sys.path.append("./")
 
-import torch.multiprocessing as mp
-from envs.GraphGenerator import GraphGenerator as GG
-from utils.TensorTools import _convert_tensor
-import torch
-from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
-from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
 
 from algorithm.DNN5.AgentV4 import AgentV4 as Agent
-import tqdm
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -42,11 +26,11 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--city_nums", type=int, default=50)
+    parser.add_argument("--city_nums", type=int, default=100)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=160000)
-    parser.add_argument("--tsp_agent_id", type=int, default=4000)
+    parser.add_argument("--agent_id", type=int, default=180000)
+    parser.add_argument("--tsp_agent_id", type=int, default=10000)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -59,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=0.5 + 0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
+    parser.add_argument("--save_model_interval", type=int, default=13000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
     parser.add_argument("--draw", type=bool, default=True, help="whether to draw result")
 

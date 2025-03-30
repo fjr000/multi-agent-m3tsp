@@ -3,6 +3,7 @@ import copy
 
 from envs.MTSP.MTSP5 import MTSPEnv
 import numpy as np
+
 class MTSPEnv_IDVR(MTSPEnv):
     def __init__(self, config):
         super(MTSPEnv_IDVR, self).__init__(config)
@@ -11,15 +12,43 @@ class MTSPEnv_IDVR(MTSPEnv):
     def _init(self, graph=None):
         super(MTSPEnv_IDVR,self)._init(graph)
         self.last_costs = copy.deepcopy(self.costs)
+        self.last_potential_reward = self.advanced_minmax_potential()
 
+    def advanced_minmax_potential(self):
+        """针对MINMAXMTSP优化的潜在函数"""
+        unvisited_cities_num = np.count_nonzero(self.mask[...,1:], axis = -1, keepdims=True) / (self.cities - 1)
+        current_costs = self.costs
+
+        # 计算当前路径长度
+        max_path_length = np.max(current_costs, axis = -1, keepdims = True)
+        avg_path_length = self.costs / self.path_count
+
+        # 潜在值计算
+        potential = -(
+                unvisited_cities_num * 1.0 +  # 未访问城市惩罚
+                max_path_length * 0.5 +
+                self.costs / (1e-8 + max_path_length) * 1.0 +
+                avg_path_length * 1.0
+        )
+
+        return potential
 
     def _get_reward(self):
         self.dones = np.all(self.stage_2, axis=1)
         self.done = np.all(self.dones, axis=0)
         # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
-        # self.rewards = self.last_costs - self.costs
-        self.rewards = self.last_costs -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1)
-        self.last_costs = copy.deepcopy(np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1))
+        # # self.rewards = self.last_costs - self.costs
+        # self.rewards = self.last_costs -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1)
+        # self.last_costs = copy.deepcopy(np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1))
+
+        """计算基于潜在函数的奖励塑形"""
+        # 计算当前状态的潜在值
+        current_potential = self.advanced_minmax_potential()
+
+        # 计算塑形奖励
+        shaping_reward = 0.99 * current_potential - self.last_potential_reward
+        self.last_potential_reward = current_potential
+        self.rewards = shaping_reward
         return self.rewards
 
 
@@ -78,8 +107,8 @@ if __name__ == '__main__':
     # g = GG(1, env_config["cities"])
     # graph = g.generate(1, env_config["cities"], dim=2)
 
-    from algorithm.RefAgent.AgentV2 import AgentV2 as Agent
-    from model.RefModel.config import ModelConfig as Config
+    from algorithm.DNN5.AgentIDVR import AgentIDVR as Agent
+    from model.n4Model.config import Config as Config
 
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
@@ -93,7 +122,7 @@ if __name__ == '__main__':
     batch_graph = g.generate(batch_size=args.batch_size,num=args.city_nums)
     states, info = env.reset(graph = batch_graph)
     salesmen_masks = info["salesmen_masks"]
-    agent.reset_graph(batch_graph)
+    agent.reset_graph(batch_graph,3)
     done =False
     agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
                 "use_conflict_model": args.use_conflict_model})
