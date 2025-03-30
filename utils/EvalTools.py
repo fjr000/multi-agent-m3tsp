@@ -5,7 +5,7 @@ import numpy as np
 from utils.TspInstanceFileTool import TspInstanceFileTool
 import time
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
-from TspInstanceFileTool import TspInstanceFileTool, result_dict
+from utils.TspInstanceFileTool import TspInstanceFileTool, result_dict
 from envs.GraphGenerator import GraphGenerator as GG
 
 class EvalTools(object):
@@ -93,6 +93,7 @@ class EvalTools(object):
             greedy_trajectory = greedy_trajectory_8[np.arange(B)[:, None],min_max_arg].squeeze(1)
 
         greedy_cost = np.mean(cost)
+        # greedy_cost = cost.squeeze()
         greedy_time = (ed- st) / 1e9
         traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)
         if B == 1:
@@ -169,3 +170,16 @@ class EvalTools(object):
             )
 
         return greedy_gap
+
+    @staticmethod
+    def EvalTSPGreedy(graph, agent, traj, info = None, instance_name = "tsp", aug = True):
+        from envs.TSP.TSP import TSPEnv
+        tsp = TSPEnv({})
+        if aug:
+            expanded = []
+            for b in traj:  # 遍历每个 B
+                for _ in range(8):  # 重复 8 次
+                    expanded.append(b)  # 直接追加（浅拷贝）
+            traj = expanded
+        tsp_cost, tsp_traj, tsp_time = EvalTools.EvalGreedy(graph, 1, agent, tsp, info={"trajs": traj}, aug=aug)
+        return tsp_cost, tsp_traj, tsp_time

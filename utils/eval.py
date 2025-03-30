@@ -19,21 +19,22 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
 import argparse
-from envs.MTSP.MTSP4 import MTSPEnv
-from algorithm.DNN5.AgentV1 import AgentV1 as Agent
+from envs.MTSP.MTSP5 import MTSPEnv
+
+from algorithm.DNN5.AgentV4 import AgentV4 as Agent
 import tqdm
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=100)
+    parser.add_argument("--agent_num", type=int, default=4)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--grad_max_norm", type=float, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
@@ -41,10 +42,11 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--city_nums", type=int, default=2000)
+    parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=120000)
+    parser.add_argument("--agent_id", type=int, default=160000)
+    parser.add_argument("--tsp_agent_id", type=int, default=4000)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -66,13 +68,15 @@ if __name__ == "__main__":
     from envs.GraphGenerator import GraphGenerator as GG
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)
-    from envs.MTSP.MTSP5 import MTSPEnv
 
     env = MTSPEnv({"env_masks_mode":args.env_masks_mode})
     from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
     from model.n4Model.config import Config
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
+    from algorithm.DNN5.AgentTSP import Agent as AgentTSP
+    TSP_agent = AgentTSP(args, Config)
+    TSP_agent.load_model(args.tsp_agent_id)
     city_nums = args.city_nums
     agent_nums = args.agent_num
     from EvalTools import EvalTools
@@ -81,6 +85,8 @@ if __name__ == "__main__":
 
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_nums, agent, env)
         no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(graph, agent_nums, agent, env,{"use_conflict_model":False})
+        optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(graph, TSP_agent, [greedy_traj] if args.batch_size == 1 else greedy_traj)
+        optim_time = greedy_time + optim_time
         sample_cost, sample_traj ,sample_time = EvalTools.EvalSample(graph, agent_nums, agent, env)
         # ortools_cost, ortools_traj, ortools_time = EvalTools.EvalOrTools(graph, agent_nums)
         LKH_cost, LKH_traj, LKH_time = EvalTools.EvalLKH3(graph, agent_nums)
@@ -88,8 +94,8 @@ if __name__ == "__main__":
         if args.batch_size == 1:
             env.draw_multi(
                 graph,
-                [greedy_cost, no_conflict_greedy_cost, sample_cost, LKH_cost],# ortools_cost],
-                [greedy_traj, no_conflict_greedy_traj, sample_traj, LKH_traj],# ortools_traj],
-                [greedy_time, no_conflict_greedy_time, sample_time, LKH_time],# ortools_time],
-                ["greedy","no_conflict_greedy", "sample", "LKH"],#"or_tools"],
+                [greedy_cost, optim_cost, no_conflict_greedy_cost, sample_cost, LKH_cost],# ortools_cost],
+                [greedy_traj, optim_traj, no_conflict_greedy_traj, sample_traj, LKH_traj],# ortools_traj],
+                [greedy_time, optim_time,no_conflict_greedy_time, sample_time, LKH_time],# ortools_time],
+                ["greedy","optim","no_conflict_greedy", "sample", "LKH"],#"or_tools"],
             )

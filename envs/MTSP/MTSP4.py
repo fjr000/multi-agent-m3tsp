@@ -40,7 +40,7 @@ class MTSPEnv:
         self.env_masks_mode = 0
         self.use_conflict_model = False
         if config is not None:
-            self.__parse_config(config)
+            self._parse_config(config)
 
         self.graph = None
         self.trajectories = None
@@ -62,7 +62,7 @@ class MTSPEnv:
 
         self.distance_scale = np.sqrt(2)
 
-    def __parse_config(self, config: Dict):
+    def _parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
         self.salesmen = config.get("salesmen", self.salesmen)
         self.seed = config.get("seed", self.seed)
@@ -388,7 +388,7 @@ class MTSPEnv:
 
     def reset(self, config=None, graph=None):
         if config is not None:
-            self.__parse_config(config)
+            self._parse_config(config)
         self._init(graph)
 
         env_info = {

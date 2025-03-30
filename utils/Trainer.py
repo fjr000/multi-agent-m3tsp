@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.DNN5.AgentV1 import AgentV1 as Agent
+from algorithm.DNN5.AgentV4 import AgentV4 as Agent
 import tqdm
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
@@ -42,18 +42,18 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--grad_max_norm", type=float, default=1)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=48)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=160000)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.5, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.1, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=0.1, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")

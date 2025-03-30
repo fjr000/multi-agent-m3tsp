@@ -1,5 +1,5 @@
 import argparse
-from algorithm.DNN5.AgentV1 import AgentV1 as Agent
+from algorithm.DNN5.AgentV4 import AgentV4 as Agent
 from model.n4Model.config import Config as Config
 from envs.MTSP.MTSP5 import MTSPEnv
 
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=100000)
+    parser.add_argument("--agent_id", type=int, default=140000)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")

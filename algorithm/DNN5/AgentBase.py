@@ -100,13 +100,14 @@ class AgentBase:
         agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
         # 智能体间优势
         agents_adv = np.abs(costs_8 - agents_avg_cost)
-        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
-                    agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
+        # agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
+        #             agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
-        # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
-        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-                    agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
+        group_adv = agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)
+        # group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
+        #             agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
         adv = self.args.agents_adv_rate*agents_adv + group_adv
 
@@ -198,24 +199,33 @@ class AgentBase:
             nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
             self.optim.step()
             self.optim.zero_grad()
+        if agents_logp is None:
+            return act_loss.item(), 0, act_ent_loss.item(), 0
         return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
-        states, env_info = env.reset(
-            config={
+        config = {
                 "cities": batch_graph.shape[1],
                 "salesmen": agent_num,
                 "mode": "fixed",
                 "N_aug": batch_graph.shape[0],
                 "use_conflict_model":info.get("use_conflict_model", False) if info is not None else False,
-            },
+            }
+        if info is not None and info.get("trajs", None) is not None:
+            config.update({
+                "trajs": info["trajs"]
+            })
+        states, env_info = env.reset(
+            config=config,
             graph=batch_graph
         )
         salesmen_masks = env_info["salesmen_masks"]
         masks_in_salesmen = env_info["masks_in_salesmen"]
         city_mask = env_info["mask"]
 
-        self.reset_graph(batch_graph, agent_num)
+        graph = env_info["graph"]
+
+        self.reset_graph(graph, agent_num)
         act_logp_list = []
         agents_logp_list = []
         act_ent_list = []
@@ -292,6 +302,17 @@ class AgentBase:
             trajectory = eval_info["trajectories"]
             return cost, trajectory
 
+    def eval_tsp_episode(self, env, batch_graph, trajs, exploit_mode="sample", info=None):
+        info = info if info is not None else {}
+        info.update({
+            "trajs" : trajs
+        })
+        with torch.no_grad():
+            eval_info = self.run_batch_episode(env, batch_graph, 1, eval_mode=True, exploit_mode=exploit_mode,
+                                               info=info)
+            cost = np.max(eval_info["costs"], axis=1)
+            trajectory = eval_info["trajectories"]
+            return cost, trajectory
     def state_dict(self):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),

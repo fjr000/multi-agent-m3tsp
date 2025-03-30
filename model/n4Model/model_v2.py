@@ -43,7 +43,7 @@ class CityEncoder(nn.Module):
         self.num_heads = num_heads
         self.city_embed_mean = None
         self.position_encoder = PositionalEncoder(embed_dim)
-        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
         self.alpha = nn.Parameter(torch.zeros(1))
 
     def forward(self, city, n_agents, city_mask=None):
@@ -106,9 +106,9 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
-        self.distance_cost_embed = nn.Linear(12, self.embed_dim, bias=False)
-        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(12, self.embed_dim)
+        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
     def forward(self, cities_embed, n_depot_embed, graph_embed, agent_state):
         """
