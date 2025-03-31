@@ -244,26 +244,30 @@ class ActionDecoder(nn.Module):
             agent_embed.size(0) * self.num_heads, expand_masks.size(-2), expand_masks.size(-1))
         # expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
         aca = agent_embed
-        for model in self.agent_city_att:
-            aca = model(aca, city_embed, city_embed, expand_masks)
+        for model in self.agent_city_att[:-1]:
+            comm = agent_embed[..., :agent_embed.size(2) // 4]
+            comm, _ = comm.max(dim=1, keepdim=True)
+            comm = comm.expand(-1, agent_embed.size(1), -1)
+            priv = agent_embed[..., agent_embed.size(2) // 4:]
+            agent_embed = torch.cat([comm, priv], dim=-1)
+            agent_embed = model(agent_embed, city_embed, city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
-        action_logits = self.action(aca, city_embed[:, :-agent_embed.size(1), :], masks)
-        del masks, expand_masks
 
-        agent_embed_shape = aca.shape
-        agent_embed_reshape = aca.reshape(-1, 1, aca.size(-1))
+        agent_embed_shape = agent_embed.shape
+        agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
         agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
-        agent_embed = aca = agent_embed_reshape.reshape(*agent_embed_shape)
-        self.agent_embed = aca
+        agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
+        self.agent_embed = agent_embed
 
-        comm = agent_embed[..., :agent_embed.size(2) //4]
+        comm = agent_embed[..., :agent_embed.size(2) // 4]
         comm, _ = comm.max(dim=1, keepdim=True)
         comm = comm.expand(-1, agent_embed.size(1), -1)
-        priv = agent_embed[..., agent_embed.size(2) //4:]
-
+        priv = agent_embed[..., agent_embed.size(2) // 4:]
         agent_embed = torch.cat([comm, priv], dim=-1)
+        agent_embed = self.agent_city_att[-1](agent_embed, city_embed, city_embed, expand_masks)
 
-        self.agent_embed = agent_embed
+        action_logits = self.action(agent_embed, city_embed[:, :-agent_embed.size(1), :], masks)
+        del masks, expand_masks
 
         return action_logits, aca
 
