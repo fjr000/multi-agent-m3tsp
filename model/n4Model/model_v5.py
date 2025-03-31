@@ -98,7 +98,7 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
+        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
         self.distance_cost_embed = nn.Linear(12, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
@@ -135,25 +135,44 @@ class AgentEmbedding(nn.Module):
         )
         return agent_embed
 
+
+class DecoderBlock(nn.Module):
+    def __init__(self, embed_dim, hidden_dim, num_heads):
+        super(DecoderBlock, self).__init__()
+        self.embed_dim = embed_dim
+        self.hidden_dim = hidden_dim
+        self.n_heads = num_heads
+        self.self_att = nn.Sequential(
+            SkipConnection(
+                MultiHeadAttention(self.embed_dim, self.n_heads, self.hidden_dim),
+            ),
+            nn.LayerNorm(embed_dim)
+        )
+        self.cross_att = CrossAttentionLayer(
+            self.embed_dim,
+            self.n_heads,
+            use_FFN=True,
+            hidden_size=hidden_dim
+        )
+
+    def forward(self, Q, KV, cross_attn_mask=None):
+        embed = self.self_att(Q)
+        embed = self.cross_att(embed, KV, KV, cross_attn_mask)
+        return embed
+
+
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0, rnn_type='GRU'):
         super(ActionDecoder, self).__init__()
         self.agent_embed_proj = AgentEmbedding(embed_dim, hidden_dim, embed_dim)
 
-        self.agent_self_att = nn.ModuleList([
-            nn.Sequential(
-                SkipConnection(
-                    MultiHeadAttention(embed_dim, num_heads, dropout=dropout)
-                ),
-                nn.LayerNorm(embed_dim)
-            )
-            for _ in range(num_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                DecoderBlock(embed_dim, hidden_dim, num_heads)
+                for _ in range(num_layers)
+            ]
+        )
 
-        self.agent_city_att = nn.ModuleList([
-            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
-            for _ in range(num_layers)
-        ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.action = SingleHeadAttention(embed_dim)
         self.num_heads = num_heads
@@ -174,7 +193,6 @@ class ActionDecoder(nn.Module):
         else:
             raise NotImplementedError
 
-        self.num_heads = num_heads
         self.rnn_state = None
         self.agent_embed = None
 
@@ -209,35 +227,29 @@ class ActionDecoder(nn.Module):
             city_embed_mean, agent
         )
 
-        # extra_masks = ~torch.eye(
-        #     n_agents,
-        #     device=agent_embed.device,
-        #     dtype=torch.bool
-        # ).unsqueeze(0).expand(agent_embed.size(0), -1, -1)
-        #
-        # expand_masks = torch.cat([masks, extra_masks], dim=-1)
-        # expand_masks = expand_masks.unsqueeze(1).expand(
-        #     agent_embed.size(0), self.num_heads, -1, -1
-        # ).reshape(
-        #     -1, *expand_masks.shape[-2:]
-        # )
+        extra_masks = ~torch.eye(
+            n_agents,
+            device=agent_embed.device,
+            dtype=torch.bool
+        ).unsqueeze(0).expand(agent_embed.size(0), -1, -1)
 
-        expand_masks = None
+        expand_masks = torch.cat([masks, extra_masks], dim=-1)
+        expand_masks = expand_masks.unsqueeze(1).expand(
+            agent_embed.size(0), self.num_heads, -1, -1
+        ).reshape(
+            -1, *expand_masks.shape[-2:]
+        )
 
-        aca = agent_embed
-        for self_model, model in zip(self.agent_self_att[:-1], self.agent_city_att[:-1]):
-            agent_embed = self_model(agent_embed)
-
-            agent_embed = model(agent_embed, city_embed, city_embed, expand_masks)
+        for block in self.blocks[:-1]:
+            agent_embed = block(agent_embed, city_embed, expand_masks)
 
         agent_embed_shape = agent_embed.shape
         agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
         agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
         agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
-        self.agent_embed = agent_embed
 
-        agent_embed = self.agent_self_att[-1](agent_embed)
-        agent_embed = self.agent_city_att[-1](agent_embed, city_embed, city_embed, expand_masks)
+        agent_embed = self.blocks[-1](agent_embed, city_embed, expand_masks)
+        self.agent_embed = agent_embed
 
         action_logits = self.action(
             agent_embed,
@@ -246,7 +258,7 @@ class ActionDecoder(nn.Module):
         )
         del masks, expand_masks
 
-        return action_logits, aca
+        return action_logits, self.agent_embed
 
 
 class ConflictModel(nn.Module):
