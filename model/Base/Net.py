@@ -46,12 +46,13 @@ class SkipConnection(nn.Module):
     def __init__(self, module):
         super(SkipConnection, self).__init__()
         self.module = module
+        self.alpha = nn.Parameter(torch.zeros(1))
 
     def forward(self, inputs, key_padding_mask = None, attn_mask = None):
         if key_padding_mask is not None or attn_mask is not None:
-            return inputs + self.module(inputs, key_padding_mask, attn_mask)
+            return inputs + self.alpha * self.module(inputs, key_padding_mask, attn_mask)
         else:
-            return inputs + self.module(inputs)
+            return inputs + self.alpha * self.module(inputs)
 
 
 class MLP(nn.Module):

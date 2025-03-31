@@ -54,11 +54,6 @@ class CityEncoder(nn.Module):
 
         if city_mask is not None:
             city_mask[:, 0] = False
-        #     B, A = city_mask.shape
-        #     expand_masks = city_mask.unsqueeze(1).unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads, A, A)
-        #     # expand_masks.diagonal(dim1=-2, dim2=-1).fill_(False)
-        # else:
-        #     expand_masks = None
 
         depot_embed, city_embed = self.city_embed(city)
 
@@ -72,7 +67,6 @@ class CityEncoder(nn.Module):
         for model in self.city_self_att:
             graph_embed = model(graph_embed, key_padding_mask=city_mask)
 
-        # del expand_masks
         return (
             graph_embed,  # (B,A+N,E)
             graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
@@ -95,7 +89,6 @@ class PositionalEncoder(nn.Module):
         self.requires_grad_(False)
 
     def forward(self, seq_len):
-        # positions: [batch_size, seq_len]
         return self.position_encoding[:seq_len, :]
 
 
@@ -172,10 +165,10 @@ class AgentEncoder(nn.Module):
         #     agent_embed = model(agent_embed, masks=expand_masks)
         # del expand_masks
 
-        comm = agent_embed[..., :agent_embed.size(2) //4]
+        comm = agent_embed[..., :agent_embed.size(2) // 4]
         comm, _ = comm.max(dim=1, keepdim=True)
         comm = comm.expand(-1, agent_embed.size(1), -1)
-        priv = agent_embed[..., agent_embed.size(2) //4:]
+        priv = agent_embed[..., agent_embed.size(2) // 4:]
 
         agent_embed = torch.cat([comm, priv], dim=-1)
 
@@ -185,6 +178,12 @@ class AgentEncoder(nn.Module):
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0, rnn_type='GRU'):
         super(ActionDecoder, self).__init__()
+
+        self.comm_att = nn.ModuleList([
+            MultiHeadAttentionLayer(num_heads // 4, embed_dim // 4, hidden_dim, normalization='layer', dropout=dropout)
+            for _ in range(num_layers)
+        ])
+
         self.agent_city_att = nn.ModuleList([
             CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
             for _ in range(num_layers)
@@ -244,8 +243,9 @@ class ActionDecoder(nn.Module):
             agent_embed.size(0) * self.num_heads, expand_masks.size(-2), expand_masks.size(-1))
         # expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
         aca = agent_embed
-        for model in self.agent_city_att[:-1]:
+        for comm_model, model in zip(self.comm_att[:-1], self.agent_city_att[:-1]):
             comm = agent_embed[..., :agent_embed.size(2) // 4]
+            comm = comm_model(comm)
             comm, _ = comm.max(dim=1, keepdim=True)
             comm = comm.expand(-1, agent_embed.size(1), -1)
             priv = agent_embed[..., agent_embed.size(2) // 4:]
@@ -260,6 +260,7 @@ class ActionDecoder(nn.Module):
         self.agent_embed = agent_embed
 
         comm = agent_embed[..., :agent_embed.size(2) // 4]
+        comm = self.comm_att[-1](comm)
         comm, _ = comm.max(dim=1, keepdim=True)
         comm = comm.expand(-1, agent_embed.size(1), -1)
         priv = agent_embed[..., agent_embed.size(2) // 4:]
