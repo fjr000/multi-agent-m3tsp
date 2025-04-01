@@ -144,7 +144,7 @@ class DecoderBlock(nn.Module):
         self.n_heads = num_heads
         self.self_att = nn.Sequential(
             SkipConnection(
-                MultiHeadAttention(self.embed_dim, self.n_heads, self.hidden_dim),
+                MultiHeadAttention(self.embed_dim, self.n_heads),
             ),
             nn.LayerNorm(embed_dim)
         )

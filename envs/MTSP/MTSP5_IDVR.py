@@ -26,7 +26,7 @@ class MTSPEnv_IDVR(MTSPEnv):
         # 潜在值计算
         potential = -(
                 unvisited_cities_num * 1.0 +  # 未访问城市惩罚
-                max_path_length * 0.5 +
+                max_path_length * 0.25 +
                 self.costs / (1e-8 + max_path_length) * 1.0 +
                 avg_path_length * 1.0
         )
