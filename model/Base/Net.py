@@ -106,7 +106,7 @@ class MultiHeadAttentionLayer(nn.Module):
         self.mlp = SkipConnection(
                     nn.Sequential(
                         nn.Linear(embedding_dim, hidden_dim),
-                        nn.ReLU(),
+                        nn.GELU(),
                         nn.Linear(hidden_dim, embedding_dim)
                     )
                 )
@@ -233,7 +233,7 @@ class CrossAttentionLayer(nn.Module):
         self.alpha2 = nn.Parameter(torch.zeros(1))
         if self.use_FFN:
             self.feedForward = nn.Sequential(nn.Linear(embedding_dim, hidden_size),
-                                             nn.ReLU(inplace=True),
+                                             nn.GELU(),
                                              nn.Linear(hidden_size, embedding_dim))
             self.normalization2 = nn.LayerNorm(embedding_dim)
 

@@ -459,8 +459,9 @@ class MTSPEnv:
                     min_cost = np.inf
                     min_id = -1
                     for i in idx:
-                        if self.costs[b,i] < min_cost:
-                            min_cost = self.costs[b,i]
+                        cmp_cost = self.costs[b,i] + self._get_distance(self.cur_pos[b,i]+1, a)
+                        if cmp_cost < min_cost:
+                            min_cost = cmp_cost
                             min_id = i
                     for i in idx:
                         if i == min_id:

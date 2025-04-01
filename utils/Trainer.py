@@ -57,8 +57,8 @@ if __name__ == "__main__":
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
-    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
