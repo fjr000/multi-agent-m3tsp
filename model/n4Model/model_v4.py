@@ -444,7 +444,6 @@ class Model(nn.Module):
 
             agents = agents_logits.argmax(dim=-1)
 
-            # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
             pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
             masks = torch.logical_or(agents == pos, acts == 0)
             del pos
