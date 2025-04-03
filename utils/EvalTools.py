@@ -89,13 +89,17 @@ class EvalTools(object):
             cost_8 = cost.reshape(B,8,-1)
             min_max_arg = np.argmin(cost_8, axis = 1)
             cost = cost_8[np.arange(B)[:, None],min_max_arg]
-            greedy_trajectory_8 = greedy_trajectory.reshape(B,8,greedy_trajectory.shape[1],greedy_trajectory.shape[2])
-            greedy_trajectory = greedy_trajectory_8[np.arange(B)[:, None],min_max_arg].squeeze(1)
+            if isinstance(greedy_trajectory, np.ndarray):
+                greedy_trajectory_8 = greedy_trajectory.reshape(B,8,greedy_trajectory.shape[1],greedy_trajectory.shape[2])
+                greedy_trajectory = greedy_trajectory_8[np.arange(B)[:, None],min_max_arg].squeeze(1)
 
         greedy_cost = np.mean(cost)
         # greedy_cost = cost.squeeze()
         greedy_time = (ed- st) / 1e9
-        traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)
+        if isinstance(greedy_trajectory, np.ndarray):
+            traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)
+        else:
+            traj = greedy_trajectory
         if B == 1:
             return greedy_cost, traj[0], greedy_time
         else:
@@ -118,7 +122,10 @@ class EvalTools(object):
         if B == 1:
             idx = np.argmin(batch_cost, axis=0).item()
             min_sample_traj = trajectory[idx:idx + 1]
-            sample_traj = env.compress_adjacent_duplicates_optimized(min_sample_traj)[0]
+            if isinstance(min_sample_traj, np.ndarray):
+                sample_traj = env.compress_adjacent_duplicates_optimized(min_sample_traj)[0]
+            else:
+                sample_traj = min_sample_traj[0]
 
             return min_sample_cost_mean, sample_traj, sample_time
         else:
@@ -133,11 +140,11 @@ class EvalTools(object):
         writer.add_scalar("train/lr", lr, train_count)
 
     @staticmethod
-    def eval_mtsplib(agent, env, writer, step):
+    def eval_mtsplib(agent, env, writer, step, aug = True):
         for graph_name in ("eil51", "berlin52", "eil76", "rat99"):
             graph, scale = TspInstanceFileTool.loadTSPLib("../graph/tsp", graph_name)
             for agent_num in (2, 3, 5, 7):
-                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env)
+                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug)
                 # no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, {"use_conflict_model": False})
                 best_cost = result_dict[graph_name][agent_num][0] / scale
                 writer.add_scalar(f"eval/{graph_name}/{agent_num}/greedy_gap",
@@ -145,8 +152,8 @@ class EvalTools(object):
                 # writer.add_scalar(f"eval/{graph_name}/{agent_num}/no_conflict_cost", (no_conflict_greedy_cost - best_cost) / best_cost * 100, step)
 
     @staticmethod
-    def eval_random(graph, agent_num, agent, env, writer, step,draw = False):
-        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env)
+    def eval_random(graph, agent_num, agent, env, writer, step,draw = False, aug =True):
+        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug = aug)
         if agent_num == 1:
             cost, traj, time = EvalTools.EvalOrTools(graph, agent_num)
         else:

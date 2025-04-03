@@ -53,7 +53,8 @@ class States(NamedTuple):
             np.zeros((batch, n_agent + 1), dtype=np.bool_),
             np.ones((batch, n_city - 1), dtype=np.bool_),
         ], axis=1)
-        mask[..., 1] = True
+        if n_agent >1:
+            mask[..., 1] = True
         matrix = States.graph2matrix(virtual_graph)
         max_distance = np.max(matrix[:,0,:],axis=-1, keepdims=True)
         return States(
@@ -139,6 +140,22 @@ class States(NamedTuple):
             remain_max_distance=_convert_tensor(self.remain_max_distance, dtype=torch.float32, device=device),
         )
 
+    def _to_trajs(self):
+        trajs = []
+        for b in range(self.costs.shape[0]):
+            traj = []
+            traja = [1]
+            for x in self.visited[b]:
+                if x == 0:
+                    continue
+                elif x <= self.n_agent:
+                    traja.append(1)
+                    traj.append(traja)
+                    traja = [1]
+                else:
+                    traja.append(x.item()-self.n_agent +1)
+            trajs.append(traj)
+        return trajs
 
 class SeqMTSPEnv:
     def __init__(self, seed=None):
@@ -174,7 +191,13 @@ class SeqMTSPEnv:
 
         done = (self.states.remain_n_agent == 0).all() & (self.states.remain_n_city == 0).all()
 
-        info = {}
+        if done:
+            info = {
+                "costs" : self.states.costs,
+                "trajectories" : self.states
+            }
+        else:
+            info = {}
         return self.states, reward, done, info
 
 

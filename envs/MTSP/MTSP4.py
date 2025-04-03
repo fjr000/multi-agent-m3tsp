@@ -162,10 +162,8 @@ class MTSPEnv:
         min_dist_depot = np.nanmin(masked_dist, axis=2)  # [B,A]
 
         # 4. Resource allocation features
-        remain_salesmen = A - np.count_nonzero(self.stage_2, axis=1, keepdims=True)  # [B,1]
-        remain_cities = np.count_nonzero(self.mask, axis=1, keepdims=True)  # [B,1]
-        work_balance_ratio = remain_cities / np.maximum(remain_salesmen, 1)  # [B,1]
-        norm_work_ratio = work_balance_ratio / (N / A)  # Normalized ratio [B,1]
+        # remain_salesmen = (A - np.count_nonzero(self.stage_2, axis=1, keepdims=True)) / self.salesmen  # [B,1]
+        remain_cities = np.count_nonzero(self.mask, axis=1, keepdims=True) / self.cities  # [B,1]
 
         self.states[..., 0] = 0
         self.states[..., 1] = self.cur_pos
@@ -182,7 +180,7 @@ class MTSPEnv:
         self.states[..., 10] = max_dist_depot / sqrt2 / 2
         self.states[..., 11] = avg_dist_depot / sqrt2 / 2
         self.states[..., 12] = min_dist_depot / sqrt2 / 2
-        self.states[..., 13] = norm_work_ratio.repeat(A,axis = -1)
+        self.states[..., 13] = remain_cities.repeat(A,axis = -1)
 
         # self.states[..., 4] = diff_min_cost
         # self.states[..., 5] = avg_diff_cost

@@ -10,11 +10,11 @@ sys.path.append("./")
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
-from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.DNN5.AgentV5 import Agent as Agent
+from envs.DMTSP.SeqMTSP import SeqMTSPEnv as MTSPEnv
+from algorithm.ET.AgentV1 import AgentV1 as Agent
 import tqdm
 from EvalTools import EvalTools
-from model.n4Model.config import Config as Config
+from model.ET.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
 
 
@@ -49,11 +49,11 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=3e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=48)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=90000)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.2, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=0.2, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
@@ -74,16 +74,7 @@ if __name__ == "__main__":
 
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)
-    env = MTSPEnv({
-        "env_masks_mode": args.env_masks_mode,
-        "use_conflict_model":args.use_conflict_model
-    })
-    from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
-
-    # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-    # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
-    # print(f"or tools :{cost}")
-
+    env = MTSPEnv(seed=args.seed)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
@@ -96,12 +87,6 @@ if __name__ == "__main__":
 
     CC = CourseController()
     agent_num, city_nums = args.agent_num, args.city_nums
-
-    train_info={
-        "use_conflict_model": args.use_conflict_model,
-        "train_conflict_model":args.train_conflict_model,
-        "train_actions_model": args.train_actions_model,
-    }
 
     for i in tqdm.tqdm(range(100_000_000), mininterval=1):
         # agent_num, city_nums = CC.get_course()
@@ -123,7 +108,7 @@ if __name__ == "__main__":
             graph = graphG.generate(args.batch_size, city_nums)
             graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
-        output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
+        output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False)
         loss_s = agent.learn(*output)
 
         EvalTools.tensorboard_write(writer, i,
@@ -132,9 +117,9 @@ if __name__ == "__main__":
                           )
 
         if ((i + 1) % args.eval_interval) == 0:
-            EvalTools.eval_mtsplib(agent, env, writer, i + 1)
+            EvalTools.eval_mtsplib(agent, env, writer, i + 1, aug=False)
             eval_graph = graphG.generate(1, city_nums)
-            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1)
+            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1, aug=False, draw=False)
             agent.lr_scheduler.step(greedy_gap)
 
         if (i + 1) % (args.save_model_interval ) == 0:

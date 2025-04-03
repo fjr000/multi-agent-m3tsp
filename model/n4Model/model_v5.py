@@ -256,6 +256,7 @@ class ActionDecoder(nn.Module):
             city_embed[:, :-agent_embed.size(1), :],
             masks
         )
+
         del masks, expand_masks
 
         return action_logits, self.agent_embed
@@ -434,9 +435,7 @@ class Model(nn.Module):
             acts_no_conflict = acts
             masks = None
         self.step += 1
-        a = torch.all((acts_no_conflict == -1), dim=-1)
-        if torch.any(a):
-            pass
+
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
 
 

@@ -7,7 +7,7 @@ from model.Base.Net import initialize_weights
 from model.Common.PositionEncoder import PositionalEncoder
 import numpy as np
 import math
-
+from model.ET.config import Config
 
 class MultiHeadAttentionCacheKV(nn.Module):
     def __init__(self, d_model, n_head, dropout=0.1):
@@ -180,24 +180,30 @@ class CityDecoder(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
+    def __init__(self, config : Config()):
         super(Model, self).__init__()
         # encoder
-        self.city_encoder = CityEncoder(input_dim, hidden_dim, embed_dim, num_heads, num_layers)
+        self.city_encoder = CityEncoder(2, config.city_encoder_n_hidden, config.embed_dim, config.city_encoder_n_head, config.city_encoder_n_layers)
         self.city_embed = None
         self.city_embed_mean = None
-        self.graph_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.graph_proj = nn.Linear(config.embed_dim, config.embed_dim, bias=False)
         # decoder
-        self.city_decoder = CityDecoder(input_dim, hidden_dim, embed_dim, num_heads, num_layers)
+        self.city_decoder = CityDecoder(2, config.city_encoder_n_hidden, config.embed_dim, config.city_encoder_n_head, 1)
 
     def init_city(self, city, n_agents):
         self.city_embed, self.city_embed_mean = self.city_encoder(city, n_agents)
         self.city_embed_mean = self.graph_proj(self.city_embed_mean)
         self.city_decoder.init(self.city_embed)
 
-    def forward(self, state):
+    def forward(self, state, mode = "greedy"):
         logits = self.city_decoder(state, self.city_embed_mean, self.city_embed)
-        return logits
+        act = None
+        if mode == "greedy":
+            act = torch.argmax(logits, dim=-1)
+        elif mode == "sample":
+            dist = torch.distributions.Categorical(logits=logits)
+            act = dist.sample()
+        return logits, None, act, act, None
 
 
 if __name__ == '__main__':
@@ -233,8 +239,7 @@ if __name__ == '__main__':
     done = False
     while not done:
         state_t = state.n2t(device)
-        logits = model(state_t)
-        act = torch.argmax(logits, dim=-1)
+        logits, _, act, _, _ = model(state_t)
         action = act.cpu().detach().numpy()
         state, r, done, info = env.step(action)
         pass
