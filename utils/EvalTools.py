@@ -144,7 +144,7 @@ class EvalTools(object):
         for graph_name in ("eil51", "berlin52", "eil76", "rat99"):
             graph, scale = TspInstanceFileTool.loadTSPLib("../graph/tsp", graph_name)
             for agent_num in (2, 3, 5, 7):
-                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug)
+                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug= aug)
                 # no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, {"use_conflict_model": False})
                 best_cost = result_dict[graph_name][agent_num][0] / scale
                 writer.add_scalar(f"eval/{graph_name}/{agent_num}/greedy_gap",
