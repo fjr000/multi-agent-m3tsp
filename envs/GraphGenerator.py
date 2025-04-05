@@ -73,7 +73,8 @@ class GraphGenerator:
         dat8 = np.concatenate((1 - y, 1 - x), axis=2)  # xy 轴同时翻转并交换 x 和 y
 
         # 沿 batch 维度拼接所有变换后的数据
-        aug_problems = np.concatenate((dat1, dat2, dat3, dat4, dat5, dat6, dat7, dat8), axis=0)
+        # aug_problems = np.concatenate((dat1, dat2, dat3, dat4, dat5, dat6, dat7, dat8), axis=0)
+        aug_problems = np.stack((dat1, dat2, dat3, dat4, dat5, dat6, dat7, dat8), axis=1).reshape(-1,*batch_graph.shape[1:])
         # shape: (8*batch, problem, 2)
 
         return aug_problems

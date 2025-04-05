@@ -35,25 +35,25 @@ def set_seed(seed=42):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=4)
-    parser.add_argument("--fixed_agent_num", type=bool, default=True)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-3)
+    parser.add_argument("--entropy_coef", type=float, default=0)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=90000)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=4,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
@@ -71,6 +71,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     set_seed(args.seed)
+
+    np.random.seed(args.seed)
+    eval_graph = np.random.uniform(0,1,(100,50,2))
 
     fig = None
     graphG = GG(args.batch_size, args.city_nums, 2)
@@ -117,9 +120,13 @@ if __name__ == "__main__":
                           )
 
         if ((i + 1) % args.eval_interval) == 0:
-            EvalTools.eval_mtsplib(agent, env, writer, i + 1, aug=False)
-            eval_graph = graphG.generate(1, city_nums)
-            greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1, aug=False, draw=False)
+            if (i+1) % (10*args.eval_interval) == 0:
+                EvalTools.eval_mtsplib(agent, env, writer, i + 1, aug=True)
+            # eval_graph = graphG.generate(1, city_nums)
+            if (i+1) == args.eval_interval:
+                greedy_gap = EvalTools.eval_random(eval_graph, 3, agent, env, writer, i + 1, aug=True, draw=False)
+            else:
+                greedy_gap = EvalTools.eval_random(eval_graph, 3, agent, env, writer, i + 1, aug=True, draw=False, use_gap=False)
             agent.lr_scheduler.step(greedy_gap)
 
         if (i + 1) % (args.save_model_interval ) == 0:

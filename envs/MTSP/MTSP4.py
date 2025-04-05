@@ -48,7 +48,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 14
+        self.dim = 11
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -116,8 +116,8 @@ class MTSPEnv:
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
-        self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
-        self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
+        # self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
+        # self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
         self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
 
     def _get_salesmen_states2(self):
@@ -195,6 +195,63 @@ class MTSPEnv:
         return self.states
 
     def _get_salesmen_states(self):
+
+        B, A, N = self.problem_size, self.salesmen, self.cities
+
+        # Constants and basic indices
+        depot_idx = 0
+        batch_indices = self.batch_ar[:, None]  # [B, 1]
+        city_mask = self.mask[:,None,:]
+        cur_pos_dists = self.graph_matrix[batch_indices, self.cur_pos, :]
+        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
+
+        # === 2. 智能体级特征 ===
+        # 成本特征
+        max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
+        depot_dist = self.graph_matrix[batch_indices, self.cur_pos, 0]
+
+        # 位置特征
+        masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
+        # mean_dists = np.nanmean(masked_dists, axis=2)
+        max_dists = np.nanmax(masked_dists, axis=2)
+        min_dists = np.nanmin(masked_dists, axis=2)
+
+        # 3. Future distance estimation features
+        selected_dists = cur_pos_dists  # [B,A,N]
+        each_depot_dist = self.graph_matrix[:, 0:1, :]  # Depot to all cities [B,1,N]
+        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
+
+        # Masked distance calculations
+        masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
+        # mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
+        max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
+        min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
+
+        # === 4. 全局任务特征 ===
+        progress = 1 - remain_cities / (N-1)  # [B,1]
+        # workload_ratio = remain_cities / (remain_cities + A)
+
+        self.states[..., 0] = depot_idx
+        self.states[..., 1] = self.cur_pos
+
+        # scale = (max_cost + 1e-8)
+        self.states[..., 2] = self.costs / (max_cost + 1e-8)
+        self.states[..., 3] = depot_dist / (max_cost + 1e-8)
+
+        self.states[..., 4] = max_dists
+        self.states[..., 5] = min_dists
+
+        allow_stayup = self.salesmen_mask[batch_indices, np.arange(A)[None,], self.cur_pos]
+        self.states[..., 6] = allow_stayup
+        self.states[..., 7] = depot_dist
+        self.states[..., 8] = max_dist_depot - depot_dist
+        self.states[..., 9] = min_dist_depot - depot_dist
+
+        self.states[..., 10] = progress
+
+        return self.states
+
+    def _get_salesmen_states3(self):
 
         B, A, N = self.problem_size, self.salesmen, self.cities
 

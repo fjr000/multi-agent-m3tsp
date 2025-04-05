@@ -1,5 +1,5 @@
 import argparse
-from algorithm.DNN5.AgentV4 import AgentV4 as Agent
+from algorithm.DNN5.AgentV5 import Agent as Agent
 from model.n4Model.config import Config as Config
 from envs.MTSP.MTSP5 import MTSPEnv
 

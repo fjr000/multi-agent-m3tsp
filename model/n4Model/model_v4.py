@@ -8,7 +8,7 @@ import torch.nn as nn
 from model.n4Model.config import Config
 from model.Base.Net import initialize_weights
 import math
-
+from model.ET.model_v1 import MultiHeadAttentionCacheKV, SingleHeadAttentionCacheK
 
 class CityEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
@@ -100,7 +100,7 @@ class AgentEmbedding(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim)
-        self.distance_cost_embed = nn.Linear(12, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(9, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
     def forward(self, cities_embed, n_depot_embed, graph_embed, agent_state):
@@ -125,12 +125,12 @@ class AgentEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0):
         super(AgentEncoder, self).__init__()
         self.agent_embed = AgentEmbedding(input_dim, hidden_dim, embed_dim)
-        self.agent_self_att = nn.ModuleList(
-            [
-                MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, normalization='layer', dropout=dropout)
-                for _ in range(num_layers)
-            ]
-        )
+        # self.agent_self_att = nn.ModuleList(
+        #     [
+        #         MultiHeadAttentionLayer(num_heads, embed_dim, hidden_dim, normalization='layer', dropout=dropout)
+        #         for _ in range(num_layers)
+        #     ]
+        # )
         self.num_heads = num_heads
 
     def forward(self, cities_embed, n_depot_embed, graph, agent, masks=None):
@@ -165,112 +165,146 @@ class AgentEncoder(nn.Module):
         #     agent_embed = model(agent_embed, masks=expand_masks)
         # del expand_masks
 
-        comm = agent_embed[..., :agent_embed.size(2) // 4]
-        comm, _ = comm.max(dim=1, keepdim=True)
-        comm = comm.expand(-1, agent_embed.size(1), -1)
-        priv = agent_embed[..., agent_embed.size(2) // 4:]
 
-        agent_embed = torch.cat([comm, priv], dim=-1)
 
         return agent_embed
+
+class CrossAttentionCacheKVLayer(nn.Module):
+    # For not self attention
+    def __init__(self, embedding_dim, num_heads, use_FFN=True, hidden_size=128,dropout=0):
+        super(CrossAttentionCacheKVLayer, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.use_FFN = use_FFN
+        self.multiHeadAttention = MultiHeadAttentionCacheKV(embedding_dim, num_heads, dropout=dropout)
+        self.normalization1 = nn.LayerNorm(embedding_dim)
+        self.alpha1 = nn.Parameter(torch.zeros(1))
+        self.alpha2 = nn.Parameter(torch.zeros(1))
+        if self.use_FFN:
+            self.feedForward = nn.Sequential(nn.Linear(embedding_dim, hidden_size),
+                                             nn.GELU(),
+                                             nn.Linear(hidden_size, embedding_dim))
+            self.normalization2 = nn.LayerNorm(embedding_dim)
+
+    def init(self, city_embed):
+        self.multiHeadAttention.init(city_embed)
+
+    def forward(self, q, attn_mask=None):
+        att_out = self.multiHeadAttention(q, attn_mask)
+        hidden = self.alpha1 * att_out + q
+        hidden_ln = self.normalization1(hidden)
+        if self.use_FFN:
+            fn_out = self.feedForward(hidden_ln)
+            out = self.alpha2 * fn_out + hidden_ln
+            out = self.normalization2(out)
+        else:
+            out = hidden_ln
+        return out
 
 
 class ActionDecoder(nn.Module):
     def __init__(self, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2, dropout=0, rnn_type='GRU'):
         super(ActionDecoder, self).__init__()
 
-        self.comm_att = nn.ModuleList([
-            MultiHeadAttentionLayer(num_heads // 4, embed_dim // 4, hidden_dim, normalization='layer', dropout=dropout)
-            for _ in range(num_layers)
-        ])
+        # self.comm_att = nn.ModuleList([
+        #     MultiHeadAttentionLayer(num_heads // 4, embed_dim // 4, hidden_dim, normalization='layer', dropout=dropout)
+        #     for _ in range(num_layers)
+        # ])
 
         self.agent_city_att = nn.ModuleList([
-            CrossAttentionLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
+            CrossAttentionCacheKVLayer(embed_dim, num_heads, use_FFN=True, hidden_size=hidden_dim, dropout=dropout)
             for _ in range(num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.action = SingleHeadAttention(embed_dim)
+        self.action = SingleHeadAttentionCacheK(embed_dim)
         self.num_heads = num_heads
 
-        self.rnn = None
-        if rnn_type == "LSTM":
-            self.rnn = nn.LSTM(
-                input_size=embed_dim,
-                hidden_size=embed_dim,
-                batch_first=True,
-            )
-        elif rnn_type == "GRU":
-            self.rnn = nn.GRU(
-                input_size=embed_dim,
-                hidden_size=embed_dim,
-                batch_first=True,
-            )
-        else:
-            raise NotImplementedError
+        # self.rnn = None
+        # if rnn_type == "LSTM":
+        #     self.rnn = nn.LSTM(
+        #         input_size=embed_dim,
+        #         hidden_size=embed_dim,
+        #         batch_first=True,
+        #     )
+        # elif rnn_type == "GRU":
+        #     self.rnn = nn.GRU(
+        #         input_size=embed_dim,
+        #         hidden_size=embed_dim,
+        #         batch_first=True,
+        #     )
+        # else:
+        #     raise NotImplementedError
 
         self.num_heads = num_heads
         self.rnn_state = None
         self.agent_embed = None
 
-    def init_rnn_state(self, batch_size, agent_num, device):
-        if isinstance(self.rnn, nn.GRU):
-            self.rnn_state = torch.zeros(
-                (1, batch_size * agent_num, self.rnn.hidden_size),
-                dtype=torch.float32,
-                device=device
-            )
-        elif isinstance(self.rnn, nn.LSTM):
-            self.rnn_state = [torch.zeros(
-                (1, batch_size * agent_num, self.rnn.hidden_size),
-                dtype=torch.float32,
-                device=device
-            ),
-                torch.zeros(
-                    (1, batch_size * agent_num, self.rnn.hidden_size),
-                    dtype=torch.float32,
-                    device=device
-                )
-            ]
-        else:
-            raise NotImplementedError
+    def init(self, city_embed, n_agent):
+        for model in self.agent_city_att:
+            model.init(city_embed)
+        self.action.init(city_embed[:,:-n_agent])
 
-    def forward(self, agent_embed, city_embed, masks):
+
+    def init_rnn_state(self, batch_size, agent_num, device):
+        pass
+        # if isinstance(self.rnn, nn.GRU):
+        #     self.rnn_state = torch.zeros(
+        #         (1, batch_size * agent_num, self.rnn.hidden_size),
+        #         dtype=torch.float32,
+        #         device=device
+        #     )
+        # elif isinstance(self.rnn, nn.LSTM):
+        #     self.rnn_state = [torch.zeros(
+        #         (1, batch_size * agent_num, self.rnn.hidden_size),
+        #         dtype=torch.float32,
+        #         device=device
+        #     ),
+        #         torch.zeros(
+        #             (1, batch_size * agent_num, self.rnn.hidden_size),
+        #             dtype=torch.float32,
+        #             device=device
+        #         )
+        #     ]
+        # else:
+        #     raise NotImplementedError
+
+    def forward(self, agent_embed, masks):
         # expand_city_embed = city_embed.expand(agent_embed.size(0), -1, -1)
         extra_masks = ~torch.eye(agent_embed.size(1), device=agent_embed.device).bool()[None, :].expand(
             agent_embed.size(0), -1, -1)
         expand_masks = torch.cat([masks, extra_masks], dim=-1)
-        expand_masks = expand_masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(
-            agent_embed.size(0) * self.num_heads, expand_masks.size(-2), expand_masks.size(-1))
+        # expand_masks = expand_masks.unsqueeze(1).expand(agent_embed.size(0), self.num_heads, -1, -1).reshape(
+        #     agent_embed.size(0) * self.num_heads, expand_masks.size(-2), expand_masks.size(-1))
         # expand_masks = expand_masks.reshape(agent_embed.size(0) * self.num_heads, expand_masks.size(2), expand_masks.size(3))
-        aca = agent_embed
-        for comm_model, model in zip(self.comm_att[:-1], self.agent_city_att[:-1]):
+        # for comm_model, model in zip(self.comm_att[:-1], self.agent_city_att[:-1]):
+        for model in self.agent_city_att:
+            agent_embed = model(agent_embed, expand_masks)
             comm = agent_embed[..., :agent_embed.size(2) // 4]
-            comm = comm_model(comm)
+            # comm = comm_model(comm)
             comm, _ = comm.max(dim=1, keepdim=True)
             comm = comm.expand(-1, agent_embed.size(1), -1)
             priv = agent_embed[..., agent_embed.size(2) // 4:]
             agent_embed = torch.cat([comm, priv], dim=-1)
-            agent_embed = model(agent_embed, city_embed, city_embed, expand_masks)
         # cross_out = self.linear_forward(aca)
 
-        agent_embed_shape = agent_embed.shape
-        agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
-        agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
-        agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
+        # agent_embed_shape = agent_embed.shape
+        # agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
+        # agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
+        # agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
+        #
+        # agent_embed = self.agent_city_att[-1](agent_embed, city_embed, city_embed, expand_masks)
+        #
+        # comm = agent_embed[..., :agent_embed.size(2) // 4]
+        # # comm = self.comm_att[-1](comm)
+        # comm, _ = comm.max(dim=1, keepdim=True)
+        # comm = comm.expand(-1, agent_embed.size(1), -1)
+        # priv = agent_embed[..., agent_embed.size(2) // 4:]
+        # agent_embed = torch.cat([comm, priv], dim=-1)
         self.agent_embed = agent_embed
 
-        comm = agent_embed[..., :agent_embed.size(2) // 4]
-        comm = self.comm_att[-1](comm)
-        comm, _ = comm.max(dim=1, keepdim=True)
-        comm = comm.expand(-1, agent_embed.size(1), -1)
-        priv = agent_embed[..., agent_embed.size(2) // 4:]
-        agent_embed = torch.cat([comm, priv], dim=-1)
-        agent_embed = self.agent_city_att[-1](agent_embed, city_embed, city_embed, expand_masks)
-
-        action_logits = self.action(agent_embed, city_embed[:, :-agent_embed.size(1), :], masks)
+        action_logits = self.action(agent_embed, masks)
         del masks, expand_masks
 
-        return action_logits, aca
+        return action_logits, self.agent_embed
 
 
 class ConflictModel(nn.Module):
@@ -279,13 +313,14 @@ class ConflictModel(nn.Module):
         # 不能使用dropout
         self.city_agent_att = nn.ModuleList([
             CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
-                                use_FFN=True, hidden_size=config.conflict_deal_hidden_dim,
-                                dropout=0)
+                                       use_FFN=True, hidden_size=config.conflict_deal_hidden_dim,
+                                       dropout=0)
             for _ in range(config.conflict_deal_num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
         self.agents = SingleHeadAttention(config.embed_dim)
         self.num_heads = config.conflict_deal_num_heads
+
 
     def forward(self, agent_embed, city_embed, acts, info=None):
         """
@@ -359,6 +394,7 @@ class ActionsModel(nn.Module):
         """
         self.city = city
         self.city_embed, self.city_embed_mean = self.city_encoder(city, n_agents)
+        self.agent_decoder.init(self.city_embed, n_agents)
 
     def forward(self, agent, mask, info=None):
         # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
@@ -380,7 +416,7 @@ class ActionsModel(nn.Module):
                                          self.city_embed_mean, agent,
                                          None if info is None else info.get("masks_in_salesmen", None))
 
-        actions_logits, agent_embed = self.agent_decoder(agent_embed, self.city_embed, mask)
+        actions_logits, agent_embed = self.agent_decoder(agent_embed, mask)
 
         x = torch.all(torch.isinf(actions_logits), dim=-1)
         xxx = torch.isnan(actions_logits).any().item()
@@ -425,11 +461,11 @@ class Model(nn.Module):
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
-            if self.step == 0:
-                acts_p = nn.functional.softmax(actions_logits, dim=-1)
-                _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
-            else:
-                acts = actions_logits.argmax(dim=-1)
+            # if self.step == 0:
+            #     acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            #     _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
+            # else:
+            acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
             # if self.step == 0:
             #     acts_p = nn.functional.softmax(actions_logits, dim=-1)

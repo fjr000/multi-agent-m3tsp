@@ -99,7 +99,7 @@ class AgentEmbedding(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
-        self.distance_cost_embed = nn.Linear(12, self.embed_dim)
+        self.distance_cost_embed = nn.Linear(9, self.embed_dim)
         self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
 
         self.context = nn.Sequential(
@@ -411,6 +411,7 @@ class Model(nn.Module):
                 _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
             else:
                 acts = actions_logits.argmax(dim=-1)
+                # acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
             # if self.step == 0:
             #     acts_p = nn.functional.softmax(actions_logits, dim=-1)

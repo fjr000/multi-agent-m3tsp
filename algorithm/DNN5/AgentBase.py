@@ -90,7 +90,7 @@ class AgentBase:
             pre = indice[i] + 1
         return likeilihood
 
-    def __get_loss(self, act_logp, agents_logp, costs):
+    def _get_loss(self, act_logp, agents_logp, costs):
 
         # 智能体间平均， 组间最小化最大
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
@@ -175,7 +175,7 @@ class AgentBase:
         if self.args.only_one_instance:
             act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
         else:
-            act_loss, agents_loss = self.__get_loss(act_logp, agents_logp, costs)
+            act_loss, agents_loss = self._get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
         loss = torch.zeros((1), device=self.device)
 

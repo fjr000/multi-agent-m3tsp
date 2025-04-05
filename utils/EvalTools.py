@@ -85,6 +85,7 @@ class EvalTools(object):
             graph = GG.augment_xy_data_by_8_fold_numpy(graph)
         cost,greedy_trajectory = agent.eval_episode(env, graph, agent_num, "greedy", info = info)
         ed = time.time_ns()
+        final_traj = []
         if aug:
             cost_8 = cost.reshape(B,8,-1)
             min_max_arg = np.argmin(cost_8, axis = 1)
@@ -92,14 +93,16 @@ class EvalTools(object):
             if isinstance(greedy_trajectory, np.ndarray):
                 greedy_trajectory_8 = greedy_trajectory.reshape(B,8,greedy_trajectory.shape[1],greedy_trajectory.shape[2])
                 greedy_trajectory = greedy_trajectory_8[np.arange(B)[:, None],min_max_arg].squeeze(1)
-
+            else:
+                for i, idx in enumerate(min_max_arg.reshape(-1)):
+                    final_traj.append(greedy_trajectory[i *8 + idx])
         greedy_cost = np.mean(cost)
         # greedy_cost = cost.squeeze()
         greedy_time = (ed- st) / 1e9
         if isinstance(greedy_trajectory, np.ndarray):
             traj = env.compress_adjacent_duplicates_optimized(greedy_trajectory)
         else:
-            traj = greedy_trajectory
+            traj = final_traj
         if B == 1:
             return greedy_cost, traj[0], greedy_time
         else:
@@ -152,22 +155,31 @@ class EvalTools(object):
                 # writer.add_scalar(f"eval/{graph_name}/{agent_num}/no_conflict_cost", (no_conflict_greedy_cost - best_cost) / best_cost * 100, step)
 
     @staticmethod
-    def eval_random(graph, agent_num, agent, env, writer, step,draw = False, aug =True):
+    def eval_random(graph, agent_num, agent, env, writer, step,draw = False, aug =True, use_gap = True):
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug = aug)
-        if agent_num == 1:
-            cost, traj, time = EvalTools.EvalOrTools(graph, agent_num)
+        greedy_gap = None
+        if use_gap:
+            if agent_num == 1:
+                cost, traj, time = EvalTools.EvalOrTools(graph, agent_num)
+            else:
+                cost, traj, time = EvalTools.EvalLKH3(graph, agent_num)
+            greedy_gap = ((greedy_cost - cost) / cost).item() * 100
+            writer.add_scalar("eval/gap", greedy_gap, step)
+            writer.add_scalar("eval/cost", greedy_cost, step)
+            print(f"agent_num:{agent_num},city_num:{graph.shape[1]},"
+                  f"greedy_gap:{greedy_gap:.5f}%,"
+                  f"costs:{greedy_cost.item():.5f},"
+                  f"LKH3_OrTools_costs:{cost:.5f}"
+                  )
         else:
-            cost, traj, time = EvalTools.EvalLKH3(graph, agent_num)
+            writer.add_scalar("eval/cost", greedy_cost, step)
+            print(f"agent_num:{agent_num},city_num:{graph.shape[1]},"
+                  f"costs:{greedy_cost:.5f},"
+                  )
 
-        greedy_gap = ((greedy_cost - cost) / cost).item() * 100
-        writer.add_scalar("eval/gap", greedy_gap, step)
-        print(f"agent_num:{agent_num},city_num:{graph.shape[1]},"
-              f"greedy_gap:{greedy_gap:.5f}%,"
-              f"costs:{greedy_cost.item():.5f},"
-              f"LKH3_OrTools_costs:{cost:.5f}"
-              )
-        print(f"traj:\n{greedy_traj}")
+        # print(f"traj:\n{greedy_traj}")
         if draw:
+            assert len(cost) ==1
             env.draw_multi(
                 graph,
                 [greedy_cost, cost],
@@ -176,7 +188,7 @@ class EvalTools(object):
                 ["greedy", "or_tools" if agent_num == 1 else "LKH3"]
             )
 
-        return greedy_gap
+        return greedy_gap if greedy_gap is not None else greedy_cost
 
     @staticmethod
     def EvalTSPGreedy(graph, agent, traj, info = None, instance_name = "tsp", aug = True):

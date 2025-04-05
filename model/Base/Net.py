@@ -106,7 +106,7 @@ class MultiHeadAttentionLayer(nn.Module):
         self.mlp = SkipConnection(
                     nn.Sequential(
                         nn.Linear(embedding_dim, hidden_dim),
-                        nn.GELU(),
+                        nn.ReLU(),
                         nn.Linear(hidden_dim, embedding_dim)
                     )
                 )

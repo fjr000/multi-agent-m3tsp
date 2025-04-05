@@ -4,6 +4,8 @@ import random
 import torch
 import sys
 
+from sympy import floor
+
 sys.path.append("../")
 sys.path.append("./")
 
@@ -11,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.DNN5.AgentV5 import Agent as Agent
+from algorithm.DNN5.AgentV4 import AgentV4 as Agent
 import tqdm
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
@@ -35,8 +37,8 @@ def set_seed(seed=42):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=5)
-    parser.add_argument("--fixed_agent_num", type=bool, default=True)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
@@ -47,24 +49,24 @@ if __name__ == "__main__":
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=3e-2)
+    parser.add_argument("--entropy_coef", type=float, default=5e-2)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=48)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=4,
+    parser.add_argument("--agent_id", type=int, default=0 )
+    parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=1, help="eval  interval")
-    parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.2, help="rate of adv between agents")
-    parser.add_argument("--conflict_loss_rate", type=float, default=0.2, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.3, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=0.3, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
     parser.add_argument("--seed", type=int, default=528, help="random seed")
@@ -109,12 +111,17 @@ if __name__ == "__main__":
         if args.fixed_agent_num:
             agent_num = args.agent_num
         else:
-            agent_num = np.random.randint(1, args.agent_num + 1)
-
+            # agent_num = np.random.randint(1, args.agent_num + 1)
+            def triangular_random(low, high):
+                """数值越接近 low，概率越高"""
+                return int(np.floor(random.triangular(low, high+1, low)))
+            agent_num = triangular_random(low=1, high=args.agent_num)
         if args.random_city_num:
             city_nums = np.random.randint(args.city_nums - 20, args.city_nums+1)
         else:
             city_nums = args.city_nums
+        #skip
+        # agent_num, city_nums = CC.get_course()
 
         if args.only_one_instance:
             graph = graphG.generate(1).repeat(args.batch_size, axis=0)
@@ -132,10 +139,15 @@ if __name__ == "__main__":
                           )
 
         if ((i + 1) % args.eval_interval) == 0:
-            EvalTools.eval_mtsplib(agent, env, writer, i + 1)
+            if (i+1) % (args.eval_interval * 10) == 0:
+                EvalTools.eval_mtsplib(agent, env, writer, i + 1)
             eval_graph = graphG.generate(1, city_nums)
             greedy_gap = EvalTools.eval_random(eval_graph, agent_num, agent, env, writer, i + 1)
             agent.lr_scheduler.step(greedy_gap)
+            # last_course = CC.course
+            # CC.update_result(greedy_gap / 100)
+            # if last_course != CC.course:
+            #     print(f"cur course: {CC.course}")
 
         if (i + 1) % (args.save_model_interval ) == 0:
             agent.save_model(args.agent_id + i + 1)

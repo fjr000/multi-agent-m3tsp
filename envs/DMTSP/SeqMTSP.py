@@ -2,6 +2,8 @@ from typing import Dict, NamedTuple, Union
 import numpy as np
 import sys
 import torch
+from sympy.physics.units.definitions.dimension_definitions import information
+
 from utils.TensorTools import _convert_tensor
 
 sys.path.append("../../")
@@ -200,6 +202,16 @@ class SeqMTSPEnv:
             info = {}
         return self.states, reward, done, info
 
+    def draw_multi(self, graph, costs, trajectorys, used_times=(0,), agent_names=("agents",), draw=True):
+        figs = []
+        for c, t, u, a in zip(costs, trajectorys, used_times, agent_names):
+            figs.append(self.draw(graph, c, t, u, a, False))
+        from utils.GraphPlot import GraphPlot as GP
+        graph_plot = GP()
+        fig = graph_plot.combine_figs(figs)
+        if draw:
+            fig.show()
+        return fig
 
 if __name__ == '__main__':
     n_city = 10
@@ -207,8 +219,9 @@ if __name__ == '__main__':
     n_graph = 2
 
     graph = SeqMTSPEnv.generate_graph(n_graph, n_city)
-
-    state = States.init(graph, n_agent)
+    env = SeqMTSPEnv(seed=0)
+    # state = States.init(graph, n_agent)
+    state = env.reset(graph, n_agent)
 
     selecteds = np.array([
         [[5], [12]],
@@ -224,6 +237,25 @@ if __name__ == '__main__':
         [[10], [7]],
         [[3], [3]],
     ])
+    s,r,d,info = None,None,None, None
     for x in selecteds:
-        state = state.update(x)
+        # state = state.update(x)
+        s,r,d,info=env.step(x)
         pass
+    cost = info['costs']
+    def dis(i,x,y):
+        return np.sum((graph[i,x] - graph[i,y])**2)**0.5
+    c = 0
+    p = 0
+    cc = []
+    for x in range(len(selecteds)):
+        if selecteds[x,0,0] <=n_agent:
+            c+=dis(0,p,0)
+            p=0
+            cc.append(c)
+            c=0
+        else:
+            c+=dis(0,p,selecteds[x,0,0]-n_agent)
+            p = selecteds[x,0,0]-n_agent
+
+    pass
