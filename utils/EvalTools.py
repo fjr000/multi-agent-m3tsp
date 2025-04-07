@@ -5,7 +5,7 @@ import numpy as np
 from utils.TspInstanceFileTool import TspInstanceFileTool
 import time
 from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
-from utils.TspInstanceFileTool import TspInstanceFileTool, result_dict
+from utils.TspInstanceFileTool import TspInstanceFileTool, result_dict, norm_result_dict_LKH3
 from envs.GraphGenerator import GraphGenerator as GG
 
 class EvalTools(object):
@@ -149,7 +149,8 @@ class EvalTools(object):
             for agent_num in (2, 3, 5, 7):
                 greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, aug= aug)
                 # no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time = EvalTools.EvalGreedy(graph, agent_num, agent, env, {"use_conflict_model": False})
-                best_cost = result_dict[graph_name][agent_num][0] / scale
+                # best_cost = result_dict[graph_name][agent_num][0] / scale
+                best_cost = norm_result_dict_LKH3[graph_name][agent_num]
                 writer.add_scalar(f"eval/{graph_name}/{agent_num}/greedy_gap",
                                   (greedy_cost - best_cost) / best_cost * 100, step)
                 # writer.add_scalar(f"eval/{graph_name}/{agent_num}/no_conflict_cost", (no_conflict_greedy_cost - best_cost) / best_cost * 100, step)

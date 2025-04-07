@@ -406,11 +406,11 @@ class Model(nn.Module):
         acts = None
         if mode == "greedy":
             # 1. 获取初始选择 --------------------------------------------------------
-            if self.step == 0:
-                acts_p = nn.functional.softmax(actions_logits, dim=-1)
-                _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
-            else:
-                acts = actions_logits.argmax(dim=-1)
+            # if self.step == 0:
+            #     acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            #     _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
+            # else:
+            acts = actions_logits.argmax(dim=-1)
                 # acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
             # if self.step == 0:

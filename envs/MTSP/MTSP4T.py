@@ -1,10 +1,14 @@
 import argparse
 import copy
 import math
+import time
 
 import numpy as np
+import torch
 from typing import Tuple, List, Dict
 import sys
+
+from scipy.spatial import distance_matrix
 
 sys.path.append("../")
 from envs.MTSP.Config import Config
@@ -12,7 +16,7 @@ from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
 from model.NNN.RandomAgent import RandomAgent
 import torch.nn.functional as F
-
+from utils.TensorTools import _convert_tensor
 
 class MTSPEnv:
     """
@@ -39,6 +43,7 @@ class MTSPEnv:
         self.problem_size = 1
         self.env_masks_mode = 0
         self.use_conflict_model = False
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if config is not None:
             self._parse_config(config)
 
@@ -52,7 +57,7 @@ class MTSPEnv:
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
-        # self.remain_stay_still_log = None
+        self.remain_stay_still_log = None
 
         self.traj_stages = None
         self.dones_step = None
@@ -70,10 +75,20 @@ class MTSPEnv:
         self.problem_size = config.get("N_aug", self.problem_size)
         self.env_masks_mode = config.get("env_masks_mode", self.env_masks_mode)
         self.use_conflict_model = config.get("use_conflict_model", self.use_conflict_model)
+        self.device = config.get("device", self.device)
 
         if self.seed is not None:
             np.random.seed(self.seed)
         self.GG = GG(self.problem_size, self.cities, 2, self.seed)
+
+    @staticmethod
+    @torch.inference_mode()
+    def _get_graph_matrix(batch_graph):
+        assert len(batch_graph.shape) == 3, "use batch graph"
+
+        distance_matrix = torch.cdist(batch_graph, batch_graph, p=2)
+
+        return distance_matrix
 
     def _init(self, graph=None):
         """
@@ -92,108 +107,37 @@ class MTSPEnv:
         elif self.graph is None or self.mode == "rand":
             self.graph = self.GG.generate(self.problem_size, self.cities, 2)
 
-        self.graph_matrix = self.GG.nodes_to_matrix(self.graph)
+        self.graph = _convert_tensor(self.graph,device=self.device)
+
+        self.graph_matrix = self._get_graph_matrix(self.graph)
         # self.graph = self.graph - self.graph[0]
 
         self.step_count = 0
-        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+1), dtype=np.int32)
+        self.trajectories = torch.ones((self.problem_size,self.salesmen,self.cities+1), dtype=torch.int32, device=self.device)
         self.cur_pos = self.trajectories[...,self.step_count] -1
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
-        self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float32)
-        self.mask = np.ones((self.problem_size, self.cities,), dtype=np.bool_)
+        self.costs = torch.zeros((self.problem_size, self.salesmen), dtype=torch.float32,device=self.device)
+        self.mask = torch.ones((self.problem_size, self.cities,), dtype=torch.bool, device=self.device)
         self.mask[:,0] = 0
         self.step_limit = self.cities
         # self.remain_stay_still_log = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32)
-        self.traj_stages = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
+        self.traj_stages = torch.zeros((self.problem_size, self.salesmen,), dtype=torch.int8, device=self.device) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
         self.stage_2 = self.traj_stages >= 2
-        self.dones_step = np.zeros((self.problem_size, self.salesmen), dtype=np.int32)
-        self.dones = np.zeros(self.problem_size, dtype=np.bool_)
-        self.states = np.empty((self.problem_size,self.salesmen, self.dim), dtype=np.float32)
-        self.batch_ar = np.arange(self.problem_size)
-        self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
+        self.dones_step = torch.zeros((self.problem_size, self.salesmen), dtype=torch.int32, device=self.device)
+        self.dones = torch.zeros(self.problem_size, dtype=torch.bool, device=self.device)
+        self.states = torch.empty((self.problem_size,self.salesmen, self.dim), dtype=torch.float32, device=self.device)
+        self.batch_ar = torch.arange(self.problem_size, device=self.device)
+        self.batch_salesmen_ar = torch.repeat_interleave(self.batch_ar, repeats=self.salesmen)
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
         # self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
         # self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
-        self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
+        self.path_count = torch.ones((self.problem_size, self.salesmen), dtype=torch.int32, device=self.device)
 
-    def _get_salesmen_states2(self):
-
-        B = self.problem_size
-        N = self.cities
-        A = self.salesmen
-
-        # Constants and basic indices
-        depot_idx = 0
-        batch_indices = self.batch_ar[:, None]  # [B, 1]
-        sqrt2 = np.sqrt(2)  # Precompute normalization factor
-
-        # 生成批量索引 [B, A]
-        # 1. Current cost related features
-        cur_cost = self.costs  # [B,A]
-        max_cost = np.max(cur_cost, axis=1, keepdims=True)  # [B,1]
-        min_cost = np.min(cur_cost, axis=1, keepdims=True)  # [B,1]
-        mean_cost = np.mean(cur_cost, axis=1, keepdims=True)  # [B,1]
-
-        # Cost differential features
-        diff_max_cost = max_cost - cur_cost  # [B,A]
-        diff_min_cost = min_cost - cur_cost  # [B,A]
-
-        # Advanced cost balancing feature
-        sum_costs = np.sum(cur_cost, axis=1, keepdims=True)  # [B,1]
-        denominator = max(A - 1, 1)
-        avg_diff_cost = (sum_costs - A * cur_cost) / denominator  # [B,A]
-
-        # 2. Distance to depot features
-        dis_depot = self.graph_matrix[batch_indices, self.cur_pos, depot_idx]  # [B,A]
-
-        # 3. Future distance estimation features
-        selected_dists = self.graph_matrix[batch_indices, self.cur_pos, :]  # [B,A,N]
-        each_depot_dist = self.graph_matrix[:, 0:1, :]  # Depot to all cities [B,1,N]
-        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
-
-        # Masked distance calculations
-        masked_dist = np.where(self.mask[:, None, :], selected_dists_depot, np.nan)
-        avg_dist_depot = np.nanmean(masked_dist, axis=2)  # [B,A]
-        max_dist_depot = np.nanmax(masked_dist, axis=2)  # [B,A]
-        min_dist_depot = np.nanmin(masked_dist, axis=2)  # [B,A]
-
-        # 4. Resource allocation features
-        # remain_salesmen = (A - np.count_nonzero(self.stage_2, axis=1, keepdims=True)) / self.salesmen  # [B,1]
-        remain_cities = np.count_nonzero(self.mask, axis=1, keepdims=True) / self.cities  # [B,1]
-
-        self.states[..., 0] = 0
-        self.states[..., 1] = self.cur_pos
-
-        self.states[..., 2] = cur_cost / sqrt2
-        self.states[..., 3] = max_cost / sqrt2
-        self.states[..., 4] = diff_max_cost / sqrt2
-        self.states[..., 5] = min_cost / sqrt2
-        self.states[..., 6] = diff_min_cost / sqrt2
-        self.states[..., 7] = mean_cost / sqrt2
-        self.states[..., 8] = avg_diff_cost / sqrt2
-
-        self.states[..., 9] = dis_depot / sqrt2
-        self.states[..., 10] = max_dist_depot / sqrt2 / 2
-        self.states[..., 11] = avg_dist_depot / sqrt2 / 2
-        self.states[..., 12] = min_dist_depot / sqrt2 / 2
-        self.states[..., 13] = remain_cities.repeat(A,axis = -1)
-
-        # self.states[..., 4] = diff_min_cost
-        # self.states[..., 5] = avg_diff_cost
-
-        # self.states[..., 7] = average_distances_depot
-
-
-        # self.states[..., 11] = np.clip(self.traj_stages, a_min=0, a_max=2) - 1
-
-        # self.states[..., 9] = 1 - rank
-
-        return self.states
-
+    @torch.inference_mode()
     def _get_salesmen_states(self):
 
         B, A, N = self.problem_size, self.salesmen, self.cities
@@ -203,18 +147,20 @@ class MTSPEnv:
         batch_indices = self.batch_ar[:, None]  # [B, 1]
         city_mask = self.mask[:,None,:]
         cur_pos_dists = self.graph_matrix[batch_indices, self.cur_pos, :]
-        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
+        remain_cities = torch.sum(self.mask, dim=1, keepdim=True)  # [B,1]
 
         # === 2. 智能体级特征 ===
         # 成本特征
-        max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
+        max_cost = torch.max(self.costs, dim=1, keepdim=True).values  # [B,1]
         depot_dist = self.graph_matrix[batch_indices, self.cur_pos, 0]
 
         # 位置特征
-        masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
-        # mean_dists = np.nanmean(masked_dists, axis=2)
-        max_dists = np.nanmax(masked_dists, axis=2)
-        min_dists = np.nanmin(masked_dists, axis=2)
+        # masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
+        # # mean_dists = np.nanmean(masked_dists, axis=2)
+        # max_dists = np.nanmax(masked_dists, axis=2)
+        # min_dists = np.nanmin(masked_dists, axis=2)
+        max_dists = torch.max(torch.where(city_mask, cur_pos_dists, -torch.inf), dim = 2).values
+        min_dists = torch.min(torch.where(city_mask, cur_pos_dists, torch.inf), dim = 2).values
 
         # 3. Future distance estimation features
         selected_dists = cur_pos_dists  # [B,A,N]
@@ -222,10 +168,10 @@ class MTSPEnv:
         selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
 
         # Masked distance calculations
-        masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
+        # masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
         # mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
-        max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
-        min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
+        max_dist_depot = torch.max(torch.where(city_mask, selected_dists_depot, -torch.inf), dim=2).values  # [B,A]
+        min_dist_depot = torch.min(torch.where(city_mask, selected_dists_depot, torch.inf), dim=2).values  # [B,A]
 
         # === 4. 全局任务特征 ===
         progress = 1 - remain_cities / (N-1)  # [B,1]
@@ -241,7 +187,7 @@ class MTSPEnv:
         self.states[..., 4] = max_dists
         self.states[..., 5] = min_dists
 
-        allow_stayup = self.salesmen_mask[batch_indices, np.arange(A)[None,], self.cur_pos]
+        allow_stayup = self.salesmen_mask[batch_indices, torch.arange(A, device=self.device)[None,], self.cur_pos]
         self.states[..., 6] = allow_stayup
         self.states[..., 7] = depot_dist
         self.states[..., 8] = max_dist_depot - depot_dist
@@ -251,78 +197,16 @@ class MTSPEnv:
 
         return self.states
 
-    def _get_salesmen_states3(self):
-
-        B, A, N = self.problem_size, self.salesmen, self.cities
-
-        # Constants and basic indices
-        depot_idx = 0
-        batch_indices = self.batch_ar[:, None]  # [B, 1]
-        city_mask = self.mask[:,None,:]
-        cur_pos_dists = self.norm_graph[batch_indices, self.cur_pos, :]
-        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
-
-        # === 2. 智能体级特征 ===
-        # 成本特征
-        max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
-        mean_cost = np.mean(self.costs, axis=1, keepdims=True)  # [B,1]
-
-        norm_costs = self.costs / (max_cost + 1e-8)  # [B,A]
-        diff_costs = (self.costs - mean_cost) / (max_cost + 1e-8)
-        depot_dist = self.norm_graph[batch_indices, self.cur_pos, 0]  # [B,A] 到仓库距离
-
-        # 位置特征
-        masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
-        mean_dists = np.nanmean(masked_dists, axis=2)
-        max_dists = np.nanmax(masked_dists, axis=2)
-        min_dists = np.nanmin(masked_dists, axis=2)
-
-        # 3. Future distance estimation features
-        selected_dists = cur_pos_dists  # [B,A,N]
-        each_depot_dist = self.norm_graph[:, 0:1, :]  # Depot to all cities [B,1,N]
-        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
-
-        # Masked distance calculations
-        masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
-        mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
-        max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
-        min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
-
-        # === 4. 全局任务特征 ===
-        progress = 1 - remain_cities / (N-1)  # [B,1]
-        workload_ratio = remain_cities / (remain_cities + A)
-
-        self.states[..., 0] = depot_idx
-        self.states[..., 1] = self.cur_pos
-
-        # scale = (max_cost + 1e-8)
-        self.states[..., 2] = norm_costs
-        self.states[..., 3] = self.costs / self.distance_scale.squeeze(-1)
-        self.states[..., 4] = diff_costs
-
-        self.states[..., 5] = mean_dists
-        self.states[..., 6] = max_dists
-        self.states[..., 7] = min_dists
-        self.states[..., 8] = depot_dist
-
-        self.states[..., 9] = mean_dist_depot / 2
-        self.states[..., 10] = max_dist_depot / 2
-        self.states[..., 11] = min_dist_depot / 2
-
-        self.states[..., 12] = progress
-        self.states[..., 13] = workload_ratio
-
-        return self.states
-
     def _get_distance(self, id1, id2):
         return np.sqrt(np.sum(np.square(self.graph[id1 - 1] - self.graph[id2 - 1])))
 
+    @torch.inference_mode()
     def _get_salesmen_masks(self):
         B, N = self.mask.shape
         A = self.salesmen
 
         # 初始化批量掩码 [B, A, N]
-        repeat_masks = np.tile(self.mask[:, None, :], (1, A, 1))
+        repeat_masks = self.mask.unsqueeze(1).repeat(1, A, 1)  # [B, A, N]
         # repeat_masks = self.mask[:,None,:].repeat(A,axis = 1)
 
         # # 处理停留限制 (使用位运算加速)
@@ -330,8 +214,8 @@ class MTSPEnv:
         # stay_update_mask = (self.remain_stay_still_log < self.stay_still_limit) & (cur_pos != 0)
         # repeat_masks[stay_update_mask, cur_pos[stay_update_mask] ] = 1
 
-        active_agents = self.traj_stages == 1
-        batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
+        active_agents = (self.traj_stages == 1)
+        batch_indices_1d = self.batch_ar[torch.sum(active_agents, dim=-1)> 1]
         batch_indices = batch_indices_1d[:,None]
 
         if self.env_masks_mode == 0:
@@ -369,9 +253,9 @@ class MTSPEnv:
             #仅允许最大开销智能体返回仓库
             # 旅途中阶段：选出最大的旅行开销
             # 选出处于0-1阶段的智能体
-            masked_cost = np.where(active_agents, self.costs, -np.inf)
+            masked_cost = torch.where(active_agents, self.costs, -torch.inf)
             masked_cost_sl = masked_cost[batch_indices_1d]
-            max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
+            max_cost_idx = torch.argmax(masked_cost_sl, dim=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
             repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
             repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
@@ -448,47 +332,25 @@ class MTSPEnv:
         self._init(graph)
 
         env_info = {
-            "graph": self.graph,
+            "graph": self.graph.clone(),
             "salesmen": self.salesmen,
             "cities": self.cities,
             "mask": self.mask,
-            "salesmen_masks": self._get_salesmen_masks(),
+            "salesmen_masks": self._get_salesmen_masks().clone(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
         }
 
-        return self._get_salesmen_states(), env_info
+        return self._get_salesmen_states().clone(), env_info
 
+    @torch.inference_mode()
     def _get_reward(self):
-        self.dones = np.all(self.stage_2, axis=1)
-        self.done = np.all(self.dones, axis=0)
+        self.dones = torch.all(self.stage_2, dim=1)
+        self.done = torch.all(self.dones, dim=0)
         # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
-        self.rewards = np.where(self.dones, -np.max(self.costs, axis=1), 0)
+        self.rewards = torch.where(self.dones, -torch.max(self.costs, dim=1).values, 0)
         return self.rewards
-    def deal_conflict(self, actions: np.ndarray):
-        mp = {}
-        new_actions = np.zeros_like(actions)
 
-        for idx, act in enumerate(actions):
-            if act != 1:
-                if act in mp:
-                    mp[act].append(idx)
-                else:
-                    mp.update({act: [idx]})
-            else:
-                new_actions[idx] = act
-
-        for act, idxs in mp.items():
-            min_idx = idxs[0]
-            min_cost = self.costs[min_idx] + self._get_distance(self.trajectories[min_idx][-1], act)
-            for idx in idxs[1:]:
-                nxt_cost = self.costs[idx] + self._get_distance(self.trajectories[idx][-1], act)
-                if nxt_cost < min_cost:
-                    min_cost = nxt_cost
-                    min_idx = idx
-            new_actions[min_idx] = act
-
-        return new_actions
-
+    @torch.inference_mode()
     def deal_conflict_batch(self, actions: np.ndarray):
         """
         实现的动作冲突解决函数，跳过动作值为1的冲突
@@ -501,47 +363,58 @@ class MTSPEnv:
         resolved_actions: np.ndarray, 形状为[B,A], 解决冲突后的动作
         """
         B, A = actions.shape
-        # 初始化结果数组为原始动作值
-        resolved_actions = actions.copy()
+        # 初始化结果张量为原始动作值的拷贝
+        resolved_actions = actions.clone()
 
-        for b, acts in enumerate(resolved_actions):
-            unique_act, unique_count = np.unique(acts, return_counts=True)
-            for a, c in zip(unique_act, unique_count):
-                if a <=1 or c == 1:
-                    pass
+        for b in range(B):
+            acts = resolved_actions[b]
+            # 使用PyTorch的unique_consecutive替代np.unique
+            unique_act, unique_counts = torch.unique_consecutive(acts, return_counts=True)
+
+            for a, c in zip(unique_act, unique_counts):
+                if a <= 1 or c == 1:
+                    continue
                 else:
-                    idx = np.argwhere(acts == a)
-                    min_cost = np.inf
+                    # 获取所有等于a的索引
+                    idx = (acts == a).nonzero().squeeze(-1)
+
+                    min_cost = float('inf')
                     min_id = -1
+
                     for i in idx:
-                        cmp_cost = self.costs[b,i] + self.graph_matrix[b,self.cur_pos[b,i].item(), a-1]
+                        # 计算比较成本
+                        cmp_cost = self.costs[b, i] + self.graph_matrix[b, self.cur_pos[b, i].item(), a - 1]
                         if cmp_cost < min_cost:
                             min_cost = cmp_cost
                             min_id = i
+
                     for i in idx:
                         if i == min_id:
                             acts[i] = a
                         else:
-                            acts[i] = self.trajectories[b,i,self.step_count]
+                            acts[i] = self.trajectories[b, i, self.step_count]
+
         return resolved_actions
 
+    @torch.inference_mode()
     def _get_masks_in_salesmen(self):
-        B, A = self.stage_2.shape
-        global_invert = ~self.stage_2  # Shape [B, A]
-        self.masks_in_salesmen = np.zeros((B, A, A), dtype=bool)
-
-        # 处理False的情况
-        # 找到所有批次和代理中为False的位置
-        false_batch, false_agents = np.where(global_invert)
-        # 对于每个这样的位置，设置对应的行为global_invert的对应批次
-        self.masks_in_salesmen[false_batch, false_agents, :] = global_invert[false_batch, :]
-
-        # 处理True的情况
-        true_batch, true_agents = np.where(self.stage_2)
-        self.masks_in_salesmen[true_batch, true_agents, true_agents] = True
+        # B, A = self.stage_2.shape
+        # global_invert = ~self.stage_2  # Shape [B, A]
+        # self.masks_in_salesmen = np.zeros((B, A, A), dtype=bool)
+        #
+        # # 处理False的情况
+        # # 找到所有批次和代理中为False的位置
+        # false_batch, false_agents = np.where(global_invert)
+        # # 对于每个这样的位置，设置对应的行为global_invert的对应批次
+        # self.masks_in_salesmen[false_batch, false_agents, :] = global_invert[false_batch, :]
+        #
+        # # 处理True的情况
+        # true_batch, true_agents = np.where(self.stage_2)
+        # self.masks_in_salesmen[true_batch, true_agents, true_agents] = True
 
         # return self.masks_in_salesmen
         return None
+    @torch.inference_mode()
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
 
@@ -556,95 +429,95 @@ class MTSPEnv:
         # )
 
         # 将保持静止的动作置本身 [B, A]
-        actions = np.where(same_pos_mask, self.cur_pos, actions)
-        actions = np.where(actions == 0, self.trajectories[...,self.step_count], actions)
+        actions = torch.where(same_pos_mask, self.cur_pos, actions)
+        actions = torch.where(actions == 0, self.trajectories[...,self.step_count], actions)
 
         return actions
 
     def step(self, ori_actions: np.ndarray):
-        actions = self.reset_actions(ori_actions)
-        if not self.use_conflict_model:
-            actions = self.deal_conflict_batch(actions)
-        self.actions = actions
-        self.step_count += 1
-        self.trajectories[..., self.step_count] = actions
-        # 生成行索引 [B*A]
-        self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
+        with torch.inference_mode():
+            ori_actions = _convert_tensor(ori_actions, device=self.device, dtype=torch.int32)
+            actions = self.reset_actions(ori_actions)
+            if not self.use_conflict_model:
+                actions = self.deal_conflict_batch(actions)
+            self.actions = actions
+            self.step_count += 1
+            self.trajectories[..., self.step_count] = actions
 
-        # 展平列索引 [B*A]
-        col_indices = actions.ravel()-1
-        # 批量置零操作
-        self.mask[self.batch_salesmen_ar, col_indices] = 0
+            # 展平列索引 [B*A]
+            col_indices = (actions.flatten() - 1).long()
+            # 批量置零操作
+            self.mask[self.batch_salesmen_ar, col_indices] = 0
 
-        last_pos = self.trajectories[..., self.step_count-1]-1
-        self.cur_pos = self.trajectories[...,self.step_count]-1
+            last_pos = self.trajectories[..., self.step_count-1]-1
+            self.cur_pos = self.trajectories[...,self.step_count]-1
 
-        self.costs += self.graph_matrix[
-            self.batch_ar[:, None],
-            last_pos,
-            self.cur_pos,
-        ]
+            self.costs += self.graph_matrix[
+                self.batch_ar[:, None],
+                last_pos,
+                self.cur_pos,
+            ]
 
-        batch_complete = np.all(~self.mask, axis=1)
-        # 判断哪些批次所有城市已访问完成 [B]
+            batch_complete = torch.all(~self.mask, dim=1)
+            # 判断哪些批次所有城市已访问完成 [B]
 
-        self.traj_stages = np.where(
-            ((last_pos != self.cur_pos)
-            &
-            ((last_pos == 0)|(self.cur_pos == 0)))
-            |
-            (batch_complete[:, None]),
-            # |
-            # (np.all(actions == 1)),
-            self.traj_stages + 1,  # 满足条件时阶段+1
-            self.traj_stages  # 否则保持原值
-        )
+            self.traj_stages = torch.where(
+                ((last_pos != self.cur_pos)
+                &
+                ((last_pos == 0)|(self.cur_pos == 0)))
+                |
+                (batch_complete[:, None]),
+                # |
+                # (np.all(actions == 1)),
+                self.traj_stages + 1,  # 满足条件时阶段+1
+                self.traj_stages  # 否则保持原值
+            )
 
-        self.traj_stages = np.where(
-            batch_complete[:, None],
-            # |
-            # (np.all(actions == 1)),
-            self.traj_stages + 1,  # 满足条件时阶段+1
-            self.traj_stages  # 否则保持原值
-        )
+            self.traj_stages = torch.where(
+                batch_complete[:, None],
+                # |
+                # (np.all(actions == 1)),
+                self.traj_stages + 1,  # 满足条件时阶段+1
+                self.traj_stages  # 否则保持原值
+            )
 
 
-        # # 找出需要处理的旅行商 [B, A]
-        # need_process = (
-        #         batch_complete[:, None] &  # 批次完成标记
-        #         (self.traj_stages == 0)    # 未出发状态
-        # )
-        #
-        # # 批量更新轨迹和状态
-        # if np.any(need_process):
-        #     # 更新状态
-        #     self.traj_stages[need_process] = 1
+            # # 找出需要处理的旅行商 [B, A]
+            # need_process = (
+            #         batch_complete[:, None] &  # 批次完成标记
+            #         (self.traj_stages == 0)    # 未出发状态
+            # )
+            #
+            # # 批量更新轨迹和状态
+            # if np.any(need_process):
+            #     # 更新状态
+            #     self.traj_stages[need_process] = 1
 
-        self.mask[batch_complete,0] =1
+            self.mask[batch_complete,0] =True
 
-        self.stage_2 = self.traj_stages >= 2
+            self.stage_2 = self.traj_stages >= 2
 
-        self._get_reward()
+            self._get_reward()
+
+            # self.ori_actions_list.append(ori_actions)
+            # self.actions_list.append(actions)
+            # self.salesmen_masks_list.append(info["salesmen_masks"])
+            # self.traj_stage_list.append(self.traj_stages)
+
+            self.path_count = torch.where(
+                ((self.cur_pos != last_pos)
+                 &(self.cur_pos != 0)),
+                # |
+                # (np.all(actions == 1)),
+                self.path_count + 1,  # 满足条件时阶段+1
+                self.path_count  # 否则保持原值
+            )
 
         info = {
             "mask": self.mask,
-            "salesmen_masks": self._get_salesmen_masks(),
+            "salesmen_masks": self._get_salesmen_masks().clone(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
         }
-
-        # self.ori_actions_list.append(ori_actions)
-        # self.actions_list.append(actions)
-        # self.salesmen_masks_list.append(info["salesmen_masks"])
-        # self.traj_stage_list.append(self.traj_stages)
-
-        self.path_count = np.where(
-            ((self.cur_pos != last_pos)
-             &(self.cur_pos != 0)),
-            # |
-            # (np.all(actions == 1)),
-            self.path_count + 1,  # 满足条件时阶段+1
-            self.path_count  # 否则保持原值
-        )
 
         if self.done:
 
@@ -654,7 +527,7 @@ class MTSPEnv:
 
             self.costs += self.graph_matrix[
                 self.batch_ar[:, None],
-                np.zeros_like(self.cur_pos),
+                torch.zeros_like(self.cur_pos),
                 self.cur_pos,
             ]
 
@@ -662,12 +535,12 @@ class MTSPEnv:
 
             info.update(
                 {
-                    "trajectories": self.trajectories[...,:self.step_count+2],
-                    "costs": self.costs,
+                    "trajectories": self.trajectories[...,:self.step_count+2].cpu().numpy(),
+                    "costs": self.costs.cpu().numpy(),
                 }
             )
 
-        return self._get_salesmen_states(), self.rewards, self.done, info
+        return self._get_salesmen_states().clone(), self.rewards.cpu().numpy(), self.done.cpu().numpy(), info
 
     def draw(self, graph, cost, trajectory, used_time=0, agent_name="agent", draw=True):
         from utils.GraphPlot import GraphPlot as GP
@@ -790,6 +663,10 @@ if __name__ == '__main__':
     g =GG()
     batch_graph = g.generate(batch_size=args.batch_size,num=args.city_nums)
     states, info = env.reset(graph = batch_graph)
+
+    MTSPEnv._get_graph_matrix(_convert_tensor(batch_graph,device="cuda:0"))
+
+
     salesmen_masks = info["salesmen_masks"]
     agent.reset_graph(batch_graph, 3)
     done =False

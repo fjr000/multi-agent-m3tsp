@@ -96,20 +96,20 @@ class AgentBase:
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
         act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
 
-        agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
+        # agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
         agents_max_cost = np.max(costs_8, keepdims=True, axis=-1)
         # 智能体间优势
-        agents_adv = np.abs(costs_8 - agents_avg_cost)
-        agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
-        # agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
-        #             agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        agents_adv = costs_8 - agents_max_cost
+        # agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
+        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
+                agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
         # group_adv = agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)
         group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-                    agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
+                agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
         # 组合优势
-        adv = self.args.agents_adv_rate*agents_adv + group_adv
+        adv = self.args.agents_adv_rate * agents_adv + group_adv
 
         # 转换为tensor并放到指定的device上
         adv_t = _convert_tensor(adv, device=self.device)

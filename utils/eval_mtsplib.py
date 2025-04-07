@@ -1,5 +1,5 @@
 import argparse
-from algorithm.DNN5.AgentV5 import Agent as Agent
+from algorithm.DNN5.AgentV4 import AgentV4 as Agent
 from model.n4Model.config import Config as Config
 from envs.MTSP.MTSP5 import MTSPEnv
 
@@ -26,8 +26,8 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=140000)
-    parser.add_argument("--env_masks_mode", type=int, default=4,
+    parser.add_argument("--agent_id", type=int, default=170000)
+    parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
@@ -75,7 +75,8 @@ if __name__ == '__main__':
                   f"no_conflict_greedy_gap:{(no_conflict_greedy_cost -best_cost) / best_cost * 100 :.5f} %,"
                   f"sample_gap:{(sample_cost -best_cost) / best_cost * 100 :.5f} %,"
                   f"ortools_gap:{(ortools_cost -best_cost) / best_cost *100 :.5f} %,"
-                  f"LKH_gap:{(LKH_cost -best_cost) / best_cost *100 :.5f} %")
+                  f"LKH_gap:{(LKH_cost -best_cost) / best_cost *100 :.5f} %"
+                  f"LKH_cost:{LKH_cost}")
 
 
 
