@@ -113,7 +113,7 @@ class AgentEmbedding(nn.Module):
         )
         self.context = nn.Sequential(
             nn.Linear(self.embed_dim * 3, self.embed_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.LayerNorm(self.embed_dim),
             nn.Linear(self.embed_dim, self.embed_dim),
         )

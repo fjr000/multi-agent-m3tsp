@@ -177,8 +177,8 @@ class CrossAttentionCacheKVLayer(nn.Module):
         self.use_FFN = use_FFN
         self.multiHeadAttention = MultiHeadAttentionCacheKV(embedding_dim, num_heads, dropout=dropout)
         self.normalization1 = nn.LayerNorm(embedding_dim)
-        self.alpha1 = nn.Parameter(torch.zeros(1))
-        self.alpha2 = nn.Parameter(torch.zeros(1))
+        self.alpha1 = nn.Parameter(torch.tensor([0.1]))
+        self.alpha2 = nn.Parameter(torch.tensor([0.1]))
         if self.use_FFN:
             self.feedForward = nn.Sequential(nn.Linear(embedding_dim, hidden_size),
                                              nn.GELU(),

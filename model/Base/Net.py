@@ -46,7 +46,7 @@ class SkipConnection(nn.Module):
     def __init__(self, module):
         super(SkipConnection, self).__init__()
         self.module = module
-        self.alpha = nn.Parameter(torch.zeros(1))
+        self.alpha = nn.Parameter(torch.tensor([0.1]))
 
     def forward(self, inputs, key_padding_mask = None, attn_mask = None):
         if key_padding_mask is not None or attn_mask is not None:
@@ -100,17 +100,17 @@ class MultiHeadAttentionLayer(nn.Module):
                         dropout=dropout
                     )
                 )
-        self.alpha1 = nn.Parameter(torch.tensor([0.1]))
+        # self.alpha1 = nn.Parameter(torch.tensor([0.1]))
         self.norm1 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
 
         self.mlp = SkipConnection(
                     nn.Sequential(
                         nn.Linear(embedding_dim, hidden_dim),
-                        nn.ReLU(),
+                        nn.GELU(),
                         nn.Linear(hidden_dim, embedding_dim)
                     )
                 )
-        self.alpha2 = nn.Parameter(torch.tensor([0.1]))
+        # self.alpha2 = nn.Parameter(torch.tensor([0.1]))
         self.norm2 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
         self.embed_dim = embedding_dim
 
@@ -118,13 +118,13 @@ class MultiHeadAttentionLayer(nn.Module):
         o = self.attention(x, key_padding_mask = key_padding_mask, attn_mask = masks)
         if isinstance(self.norm1, nn.BatchNorm1d):
             _shape = o.shape
-            x = self.norm1((self.alpha1 * o + x).reshape(-1, self.embed_dim))
+            x = self.norm1(o.reshape(-1, self.embed_dim))
             o = self.mlp(x, None)
-            o = self.norm2(o + x).reshape(*_shape)
+            o = self.norm2(o).reshape(*_shape)
         elif isinstance(self.norm2, nn.LayerNorm):
-            x = self.norm1((self.alpha1 * o + x))
+            x = self.norm1(o)
             o = self.mlp(x, None)
-            o = self.norm2(self.alpha2*o + x)
+            o = self.norm2(o)
         else:
             raise NotImplementedError
         return o
