@@ -86,7 +86,7 @@ class MTSPEnv(Env):
             batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
             batch_indices = batch_indices_1d[:, None]
             # 结合回仓库距离
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, self.cur_pos[batch_indices_1d], 0]  # [B,A]
             expect_dis = self.costs[batch_indices_1d] + dis_depot
 
             # 返回仓库优化 (新增阶段0排除)
@@ -99,7 +99,7 @@ class MTSPEnv(Env):
             valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
 
             # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A)[None,:], valid_indices] = valid_mask
+            repeat_masks[batch_indices, np.arange(A)[None, :], valid_indices] = valid_mask
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = 0
 
@@ -108,7 +108,7 @@ class MTSPEnv(Env):
             batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
             batch_indices = batch_indices_1d[:, None]
 
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, self.cur_pos[batch_indices_1d], 0]  # [B,A]
             expect_dis = self.costs[batch_indices_1d] + dis_depot
             # 返回仓库优化 (新增阶段0排除)
             masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
@@ -163,25 +163,25 @@ class MTSPEnv(Env):
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = False
         elif self.env_masks_mode == 5:
-            active_agents = self.traj_stages <= 1
-            batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
-            batch_indices = batch_indices_1d[:, None]
-            cur_pos = self.cur_pos[batch_indices_1d]
-            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
-            expect_dis = self.costs[batch_indices_1d] + dis_depot  # [B,A]
-            max_expect_dis =np.max(expect_dis, axis=-1, keepdims=True)
-            # 对每个批次掩码活跃智能体的开销
-            # masked_costs = np.where(active_agents[batch_indices_1d], expect_dis, np.nan)
+            active_agents = self.traj_stages <= 1  # [B,A]
+            batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]  # [B,]
+            batch_indices = batch_indices_1d[:, None]  # [B,A]
 
-            selected_dists = self.graph_matrix[batch_indices, cur_pos, :]  # [B,A,N]
+            cur_costs = self.costs[batch_indices_1d]  # [B,A]
+            cur_pos = self.cur_pos[batch_indices_1d]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
+            expect_dis = cur_costs + dis_depot  # [B,A]
+            max_expect_dis = np.max(expect_dis, axis=-1, keepdims=True)
+
+            selected_dists = self.graph_matrix[batch_indices, cur_pos]  # [B,A,N]
             each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
-            selected_dists_depot = self.costs[batch_indices_1d,:,None] + selected_dists + each_depot_dist  # [B,A,N]
+            selected_dists_depot = cur_costs[..., None] + selected_dists + each_depot_dist  # [B,A,N]
             masked_dist_depot = np.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, np.inf)
             min_dist_depot = np.min(masked_dist_depot, axis=2)  # [B,A]
             min_min_dist_depot = np.min(min_dist_depot, axis=1, keepdims=True)
             allow_stay = ((min_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
 
-            repeat_masks[batch_indices, np.arange(A)[None,],cur_pos] = allow_stay
+            repeat_masks[batch_indices, np.arange(A)[None,], cur_pos] = allow_stay
 
         else:
             raise NotImplementedError
@@ -254,12 +254,14 @@ if __name__ == '__main__':
 
     g = GG()
     batch_graph = g.generate(batch_size=args.batch_size, num=args.city_nums)
+
     states, info = env.reset(graph=batch_graph)
     salesmen_masks = info["salesmen_masks"]
     st = time.time_ns()
     agent.reset_graph(batch_graph, args.agent_num)
     done = False
-    agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
-        "use_conflict_model": args.use_conflict_model})
-    ed =time.time_ns()
-    print(ed - st)
+    for i in range(100):
+        agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
+            "use_conflict_model": args.use_conflict_model})
+    ed = time.time_ns()
+    print((ed - st) / 1e9)

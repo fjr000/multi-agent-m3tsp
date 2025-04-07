@@ -8,25 +8,25 @@ from model.n4Model.config import Config
 from model.Base.Net import initialize_weights
 import math
 from model.Base.Net import SkipConnection
+from model.ET.model_v1 import MultiHeadAttentionCacheKV, SingleHeadAttentionCacheK
+from model.n4Model.model_v4 import CrossAttentionCacheKVLayer
 
 
 class CityEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
-        super(CityEmbedding, self).__init__()
+        super().__init__()
         self.embed_dim = embed_dim
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.depot_embed = nn.Linear(self.input_dim, self.embed_dim)
-        self.city_embed = nn.Linear(self.input_dim, self.embed_dim)
+        self.depot_embed = nn.Linear(input_dim, embed_dim)
+        self.city_embed = nn.Linear(input_dim, embed_dim)
 
     def forward(self, city):
+        """Embed city coordinates.
+        Args:
+            city: [B, N, 2] tensor of city coordinates
+        Returns:
+            Tuple of (depot_embed, city_embed)
         """
-        :param city: [B,N,2]
-        :return:
-        """
-        depot_embed = self.depot_embed(city[:, 0:1])
-        city_embed = self.city_embed(city[:, 1:])
-        return depot_embed, city_embed
+        return self.depot_embed(city[:, :1]), self.city_embed(city[:, 1:])
 
 
 class CityEncoder(nn.Module):
@@ -39,11 +39,11 @@ class CityEncoder(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        self.num_heads = num_heads
-        self.city_embed_mean = None
+
         self.position_encoder = PositionalEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
-        self.alpha = nn.Parameter(torch.zeros(1))
+        self.alpha = nn.Parameter(torch.tensor([0.1]))
+        self.city_embed_mean = None
 
     def forward(self, city, n_agents, city_mask=None):
         """
@@ -56,19 +56,20 @@ class CityEncoder(nn.Module):
 
         depot_embed, city_embed = self.city_embed(city)
 
-        pos_embed = self.position_encoder(n_agents + 1)
-        depot_embed_repeat = depot_embed.expand(-1, n_agents + 1, -1)
+        pos_embed = self.position_encoder(n_agents)
         pos_embed = self.alpha * self.pos_embed_proj(pos_embed)
-        depot_pos_embed = depot_embed_repeat + pos_embed[None, :]
+        depot_pos_embed = depot_embed + pos_embed[None, :]
 
-        graph_embed = torch.cat([depot_pos_embed[:, 0:1, :], city_embed, depot_pos_embed[:, 1:, :]], dim=1)
+        graph_embed = torch.cat([depot_embed, city_embed, depot_pos_embed], dim=1)
 
         for model in self.city_self_att:
             graph_embed = model(graph_embed, key_padding_mask=city_mask)
 
+        self.city_embed_mean = graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
+
         return (
             graph_embed,  # (B,A+N,E)
-            graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
+            self.city_embed_mean
         )
 
 
@@ -98,14 +99,22 @@ class AgentEmbedding(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.depot_pos_embed = nn.Linear(2 * self.embed_dim, self.embed_dim, bias=False)
-        self.distance_cost_embed = nn.Linear(9, self.embed_dim)
-        self.graph_embed = nn.Linear(self.embed_dim, self.embed_dim)
-
+        self.depot_pos_embed = nn.Sequential(
+            nn.Linear(2 * self.embed_dim, self.embed_dim),
+            nn.LayerNorm(self.embed_dim),
+        )
+        self.distance_cost_embed = nn.Sequential(
+            nn.Linear(9, self.embed_dim),
+            nn.LayerNorm(self.embed_dim),
+        )
+        self.graph_embed = nn.Sequential(
+            nn.Linear(self.embed_dim, self.embed_dim),
+            nn.LayerNorm(self.embed_dim),
+        )
         self.context = nn.Sequential(
             nn.Linear(self.embed_dim * 3, self.embed_dim),
-            nn.LayerNorm(self.embed_dim),
             nn.ReLU(),
+            nn.LayerNorm(self.embed_dim),
             nn.Linear(self.embed_dim, self.embed_dim),
         )
 
@@ -148,16 +157,19 @@ class DecoderBlock(nn.Module):
             ),
             nn.LayerNorm(embed_dim)
         )
-        self.cross_att = CrossAttentionLayer(
+        self.cross_att = CrossAttentionCacheKVLayer(
             self.embed_dim,
             self.n_heads,
             use_FFN=True,
             hidden_size=hidden_dim
         )
 
-    def forward(self, Q, KV, cross_attn_mask=None):
+    def init(self, city_embed):
+        self.cross_att.init(city_embed)
+
+    def forward(self, Q, cross_attn_mask=None):
         embed = self.self_att(Q)
-        embed = self.cross_att(embed, KV, KV, cross_attn_mask)
+        embed = self.cross_att(embed, cross_attn_mask)
         return embed
 
 
@@ -174,7 +186,7 @@ class ActionDecoder(nn.Module):
         )
 
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.action = SingleHeadAttention(embed_dim)
+        self.action = SingleHeadAttentionCacheK(embed_dim)
         self.num_heads = num_heads
 
         self.rnn = None
@@ -218,6 +230,11 @@ class ActionDecoder(nn.Module):
         else:
             raise NotImplementedError
 
+    def init(self, city_embed, n_agent):
+        for model in self.blocks:
+            model.init(city_embed)
+        self.action.init(city_embed[:,:-n_agent])
+
     def forward(self, agent, city_embed_mean, city_embed, masks):
         n_agents = agent.size(1)
 
@@ -234,26 +251,33 @@ class ActionDecoder(nn.Module):
         ).unsqueeze(0).expand(agent_embed.size(0), -1, -1)
 
         expand_masks = torch.cat([masks, extra_masks], dim=-1)
-        expand_masks = expand_masks.unsqueeze(1).expand(
-            agent_embed.size(0), self.num_heads, -1, -1
-        ).reshape(
-            -1, *expand_masks.shape[-2:]
-        )
+        # expand_masks = expand_masks.unsqueeze(1).expand(
+        #     agent_embed.size(0), self.num_heads, -1, -1
+        # ).reshape(
+        #     -1, *expand_masks.shape[-2:]
+        # )
 
         for block in self.blocks[:-1]:
-            agent_embed = block(agent_embed, city_embed, expand_masks)
+            agent_embed = block(agent_embed, expand_masks)
 
         agent_embed_shape = agent_embed.shape
         agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
         agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
         agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
 
-        agent_embed = self.blocks[-1](agent_embed, city_embed, expand_masks)
+        agent_embed = self.blocks[-1](agent_embed, expand_masks)
+
+        comm = agent_embed[..., :agent_embed.size(2) // 4]
+        # comm = comm_model(comm)
+        comm, _ = comm.max(dim=1, keepdim=True)
+        comm = comm.expand(-1, agent_embed.size(1), -1)
+        priv = agent_embed[..., agent_embed.size(2) // 4:]
+        agent_embed = torch.cat([comm, priv], dim=-1)
+
         self.agent_embed = agent_embed
 
         action_logits = self.action(
             agent_embed,
-            city_embed[:, :-agent_embed.size(1), :],
             masks
         )
 
@@ -345,6 +369,7 @@ class ActionsModel(nn.Module):
         """
         self.city = city
         self.city_embed, self.city_embed_mean = self.city_encoder(city, n_agents)
+        self.agent_decoder.init(self.city_embed, n_agents)
 
     def forward(self, agent, mask, info=None):
         # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])

@@ -100,7 +100,7 @@ class MultiHeadAttentionLayer(nn.Module):
                         dropout=dropout
                     )
                 )
-        self.alpha1 = nn.Parameter(torch.zeros((1,)))
+        self.alpha1 = nn.Parameter(torch.tensor([0.1]))
         self.norm1 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
 
         self.mlp = SkipConnection(
@@ -110,7 +110,7 @@ class MultiHeadAttentionLayer(nn.Module):
                         nn.Linear(hidden_dim, embedding_dim)
                     )
                 )
-        self.alpha2 = nn.Parameter(torch.zeros((1,)))
+        self.alpha2 = nn.Parameter(torch.tensor([0.1]))
         self.norm2 = nn.BatchNorm1d(embedding_dim, affine=True) if normalization == 'batch' else nn.LayerNorm(embedding_dim)
         self.embed_dim = embedding_dim
 
