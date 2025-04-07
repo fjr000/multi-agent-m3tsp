@@ -40,7 +40,8 @@ class CityEncoder(nn.Module):
             ]
         )
 
-        self.position_encoder = PositionalEncoder(embed_dim)
+        # self.position_encoder = PositionalEncoder(embed_dim)
+        self.position_encoder = DynamicPositionalEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
         self.alpha = nn.Parameter(torch.tensor([0.1]))
         self.city_embed_mean = None
@@ -56,7 +57,7 @@ class CityEncoder(nn.Module):
 
         depot_embed, city_embed = self.city_embed(city)
 
-        pos_embed = self.position_encoder(n_agents)
+        pos_embed = self.position_encoder(n_agents).to(city.device)
         pos_embed = self.alpha * self.pos_embed_proj(pos_embed)
         depot_pos_embed = depot_embed + pos_embed[None, :]
 
@@ -91,6 +92,35 @@ class PositionalEncoder(nn.Module):
     def forward(self, seq_len):
         return self.position_encoding[:seq_len, :]
 
+
+class DynamicPositionalEncoder(nn.Module):
+    def __init__(self, d_model):
+        """
+        初始化位置编码模块。
+        :param d_model: 嵌入维度（必须是偶数）
+        """
+        super(DynamicPositionalEncoder, self).__init__()
+        self.d_model = d_model
+
+    def forward(self, num_agents):
+        """
+        根据智能体数量动态生成位置编码。
+        :param num_agents: 当前智能体数量 (int)
+        :return: 嵌入张量 (Tensor)，形状为 (num_agents, d_model)
+        """
+        # 动态计算频率缩放因子
+        scale_factor = 10 * math.log(num_agents + 1)  # 根据智能体数量调整
+
+        # 创建位置编码
+        position_encoding = torch.zeros(num_agents, self.d_model)
+        position = torch.arange(0, num_agents, dtype=torch.float).unsqueeze(1)  # [num_agents, 1]
+        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-math.log(scale_factor) / self.d_model))
+
+        # 使用正弦和余弦函数生成位置编码
+        position_encoding[:, 0::2] = torch.sin(position * div_term)  # 偶数索引：正弦
+        position_encoding[:, 1::2] = torch.cos(position * div_term)  # 奇数索引：余弦
+
+        return position_encoding
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):
