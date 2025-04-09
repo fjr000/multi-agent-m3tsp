@@ -83,7 +83,7 @@ class CityEncoder(nn.Module):
         )
 
         # self.position_encoder = PositionalEncoder(embed_dim)
-        self.position_encoder = DynamicPositionalEncoder(embed_dim)
+        self.position_encoder = VectorizedRadialEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
         self.alpha = nn.Parameter(torch.tensor([0.1]))
         self.city_embed_mean = None
@@ -184,6 +184,55 @@ class DynamicPositionalEncoder(nn.Module):
         position_encoding[:, 1::2] = torch.cos(position * div_term)  # 奇数索引：余弦
 
         return position_encoding
+
+
+class VectorizedRadialEncoder(nn.Module):
+    """
+    高效向量化的放射状位置编码器
+    为MINMAXMTSP问题提供智能体的空间分配编码
+    """
+
+    def __init__(self, d_model, base=10000):
+        super(VectorizedRadialEncoder, self).__init__()
+        assert d_model % 2 == 0, "模型维度必须是偶数"
+        self.d_model = d_model
+        self.base = base
+
+        # 预计算频率因子以提高效率
+        self.register_buffer(
+            "freq_factors",
+            1.0 / (base ** (torch.arange(0, d_model, 2).float() / d_model))
+        )
+
+    def forward(self, num_agents):
+        """
+        批量生成所有智能体的放射状编码
+
+        :param num_agents: 智能体数量
+        :return: 位置编码 [num_agents, d_model]
+        """
+        # 生成均匀分布在圆周上的角度 [num_agents]
+        angles = torch.linspace(0, 2 * math.pi, num_agents + 1)[:-1]
+        device = self.freq_factors.device
+        angles = angles.to(device)
+
+        # 创建编码矩阵 [num_agents, d_model]
+        encoding = torch.zeros(num_agents, self.d_model, device=device)
+
+        # 向量化同时计算所有智能体的编码
+        # 将角度扩展为 [num_agents, 1] 与频率因子 [d_model/2] 相乘
+        angles_expanded = angles.unsqueeze(1)  # [num_agents, 1]
+
+        # 计算所有频率的角度参数 [num_agents, d_model/2]
+        args = angles_expanded * self.freq_factors
+
+        # 一次性填充所有正弦项（偶数索引）
+        encoding[:, 0::2] = torch.sin(args)
+
+        # 一次性填充所有余弦项（奇数索引）
+        encoding[:, 1::2] = torch.cos(args)
+
+        return encoding
 
 class AgentEmbedding(nn.Module):
     def __init__(self, input_dim, hidden_dim, embed_dim):

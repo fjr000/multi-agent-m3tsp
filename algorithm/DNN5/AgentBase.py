@@ -139,10 +139,12 @@ class AgentBase:
         # 智能体间优势
         agents_adv = np.abs(costs - agents_avg_cost)
         # agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
-        agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
+                    agents_adv.std(axis=-1, keepdims=True) + 1e-8)
         # 实例间优势
         # group_adv = agents_max_cost - np.min(agents_max_cost, keepdims=True, axis=1)
-        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=0)) / (
+                    agents_max_cost.std(keepdims=True, axis=0) + 1e-8)
         # 组合优势
         act_adv = self.args.agents_adv_rate * agents_adv + group_adv
         agt_adv = self.args.agents_adv_rate * agents_adv + group_adv
@@ -205,12 +207,12 @@ class AgentBase:
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
         config = {
-                "cities": batch_graph.shape[1],
-                "salesmen": agent_num,
-                "mode": "fixed",
-                "N_aug": batch_graph.shape[0],
-                "use_conflict_model":info.get("use_conflict_model", False) if info is not None else False,
-            }
+            "cities": batch_graph.shape[1],
+            "salesmen": agent_num,
+            "mode": "fixed",
+            "N_aug": batch_graph.shape[0],
+            "use_conflict_model": info.get("use_conflict_model", False) if info is not None else False,
+        }
         if info is not None and info.get("trajs", None) is not None:
             config.update({
                 "trajs": info["trajs"]
@@ -238,15 +240,15 @@ class AgentBase:
             states_t = _convert_tensor(states, device=self.device)
             # mask: true :not allow  false:allow
 
-            salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype= torch.bool, device=self.device)
+            salesmen_masks_t = _convert_tensor(~salesmen_masks, dtype=torch.bool, device=self.device)
             if masks_in_salesmen is not None:
-                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype= torch.bool, device=self.device)
+                masks_in_salesmen_t = _convert_tensor(~masks_in_salesmen, dtype=torch.bool, device=self.device)
             else:
                 masks_in_salesmen_t = None
-            city_mask_t = _convert_tensor(~city_mask, dtype= torch.bool, device=self.device)
+            city_mask_t = _convert_tensor(~city_mask, dtype=torch.bool, device=self.device)
             info.update({
-                "masks_in_salesmen":masks_in_salesmen_t,
-                "mask":city_mask_t
+                "masks_in_salesmen": masks_in_salesmen_t,
+                "mask": city_mask_t
             })
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
@@ -305,7 +307,7 @@ class AgentBase:
     def eval_tsp_episode(self, env, batch_graph, trajs, exploit_mode="sample", info=None):
         info = info if info is not None else {}
         info.update({
-            "trajs" : trajs
+            "trajs": trajs
         })
         with torch.no_grad():
             eval_info = self.run_batch_episode(env, batch_graph, 1, eval_mode=True, exploit_mode=exploit_mode,
@@ -313,6 +315,7 @@ class AgentBase:
             cost = np.max(eval_info["costs"], axis=1)
             trajectory = eval_info["trajectories"]
             return cost, trajectory
+
     def state_dict(self):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
