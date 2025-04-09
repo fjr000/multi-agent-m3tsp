@@ -40,8 +40,8 @@ class CityEncoder(nn.Module):
             ]
         )
 
-        # self.position_encoder = PositionalEncoder(embed_dim)
-        self.position_encoder = DynamicPositionalEncoder(embed_dim)
+        self.position_encoder = PositionalEncoder(embed_dim)
+        # self.position_encoder = DynamicPositionalEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
         self.alpha = nn.Parameter(torch.tensor([0.1]))
         self.city_embed_mean = None
