@@ -246,7 +246,11 @@ class AgentEmbedding(nn.Module):
             # nn.LayerNorm(self.embed_dim),
         )
         self.distance_cost_embed = nn.Sequential(
-            nn.Linear(9, self.embed_dim),
+            nn.Linear(7, self.embed_dim),
+            # nn.LayerNorm(self.embed_dim),
+        )
+        self.global_embed = nn.Sequential(
+            nn.Linear(4, self.embed_dim),
             # nn.LayerNorm(self.embed_dim),
         )
         self.graph_embed = nn.Sequential(
@@ -254,7 +258,7 @@ class AgentEmbedding(nn.Module):
             # nn.LayerNorm(self.embed_dim),
         )
         self.context = nn.Sequential(
-            nn.Linear(self.embed_dim * 3, self.embed_dim),
+            nn.Linear(self.embed_dim * 4, self.embed_dim),
             nn.GELU(),
             nn.LayerNorm(self.embed_dim),
             nn.Linear(self.embed_dim, self.embed_dim),
@@ -273,7 +277,8 @@ class AgentEmbedding(nn.Module):
                   ]
         depot_pos = torch.cat([n_depot_embed, cur_pos], dim=-1)
         depot_pos_embed = self.depot_pos_embed(depot_pos)
-        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:])
+        distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:9])
+        global_embed = self.global_embed(agent_state[:,:,9:])
         global_graph_embed = self.graph_embed(graph_embed).expand(-1, agent_state.size(1), -1)
 
         agent_embed = self.context(
@@ -281,6 +286,7 @@ class AgentEmbedding(nn.Module):
                 [
                     depot_pos_embed,
                     distance_cost_embed,
+                    global_embed,
                     global_graph_embed
                 ], dim=-1)
         )

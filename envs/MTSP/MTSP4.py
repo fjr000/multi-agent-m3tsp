@@ -48,7 +48,7 @@ class MTSPEnv:
         self.costs = None
         self.mask = None
 
-        self.dim = 11
+        self.dim = 13
         self.step_count = 0
         self.step_limit = -1
         self.stay_still_limit = -1
@@ -208,24 +208,27 @@ class MTSPEnv:
         # === 2. 智能体级特征 ===
         # 成本特征
         max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
+        min_cost = np.min(self.costs, axis=1, keepdims=True)  # [B,1]
         depot_dist = self.graph_matrix[batch_indices, self.cur_pos, 0]
+        expect_dist = self.costs + depot_dist
+        max_expect_dist = np.max(expect_dist, axis=1, keepdims=True) # 若现在结束的开销
 
-        # 位置特征
+        # 最近-最远点距离
         masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
-        # mean_dists = np.nanmean(masked_dists, axis=2)
         max_dists = np.nanmax(masked_dists, axis=2)
         min_dists = np.nanmin(masked_dists, axis=2)
 
-        # 3. Future distance estimation features
+        # 远视距离 cur -》 next -》 depot
         selected_dists = cur_pos_dists  # [B,A,N]
         each_depot_dist = self.graph_matrix[:, 0:1, :]  # Depot to all cities [B,1,N]
         selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
 
-        # Masked distance calculations
+        # 最近-最远远视距离
         masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
-        # mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
         max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
         min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
+
+        max_max_dist_depot = np.max(self.costs + max_dist_depot, axis=1, keepdims=True)
 
         # === 4. 全局任务特征 ===
         progress = 1 - remain_cities / (N-1)  # [B,1]
@@ -234,20 +237,24 @@ class MTSPEnv:
         self.states[..., 0] = depot_idx
         self.states[..., 1] = self.cur_pos
 
-        # scale = (max_cost + 1e-8)
-        self.states[..., 2] = self.costs / (max_cost + 1e-8)
-        self.states[..., 3] = depot_dist / (max_cost + 1e-8)
+        scale = max_max_dist_depot
 
-        self.states[..., 4] = max_dists
-        self.states[..., 5] = min_dists
+        self.states[..., 2] = self.costs / scale
+        self.states[..., 3] = depot_dist / scale
+
+        self.states[..., 4] = max_dists / scale
+        self.states[..., 5] = min_dists / scale
+
+        self.states[..., 6] = max_dist_depot / scale
+        self.states[..., 7] = min_dist_depot / scale
 
         allow_stayup = self.salesmen_mask[batch_indices, np.arange(A)[None,], self.cur_pos]
-        self.states[..., 6] = allow_stayup
-        self.states[..., 7] = depot_dist
-        self.states[..., 8] = max_dist_depot - depot_dist
-        self.states[..., 9] = min_dist_depot - depot_dist
+        self.states[..., 8] = allow_stayup
 
-        self.states[..., 10] = progress
+        self.states[..., 9] = max_cost / scale
+        self.states[..., 10] = min_cost / scale
+        self.states[..., 11] = max_max_dist_depot / scale
+        self.states[..., 12] = progress
 
         return self.states
 
