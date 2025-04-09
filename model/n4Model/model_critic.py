@@ -1,4 +1,4 @@
-from model.n4Model.model_v4 import Model as BaseModel
+from model.n4Model.model_v5 import Model as BaseModel
 import torch
 import torch.nn as nn
 from model.n4Model.config import Config

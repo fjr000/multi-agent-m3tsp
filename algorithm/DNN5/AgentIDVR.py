@@ -23,7 +23,7 @@ class AgentIDVR(AgentBase):
         filename = f"AgentIDVR_{id}"
         super(AgentIDVR, self)._load_model(self.args.model_dir, filename)
 
-    def __get_action_logprob(self, states, masks, mode="greedy", info=None):
+    def _get_action_logprob(self, states, masks, mode="greedy", info=None):
         info = {} if info is None else info
         info.update({
             "mode": mode,
@@ -45,14 +45,14 @@ class AgentIDVR(AgentBase):
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
-        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self.__get_action_logprob(
+        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self._get_action_logprob(
             states_t, masks_t,
             mode="sample", info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy, V
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info=info)
+        actions, actions_no_conflict, _, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __get_logprob(self, states, masks, actions):
@@ -78,7 +78,8 @@ class AgentIDVR(AgentBase):
     def __get_value_loss (self, returns, V):
 
         loss = F.mse_loss(V[...,:-1], returns)
-        return loss
+        loss_max = F.mse_loss(V[...,:-1].max(dim = 1).values, returns.max(dim = 1).values)
+        return loss + 0.5 * loss_max
 
     def _get_loss(self, act_logp, agents_logp, gae, costs):
         costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
@@ -87,7 +88,7 @@ class AgentIDVR(AgentBase):
         adv = - adv.reshape(-1,1,1)
         adv_t = _convert_tensor(adv, device=self.device)
         gae = (gae- gae.mean()) / (gae.std()+1e-8)
-        act_loss = -( act_logp * (0.3 * gae + adv_t)).mean()
+        act_loss = -( act_logp * ( gae + 0.5*adv_t)).mean()
         agt_loss = None
         if agents_logp is not None:
             agt_loss = -(agents_logp * gae).mean()

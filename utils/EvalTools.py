@@ -104,7 +104,7 @@ class EvalTools(object):
         else:
             traj = final_traj
         if B == 1:
-            return greedy_cost, traj[0], greedy_time
+            return greedy_cost, (traj[0], greedy_trajectory), greedy_time
         else:
             return greedy_cost, traj, greedy_time
 

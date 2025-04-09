@@ -36,19 +36,21 @@ class MTSPEnv_IDVR(MTSPEnv):
     def _get_reward(self):
         self.dones = np.all(self.stage_2, axis=1)
         self.done = np.all(self.dones, axis=0)
-        # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
-        # # self.rewards = self.last_costs - self.costs
-        # self.rewards = self.last_costs -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1)
-        # self.last_costs = copy.deepcopy(np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1))
-
-        """计算基于潜在函数的奖励塑形"""
-        # 计算当前状态的潜在值
-        current_potential = self.advanced_minmax_potential()
-
-        # 计算塑形奖励
-        shaping_reward = 0.99 * current_potential - self.last_potential_reward
-        self.last_potential_reward = current_potential
-        self.rewards = shaping_reward
+        # # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
+        # # # self.rewards = self.last_costs - self.costs
+        # # self.rewards = self.last_costs -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1)
+        # # self.last_costs = copy.deepcopy(np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1))
+        #
+        # """计算基于潜在函数的奖励塑形"""
+        # # 计算当前状态的潜在值
+        # current_potential = self.advanced_minmax_potential()
+        #
+        # # 计算塑形奖励
+        # shaping_reward = 0.99 * current_potential - self.last_potential_reward
+        # self.last_potential_reward = current_potential
+        # self.rewards = shaping_reward
+        self.rewards = self.last_costs - self.costs
+        self.last_costs = self.costs
         return self.rewards
 
 

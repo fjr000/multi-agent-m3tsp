@@ -44,18 +44,18 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--lr", type=float, default=3e-5)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-1)
-    parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--entropy_coef", type=float, default=3e-2)
+    parser.add_argument("--accumulation_steps", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=255000)
     parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -65,11 +65,11 @@ if __name__ == "__main__":
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--agents_adv_rate", type=float, default=0.5, help="rate of adv between agents")
-    parser.add_argument("--conflict_loss_rate", type=float, default=0.3, help="rate of adv between agents")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=1.0, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--save_model_interval", type=int, default=10000, help="save model interval")
-    parser.add_argument("--seed", type=int, default=528, help="random seed")
+    parser.add_argument("--save_model_interval", type=int, default=5000, help="save model interval")
+    parser.add_argument("--seed", type=int, default=1234, help="random seed")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
             def triangular_random(low, high):
                 """数值越接近 low，概率越高"""
                 return int(np.floor(random.triangular(low, high+1, low)))
-            agent_num = triangular_random(low=1, high=args.agent_num)
+            agent_num = triangular_random(low=2, high=args.agent_num)
         if args.random_city_num:
             city_nums = np.random.randint(args.city_nums - 20, args.city_nums+1)
         else:

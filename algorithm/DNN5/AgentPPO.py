@@ -24,7 +24,7 @@ class AgentPPO(AgentBase):
         filename = f"AgentPPO_{id}"
         super(AgentPPO, self)._load_model(self.args.model_dir, filename)
 
-    def __get_action_logprob(self, states, masks, mode="greedy", info=None):
+    def _get_action_logprob(self, states, masks, mode="greedy", info=None):
         info = {} if info is None else info
         info.update({
             "mode": mode,
@@ -46,14 +46,14 @@ class AgentPPO(AgentBase):
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
-        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self.__get_action_logprob(
+        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy, V = self._get_action_logprob(
             states_t, masks_t,
             mode="sample", info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy, V
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info=info)
+        actions, actions_no_conflict, _, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __get_logprob(self, states, masks, actions):

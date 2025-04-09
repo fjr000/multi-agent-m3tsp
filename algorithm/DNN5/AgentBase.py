@@ -34,7 +34,7 @@ class AgentBase:
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
         self.model.init_city(graph_t, n_agents)
 
-    def __get_action_logprob(self, states, masks, mode="greedy", info=None):
+    def _get_action_logprob(self, states, masks, mode="greedy", info=None):
         info = {} if info is None else info
         info.update({
             "mode": mode,
@@ -56,14 +56,14 @@ class AgentBase:
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
-        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self.__get_action_logprob(
+        actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self._get_action_logprob(
             states_t, masks_t,
             mode="sample", info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _ = self.__get_action_logprob(states_t, masks_t, mode=mode, info=info)
+        actions, actions_no_conflict, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __update_net(self, optim, params, loss):
