@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from model.n4Model.model_v5 import Model
+from model.n4Model.model_v6 import Model
 import torch
 from utils.TensorTools import _convert_tensor
 import numpy as np

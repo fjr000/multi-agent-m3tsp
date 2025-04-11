@@ -26,9 +26,9 @@ def visualize_agent_trajectories(points, trajectories, filename = "anime.gif"):
     # 绘制所有点
     ax.scatter(points[:, 0], points[:, 1], c='lightgray', s=50)
 
-    # 为每个点添加编号标签（从1开始）
-    for i, (x, y) in enumerate(points):
-        ax.text(x, y + 0.01, str(i + 1), ha='center', va='bottom', fontsize=9)
+    # # 为每个点添加编号标签（从1开始）
+    # for i, (x, y) in enumerate(points):
+    #     ax.text(x, y + 0.01, str(i + 1), ha='center', va='bottom', fontsize=9)
 
     # 初始化智能体位置标记和轨迹线
     agent_markers = []

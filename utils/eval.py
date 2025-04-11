@@ -1,12 +1,14 @@
 import sys
 
+from click.core import batch
+
 sys.path.append("../")
 sys.path.append("./")
 
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
 
-from algorithm.DNN5.AgentV5 import Agent as Agent
+from algorithm.DNN5.AgentV6 import Agent as Agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -26,12 +28,13 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=1e-2)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--eval_size", type=int, default=10)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=335000)
-    parser.add_argument("--tsp_agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=6,
+    parser.add_argument("--agent_id", type=int, default=740000) # 710 2.493
+    parser.add_argument("--tsp_agent_id", type=int, default=655000)
+    parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not  allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
@@ -44,7 +47,7 @@ if __name__ == "__main__":
     parser.add_argument("--conflict_loss_rate", type=float, default=0.5 + 0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=13000, help="save model interval")
-    parser.add_argument("--seed", type=int, default=3333, help="random seed")
+    parser.add_argument("--seed", type=int, default=528, help="random seed")
     parser.add_argument("--draw", type=bool, default=True, help="whether to draw result")
 
     args = parser.parse_args()
@@ -77,23 +80,24 @@ if __name__ == "__main__":
         times = []
         names = []
 
-        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(graph, agent_nums, agent, env)
+        eval_graph = graph
+        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env)
         costs.append(greedy_cost)
         trajs.append(greedy_traj[0])
         times.append(greedy_time)
         names.append("greedy")
 
-        no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(graph, agent_nums, agent, env,{"use_conflict_model":False})
+        no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env,{"use_conflict_model":False})
         costs.append(no_conflict_greedy_cost)
         trajs.append(no_conflict_greedy_traj[0])
         times.append(no_conflict_greedy_time)
         names.append("no_conflict_greedy")
 
         if args.tsp_agent_id > 0:
-            optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(graph, TSP_agent, [greedy_traj] if args.batch_size == 1 else greedy_traj)
+            optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(eval_graph, TSP_agent, [greedy_traj[0]] if args.batch_size == 1 else greedy_traj)
             optim_time = greedy_time + optim_time
             costs.append(optim_cost)
-            trajs.append(optim_traj)
+            trajs.append(optim_traj[0])
             times.append(optim_time)
             names.append("optim")
 
@@ -104,13 +108,15 @@ if __name__ == "__main__":
         # names.append("sample")
 
         # ortools_cost, ortools_traj, ortools_time = EvalTools.EvalOrTools(graph, agent_nums)
-        # LKH_cost, LKH_traj, LKH_time = EvalTools.EvalLKH3(graph, agent_nums)
+        # LKH_cost, LKH_traj, LKH_time = EvalTools.EvalLKH3(eval_graph, agent_nums)
         # costs.append(LKH_cost)
         # trajs.append(LKH_traj)
         # times.append(LKH_time)
         # names.append("lkh")
 
-
+        print(costs)
+        print(times)
+        print(names)
         if args.batch_size == 1:
             env.draw_multi(
                 graph,
@@ -121,7 +127,3 @@ if __name__ == "__main__":
             )
             from utils.anima import visualize_agent_trajectories
             ani = visualize_agent_trajectories(graph[0], greedy_traj[1][0],f"anime{i}.gif")
-        else:
-            print(costs)
-            print(times)
-            print(names)

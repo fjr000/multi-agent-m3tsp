@@ -295,7 +295,7 @@ class AgentBase:
             )
 
     def eval_episode(self, env, batch_graph, agent_num, exploit_mode="sample", info=None):
-        with torch.no_grad():
+        with torch.inference_mode():
             eval_info = self.run_batch_episode(env, batch_graph, agent_num, eval_mode=True, exploit_mode=exploit_mode,
                                                info=info)
             cost = np.max(eval_info["costs"], axis=1)
