@@ -84,7 +84,7 @@ class CityEncoder(nn.Module):
 
         # self.position_encoder = PositionalEncoder(embed_dim)
         self.position_encoder = VectorizedRadialEncoder(embed_dim)
-        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim)
+        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.alpha = nn.Parameter(torch.tensor([0.1]))
         self.city_embed_mean = None
         self.city_embed = None
@@ -350,6 +350,8 @@ class ActionDecoder(nn.Module):
                 hidden_size=embed_dim,
                 batch_first=True,
             )
+        elif rnn_type is None:
+            self.rnn = None
         else:
             raise NotImplementedError
 
@@ -375,6 +377,8 @@ class ActionDecoder(nn.Module):
                     device=device
                 )
             ]
+        elif self.rnn is None:
+            pass
         else:
             raise NotImplementedError
 
@@ -408,19 +412,20 @@ class ActionDecoder(nn.Module):
         for block in self.blocks[:-1]:
             agent_embed = block(agent_embed, expand_masks)
 
-        agent_embed_shape = agent_embed.shape
-        agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
-        agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
-        agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
+        if self.rnn is not None:
+            agent_embed_shape = agent_embed.shape
+            agent_embed_reshape = agent_embed.reshape(-1, 1, agent_embed.size(-1))
+            agent_embed_reshape, self.rnn_state = self.rnn(agent_embed_reshape, self.rnn_state)
+            agent_embed = agent_embed_reshape.reshape(*agent_embed_shape)
 
         agent_embed = self.blocks[-1](agent_embed, expand_masks)
 
-        comm = agent_embed[..., :agent_embed.size(2) // 4]
-        # comm = comm_model(comm)
-        comm, _ = comm.max(dim=1, keepdim=True)
-        comm = comm.expand(-1, agent_embed.size(1), -1)
-        priv = agent_embed[..., agent_embed.size(2) // 4:]
-        agent_embed = torch.cat([comm, priv], dim=-1)
+        # comm = agent_embed[..., :agent_embed.size(2) // 4]
+        # # comm = comm_model(comm)
+        # comm, _ = comm.max(dim=1, keepdim=True)
+        # comm = comm.expand(-1, agent_embed.size(1), -1)
+        # priv = agent_embed[..., agent_embed.size(2) // 4:]
+        # agent_embed = torch.cat([comm, priv], dim=-1)
 
         self.agent_embed = agent_embed
 
@@ -502,7 +507,8 @@ class ActionsModel(nn.Module):
 
         self.agent_decoder = ActionDecoder(config.action_decoder_hidden_dim, config.embed_dim,
                                            config.action_decoder_num_heads, config.action_decoder_num_layers,
-                                           dropout=config.dropout
+                                           dropout=config.dropout,
+                                           rnn_type=None,
                                            )
         self.city = None
         self.city_embed = None

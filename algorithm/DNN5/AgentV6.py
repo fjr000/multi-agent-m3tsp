@@ -24,7 +24,7 @@ class Agent(AgentBase):
         })
         actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, info)
 
-        # actions_logits = actions_logits / 1.5
+        # actions_logits = actions_logits / 1.1
 
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)

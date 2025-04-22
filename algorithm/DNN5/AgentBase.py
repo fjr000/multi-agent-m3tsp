@@ -118,14 +118,14 @@ class AgentBase:
         mask_ = ((act_logp_8 != 0) & (~torch.isnan(act_logp_8)))
 
         # 计算动作网络的损失，mask之后加权平均
-        act_loss = (act_logp_8[mask_] * adv_t[mask_]).mean()
+        act_loss = (torch.exp(act_logp_8[mask_] - act_logp_8[mask_].detach()) * adv_t[mask_]).mean()
         if agents_logp is not None:
             agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
             # 对智能体的动作概率进行掩码
             mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
 
             # 计算智能体的损失，mask之后加权平均
-            agents_loss = (agents_logp_8[mask_] * adv_t[mask_]).mean()
+            agents_loss = ((agents_logp_8[mask_] - agents_logp_8[mask_].detach()) * adv_t[mask_]).mean()
         else:
             agents_loss = None
 
@@ -197,13 +197,14 @@ class AgentBase:
         loss /= self.args.accumulation_steps
         loss.backward()
 
+        pre_grad = 0
         if self.train_count % self.args.accumulation_steps == 0:
-            nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
+            pre_grad = nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_max_norm)
             self.optim.step()
             self.optim.zero_grad()
         if agents_logp is None:
             return act_loss.item(), 0, act_ent_loss.item(), 0
-        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item()
+        return act_loss.item(), agents_loss.item(), act_ent_loss.item(), agt_ent_loss.item(), pre_grad
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
         config = {

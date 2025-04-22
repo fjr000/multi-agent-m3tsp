@@ -1,6 +1,7 @@
 import argparse
 import time
 
+from sympy import gamma
 from torch import nn
 
 from model.n4Model.model_critic import Model
@@ -63,16 +64,43 @@ class AgentIDVR(AgentBase):
         entropy = dist.entropy()
         return dist.log_prob(actions), entropy, agents_logp
 
-    def _get_gae(self, rewards, V):
+    def _get_gae(self, rewards, V_ind, team_rewards):
         rewards_t = _convert_tensor(rewards, device=self.device)
-        delta = rewards_t + V[...,1:]  - V[...,:-1]
-        advantages = torch.zeros_like(rewards_t, device=self.device)
-        gae = 0
+        team_rewards_t = _convert_tensor(team_rewards, device=self.device)
 
+        # 个人优势增量
+        delta_ind = rewards_t + V_ind[..., 1:] - V_ind[..., :-1]
+        # 团队优势增量
+        V_ind_min = torch.min(V_ind, dim=1).values
+        delta_team = team_rewards_t + V_ind_min[..., 1:] - V_ind_min[..., :-1]
+
+        # 初始化 GAE
+        advantages_ind = torch.zeros_like(rewards_t, device=self.device)
+        advantages_team = torch.zeros_like(team_rewards_t, device=self.device)
+        advantages = torch.zeros_like(rewards_t, device=self.device)
+        gae_ind = 0
+        gae_team = 0
+
+        gamma = 1.0
+        gae_lambda = 0.95
+        alpha = 0.2  # 可调参数，平衡个人和团队的权重
+
+        # 反向计算 GAE
         for i in reversed(range(rewards.shape[2])):
-            gae = delta[...,i] + gae
-            advantages[...,i] = gae
-        returns = advantages + V[...,:-1]
+            gae_ind = delta_ind[..., i] + (gamma * gae_lambda) * gae_ind
+            advantages_ind[..., i] = gae_ind
+
+            gae_team = delta_team[..., i] + (gamma * gae_lambda) * gae_team
+            advantages_team[..., i] = gae_team
+
+            gae = alpha * gae_ind + (1 - alpha) * gae_team[:,None]
+            advantages[..., i] = gae
+
+        # 计算个体和团队 returns
+        returns_ind = advantages_ind + V_ind[..., :-1]  # 个体 return
+        # returns_team = advantages_team + V_ind_min[..., :-1]  # 团队 return
+        # returns = alpha * returns_ind + (1 - alpha) * returns_team[:,None]  # 综合 return
+        returns = returns_ind
         return advantages, returns
 
     def __get_value_loss (self, returns, V):
@@ -82,26 +110,30 @@ class AgentIDVR(AgentBase):
         return loss + 0.5 * loss_max
 
     def _get_loss(self, act_logp, agents_logp, gae, costs):
-        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
-        max_cost_8 = np.max(costs_8, axis=-1, keepdims=True)
-        adv = (max_cost_8 - max_cost_8.mean(axis = 1, keepdims = True)) / (max_cost_8.std(axis = 1, keepdims = True) + 1e-6)
-        adv = - adv.reshape(-1,1,1)
-        adv_t = _convert_tensor(adv, device=self.device)
+        # costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)
+        # max_cost_8 = np.max(costs_8, axis=-1, keepdims=True)
+        # adv = (max_cost_8 - max_cost_8.mean(axis = 1, keepdims = True)) / (max_cost_8.std(axis = 1, keepdims = True) + 1e-6)
+        # adv = - adv.reshape(-1,1,1)
+        # adv_t = _convert_tensor(adv, device=self.device)
         gae = (gae- gae.mean()) / (gae.std()+1e-8)
-        act_loss = -( act_logp * ( gae + 0.5*adv_t)).mean()
+
+        ratio = torch.exp(act_logp - act_logp.detach())
+
+        act_loss = -( ratio * ( gae )).mean()
         agt_loss = None
         if agents_logp is not None:
-            agt_loss = -(agents_logp * gae).mean()
+            agents_ratio = torch.exp(agents_logp - agents_logp.detach())
+            agt_loss = -(agents_ratio * gae).mean()
         return act_loss, agt_loss
 
-    def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs, V, rewards):
+    def learn(self, act_logp, agents_logp, act_ent, agt_ent, costs, V, rewards, team_rewards):
         self.model.train()
 
         loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
 
-        gae, returns = self._get_gae(rewards, V)
+        gae, returns = self._get_gae(rewards, V, team_rewards)
 
         act_loss, agents_loss = self._get_loss(act_logp, agents_logp, gae, costs)
 
@@ -129,15 +161,15 @@ class AgentIDVR(AgentBase):
 
         value_loss = self.__get_value_loss(returns, V)
 
-        if not torch.isnan(agt_ent_loss) and not torch.isclose(loss, torch.zeros((1,), device=self.device)):
-            loss += 0.5 * value_loss
-            loss /= self.args.accumulation_steps
-            loss.backward()
-            self.train_count += 1
-        else:
-            del agents_logp, agt_ent, act_logp, act_ent,
-            print("empty")
-            torch.cuda.empty_cache()
+        # if not torch.isnan(agt_ent_loss) and not torch.isclose(loss, torch.zeros((1,), device=self.device)):
+        loss += 0.5 * value_loss
+        loss /= self.args.accumulation_steps
+        loss.backward()
+        self.train_count += 1
+        # else:
+        #     del agents_logp, agt_ent, act_logp, act_ent,
+        #     print("empty")
+        #     torch.cuda.empty_cache()
 
 
         if self.train_count % self.args.accumulation_steps == 0:
@@ -185,6 +217,7 @@ class AgentIDVR(AgentBase):
         agt_ent_list = []
         V_list = []
         rewards_list = []
+        team_rewards_list = []
 
         done = False
         use_conflict_model = False
@@ -220,6 +253,7 @@ class AgentIDVR(AgentBase):
             states, r, done, env_info = env.step(acts_no_conflict + 1)
 
             rewards_list.append(r[...,None])
+            team_rewards_list.append(env_info["team_reward"][...,None])
             salesmen_masks = env_info["salesmen_masks"]
             masks_in_salesmen = env_info["masks_in_salesmen"]
             city_mask = env_info["mask"]
@@ -269,6 +303,7 @@ class AgentIDVR(AgentBase):
             # agents_likelihood = torch.sum(agents_logp, dim=-1) / agents_logp.count_nonzero(dim=-1)
             V_t = torch.cat(V_list, dim=-1)
             rewards_np = np.concatenate(rewards_list, axis=-1)
+            team_rewards_np = np.concatenate(team_rewards_list, axis=-1)
             return (
                 act_logp,
                 agents_logp,
@@ -276,7 +311,8 @@ class AgentIDVR(AgentBase):
                 agt_ent,
                 env_info["costs"],
                 V_t,
-                rewards_np
+                rewards_np,
+                team_rewards_np,
             )
 
 if __name__ == '__main__':

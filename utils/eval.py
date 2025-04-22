@@ -25,15 +25,15 @@ if __name__ == "__main__":
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=100)
     parser.add_argument("--eval_size", type=int, default=10)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=740000) # 710 2.493
-    parser.add_argument("--tsp_agent_id", type=int, default=655000)
+    parser.add_argument("--agent_id", type=int, default=440000) # 710 2.493 / 850 2.489 910 2.486
+    parser.add_argument("--tsp_agent_id", type=int, default=00)
     parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not  allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -92,21 +92,21 @@ if __name__ == "__main__":
         trajs.append(no_conflict_greedy_traj[0])
         times.append(no_conflict_greedy_time)
         names.append("no_conflict_greedy")
-
-        if args.tsp_agent_id > 0:
-            optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(eval_graph, TSP_agent, [greedy_traj[0]] if args.batch_size == 1 else greedy_traj)
-            optim_time = greedy_time + optim_time
-            costs.append(optim_cost)
-            trajs.append(optim_traj[0])
-            times.append(optim_time)
-            names.append("optim")
+        #
+        # if args.tsp_agent_id > 0:
+        #     optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(eval_graph, TSP_agent, [greedy_traj[0]] if args.batch_size == 1 else greedy_traj)
+        #     optim_time = greedy_time + optim_time
+        #     costs.append(optim_cost)
+        #     trajs.append(optim_traj[0])
+        #     times.append(optim_time)
+        #     names.append("optim")
 
         # sample_cost, sample_traj ,sample_time = EvalTools.EvalSample(graph, agent_nums, agent, env)
         # costs.append(sample_cost)
         # trajs.append(sample_traj)
         # times.append(sample_time)
         # names.append("sample")
-
+        #
         # ortools_cost, ortools_traj, ortools_time = EvalTools.EvalOrTools(graph, agent_nums)
         # LKH_cost, LKH_traj, LKH_time = EvalTools.EvalLKH3(eval_graph, agent_nums)
         # costs.append(LKH_cost)

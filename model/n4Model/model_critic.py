@@ -1,4 +1,4 @@
-from model.n4Model.model_v5 import Model as BaseModel
+from model.n4Model.model_v6 import Model as BaseModel
 import torch
 import torch.nn as nn
 from model.n4Model.config import Config
@@ -10,11 +10,11 @@ class CriticModel(nn.Module):
         self.embed_dim = embed_dim
         self.V = nn.Sequential(
             nn.Linear(self.embed_dim, self.embed_dim * 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(self.embed_dim * 2, self.embed_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(self.embed_dim, self.embed_dim // 2),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(self.embed_dim // 2, 1),
         )
 

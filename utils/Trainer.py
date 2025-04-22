@@ -33,7 +33,13 @@ def set_seed(seed=42):
     # # 禁用CUDA不确定算法
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
-
+def tensorboard_write(writer, train_count, act_loss, agents_loss, act_ent_loss, agents_ent_loss, grad, lr):
+    writer.add_scalar("train/act_loss", act_loss, train_count)
+    writer.add_scalar("train/agents_loss", agents_loss, train_count)
+    writer.add_scalar("train/act_ent_loss", act_ent_loss, train_count)
+    writer.add_scalar("train/agt_ent_loss", agents_ent_loss, train_count)
+    writer.add_scalar("train/grad", grad, train_count)
+    writer.add_scalar("train/lr", lr, train_count)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
@@ -49,18 +55,18 @@ if __name__ == "__main__":
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-2)
+    parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=720000)
+    parser.add_argument("--agent_id", type=int, default=445000)
     parser.add_argument("--env_masks_mode", type=int, default=5,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
@@ -115,7 +121,7 @@ if __name__ == "__main__":
             def triangular_random(low, high):
                 """数值越接近 low，概率越高"""
                 return int(np.floor(random.triangular(low, high+1, low)))
-            agent_num = triangular_random(low=1, high=args.agent_num)
+            agent_num = triangular_random(low=2, high=args.agent_num)
         if args.random_city_num:
             city_nums = np.random.randint(args.city_nums - 20, args.city_nums+1)
         else:
@@ -133,7 +139,7 @@ if __name__ == "__main__":
         output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
         loss_s = agent.learn(*output)
 
-        EvalTools.tensorboard_write(writer, i,
+        tensorboard_write(writer, i,
                           *loss_s,
                           agent.optim.param_groups[0]["lr"]
                           )

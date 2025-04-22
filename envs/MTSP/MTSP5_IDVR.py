@@ -13,6 +13,7 @@ class MTSPEnv_IDVR(MTSPEnv):
         super(MTSPEnv_IDVR,self)._init(graph)
         self.last_costs = copy.deepcopy(self.costs)
         self.last_potential_reward = self.advanced_minmax_potential()
+        self.team_reward = None
 
     def advanced_minmax_potential(self):
         """针对MINMAXMTSP优化的潜在函数"""
@@ -50,9 +51,19 @@ class MTSPEnv_IDVR(MTSPEnv):
         # self.last_potential_reward = current_potential
         # self.rewards = shaping_reward
         self.rewards = self.last_costs - self.costs
-        self.last_costs = self.costs
-        return self.rewards
+        self.team_reward = np.max(self.last_costs, axis = 1) - np.max(self.costs, axis = 1)
 
+        self.last_costs = self.costs.copy()
+
+
+        return self.rewards, self.team_reward
+
+    def step(self, action):
+        states, r, d, info = super(MTSPEnv_IDVR,self).step(action)
+        info.update({
+            'team_reward': self.team_reward,
+        })
+        return states, r, d, info
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
