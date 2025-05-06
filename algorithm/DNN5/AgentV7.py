@@ -92,7 +92,8 @@ class Agent(AgentBase):
         else:
             act_loss = self._get_loss(act_logp, agents_logp,alpha_logp, costs)
 
-        loss = act_loss - alpha * 0.01
+        loss = act_loss
+        #- alpha * 0.0001
         loss /= self.args.accumulation_steps
         loss.backward()
 

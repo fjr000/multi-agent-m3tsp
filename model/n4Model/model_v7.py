@@ -541,7 +541,7 @@ class ActionDecoder(nn.Module):
         alpha, agents_logits = self.agent_selector(city_embed_mean, agent_embed, agent_mask)
         K = torch.ceil(alpha * active_agent_num[...,None])
         mask, logp = gumbel_topk(agents_logits, K)
-        logp_K = torch.where(K.squeeze()!=0, logp / K.squeeze(), 0.0)
+        logp_K = torch.where(K.squeeze()!=0, logp * (alpha /agent_embed.size(1)).squeeze(), 0.0)
         mask = (mask.squeeze(1).unsqueeze(2).bool())
         cur_pos = agent[:,:,1:2].long()
         new_masks = masks.scatter(2,cur_pos,mask)
