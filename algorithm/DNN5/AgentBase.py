@@ -34,12 +34,14 @@ class AgentBase:
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
         self.model.init_city(graph_t, n_agents)
 
-    def _get_action_logprob(self, states, masks, mode="greedy", info=None):
+    def _get_action_logprob(self, states, masks, mode="greedy", info=None, eval=False):
         info = {} if info is None else info
         info.update({
             "mode": mode,
         })
-        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, info)
+        actions_logits, agents_logits, acts, acts_no_conflict, agents_mask = self.model(states, masks, info, eval=eval)
+        if eval:
+            return acts, acts_no_conflict, None, None, None, None
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
@@ -56,14 +58,15 @@ class AgentBase:
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
+
         actions, actions_no_conflict, act_logp, agents_logp, act_entropy, agt_entropy = self._get_action_logprob(
             states_t, masks_t,
-            mode="sample", info=info)
+            mode="sample", info=info, eval=False)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp, act_entropy, agt_entropy
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info)
+        actions, actions_no_conflict, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=False)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __update_net(self, optim, params, loss):

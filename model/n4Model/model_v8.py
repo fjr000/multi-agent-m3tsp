@@ -592,7 +592,7 @@ class Model(nn.Module):
         self.actions_model.init_city(city, n_agents)
         self.step = 0
 
-    def forward(self, agent, mask, info=None):
+    def forward(self, agent, mask, info=None, eval=False):
 
         if self.step == 0:
             self.actions_model.agent_decoder.init_rnn_state(agent.size(0), agent.size(1), agent.device)
@@ -653,6 +653,14 @@ class Model(nn.Module):
             A = actions_logits.size(1)
             N = actions_logits.size(2)
 
+            final_acts = torch.zeros((B,A),dtype=torch.int64,device=actions_logits.device)
+            final_acts[batch_mask] = acts
+            final_acts_no_conflict = torch.zeros((B,A),dtype=torch.int64,device=actions_logits.device)
+            final_acts_no_conflict[batch_mask] = acts_no_conflict
+
+            if eval:
+                return None, None, acts, acts_no_conflict, None
+
             final_actions_logits = torch.full((B, A, N),
                                               fill_value=-torch.inf,
                                               dtype=torch.float32,
@@ -663,10 +671,7 @@ class Model(nn.Module):
             final_agents_logits = torch.eye(A, device=actions_logits.device).repeat(B, 1, 1)
             final_agents_logits[batch_mask] = agents_logits
 
-            final_acts = torch.zeros((B,A),dtype=torch.int64,device=actions_logits.device)
-            final_acts[batch_mask] = acts
-            final_acts_no_conflict = torch.zeros((B,A),dtype=torch.int64,device=actions_logits.device)
-            final_acts_no_conflict[batch_mask] = acts_no_conflict
+
             final_masks = torch.ones((B, A), dtype=torch.bool, device=masks.device)
             final_masks[batch_mask] = masks
 
