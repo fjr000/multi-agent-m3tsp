@@ -659,7 +659,7 @@ class Model(nn.Module):
             final_acts_no_conflict[batch_mask] = acts_no_conflict
 
             if eval:
-                return None, None, acts, acts_no_conflict, None
+                return None, None, final_acts, final_acts_no_conflict, None
 
             final_actions_logits = torch.full((B, A, N),
                                               fill_value=-torch.inf,

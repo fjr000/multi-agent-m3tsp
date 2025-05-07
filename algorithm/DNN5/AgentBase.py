@@ -66,7 +66,7 @@ class AgentBase:
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, actions_no_conflict, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=False)
+        actions, actions_no_conflict, _, _, _, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=True)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy()
 
     def __update_net(self, optim, params, loss):
