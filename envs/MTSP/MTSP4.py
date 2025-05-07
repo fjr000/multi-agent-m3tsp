@@ -461,6 +461,7 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
+            "dones":None
         }
 
         return self._get_salesmen_states(), env_info
@@ -637,6 +638,7 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
+            "dones": self.dones if any(self.dones) else None
         }
 
         # self.ori_actions_list.append(ori_actions)

@@ -188,8 +188,9 @@ class CrossAttentionCacheKVLayer(nn.Module):
     def init(self, city_embed):
         self.multiHeadAttention.init(city_embed)
 
-    def forward(self, q, attn_mask=None):
-        att_out = self.multiHeadAttention(q, attn_mask)
+
+    def forward(self, q, attn_mask=None, batch_mask = None):
+        att_out = self.multiHeadAttention(q, attn_mask, batch_mask)
         hidden = self.alpha1 * att_out + q
         hidden_ln = self.normalization1(hidden)
         if self.use_FFN:

@@ -225,6 +225,7 @@ class AgentBase:
         salesmen_masks = env_info["salesmen_masks"]
         masks_in_salesmen = env_info["masks_in_salesmen"]
         city_mask = env_info["mask"]
+        dones = env_info["dones"]
 
         graph = env_info["graph"]
 
@@ -247,9 +248,11 @@ class AgentBase:
             else:
                 masks_in_salesmen_t = None
             city_mask_t = _convert_tensor(~city_mask, dtype=torch.bool, device=self.device)
+            dones_t = _convert_tensor(dones,dtype=torch.bool, device=self.device) if dones is not None else None
             info.update({
                 "masks_in_salesmen": masks_in_salesmen_t,
-                "mask": city_mask_t
+                "mask": city_mask_t,
+                "dones": dones_t
             })
             if eval_mode:
                 acts, acts_no_conflict = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
@@ -267,6 +270,8 @@ class AgentBase:
             salesmen_masks = env_info["salesmen_masks"]
             masks_in_salesmen = env_info["masks_in_salesmen"]
             city_mask = env_info["mask"]
+            dones = env_info["dones"]
+
 
         if eval_mode:
             return env_info

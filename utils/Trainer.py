@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.DNN5.AgentV6 import Agent as Agent
+from algorithm.DNN5.AgentV8 import Agent as Agent
 import tqdm
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config

@@ -163,26 +163,26 @@ class MTSPEnv(Env):
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = False
         elif self.env_masks_mode == 5:
-            pass
-            # active_agents = self.traj_stages <= 1  # [B,A]
-            # batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]  # [B,]
-            # batch_indices = batch_indices_1d[:, None]  # [B,A]
-            #
-            # cur_costs = self.costs[batch_indices_1d]  # [B,A]
-            # cur_pos = self.cur_pos[batch_indices_1d]  # [B,A]
-            # dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
-            # expect_dis = cur_costs + dis_depot  # [B,A]
-            # max_expect_dis = np.max(expect_dis, axis=-1, keepdims=True)
-            #
-            # selected_dists = self.graph_matrix[batch_indices, cur_pos]  # [B,A,N]
-            # each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
-            # selected_dists_depot = cur_costs[..., None] + selected_dists + each_depot_dist  # [B,A,N]
-            # masked_dist_depot = np.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, np.inf)
-            # min_dist_depot = np.min(masked_dist_depot, axis=2)  # [B,A]
-            # min_min_dist_depot = np.min(min_dist_depot, axis=1, keepdims=True)
-            # allow_stay = ((min_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
-            #
-            # repeat_masks[batch_indices, np.arange(A)[None,], cur_pos] = allow_stay
+            # pass
+            active_agents = self.traj_stages <= 1  # [B,A]
+            batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]  # [B,]
+            batch_indices = batch_indices_1d[:, None]  # [B,A]
+
+            cur_costs = self.costs[batch_indices_1d]  # [B,A]
+            cur_pos = self.cur_pos[batch_indices_1d]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
+            expect_dis = cur_costs + dis_depot  # [B,A]
+            max_expect_dis = np.max(expect_dis, axis=-1, keepdims=True)
+
+            selected_dists = self.graph_matrix[batch_indices, cur_pos]  # [B,A,N]
+            each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
+            selected_dists_depot = cur_costs[..., None] + selected_dists + each_depot_dist  # [B,A,N]
+            masked_dist_depot = np.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, np.inf)
+            min_dist_depot = np.min(masked_dist_depot, axis=2)  # [B,A]
+            min_min_dist_depot = np.min(min_dist_depot, axis=1, keepdims=True)
+            allow_stay = ((min_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
+
+            repeat_masks[batch_indices, np.arange(A)[None,], cur_pos] = allow_stay
         elif self.env_masks_mode == 6:
             active_agents = self.traj_stages <= 1  # [B,A]
             batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]  # [B,]
@@ -202,6 +202,28 @@ class MTSPEnv(Env):
             min_min_dist_depot = np.min(min_dist_depot, axis=1, keepdims=True)
             # allow_stay = ((min_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
             allow_stay = (min_dist_depot != min_min_dist_depot)
+
+            repeat_masks[batch_indices, np.arange(A)[None,], cur_pos] = allow_stay
+        elif self.env_masks_mode == 7:
+            # pass
+            active_agents = self.traj_stages <= 1  # [B,A]
+            batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]  # [B,]
+            batch_indices = batch_indices_1d[:, None]  # [B,A]
+
+            cur_costs = self.costs[batch_indices_1d]  # [B,A]
+            cur_pos = self.cur_pos[batch_indices_1d]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
+            expect_dis = cur_costs + dis_depot  # [B,A]
+            max_expect_dis = np.max(expect_dis, axis=-1, keepdims=True)
+
+            selected_dists = self.graph_matrix[batch_indices, cur_pos]  # [B,A,N]
+            each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
+            selected_dists_depot = cur_costs[..., None] + selected_dists + each_depot_dist  # [B,A,N]
+            masked_dist_depot = np.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, np.nan)
+            min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
+            max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
+            min_min_dist_depot = np.min(min_dist_depot, axis=1, keepdims=True)
+            allow_stay = ((max_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
 
             repeat_masks[batch_indices, np.arange(A)[None,], cur_pos] = allow_stay
         else:
@@ -238,7 +260,7 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=5,
+    parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")

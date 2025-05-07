@@ -31,11 +31,17 @@ class MultiHeadAttentionCacheKV(nn.Module):
         self.glimpse_K = self.glimpse_K.view(B, -1, self.n_head, self.head_dim).permute(0, 2, 3, 1)
         self.glimpse_V = self.glimpse_V.view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
 
-    def forward(self, q_embed, mask=None):
+    def forward(self, q_embed, mask=None, batch_mask = None):
         B = q_embed.size(0)
         glimpse_Q = self.W_q(q_embed).view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
 
-        score = torch.matmul(glimpse_Q, self.glimpse_K) / math.sqrt(self.head_dim)
+        glimpse_K = self.glimpse_K
+        glimpse_V = self.glimpse_V
+        if batch_mask is not None:
+            glimpse_K = glimpse_K[batch_mask]
+            glimpse_V = glimpse_V[batch_mask]
+
+        score = torch.matmul(glimpse_Q, glimpse_K) / math.sqrt(self.head_dim)
 
         if mask is not None:
             score = score.masked_fill(mask.unsqueeze(1), -torch.inf)
@@ -43,7 +49,7 @@ class MultiHeadAttentionCacheKV(nn.Module):
         attn_weight = F.softmax(score, dim=-1)
         attn_weight = self.dropout(attn_weight)
 
-        context = torch.matmul(attn_weight, self.glimpse_V)
+        context = torch.matmul(attn_weight, glimpse_V)
         context = context.transpose(1, 2).contiguous().view(B, -1, self.d_model)
         out = self.out(context)
         return out
@@ -66,13 +72,17 @@ class SingleHeadAttentionCacheK(nn.Module):
         self.glimpse_K = self.W_k(embed)
         self.glimpse_K = self.glimpse_K.transpose(-2, -1)
 
-    def forward(self, q_embed, mask=None):
+    def forward(self, q_embed, mask=None, batch_mask = None):
         B = q_embed.size(0)
         glimpse_Q = q_embed
         if self.use_query_proj:
             glimpse_Q = self.W_q(q_embed)
 
-        logits = torch.matmul(glimpse_Q, self.glimpse_K) / math.sqrt(self.d_model)
+        glimpse_K = self.glimpse_K
+        if batch_mask is not None:
+            glimpse_K = glimpse_K[batch_mask]
+
+        logits = torch.matmul(glimpse_Q, glimpse_K) / math.sqrt(self.d_model)
 
         if self.tanh_clip > 0:
             logits = torch.tanh(logits) * self.tanh_clip
