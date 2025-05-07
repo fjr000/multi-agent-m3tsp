@@ -577,7 +577,7 @@ class Model(nn.Module):
         self.actions_model.init_city(city, n_agents)
         self.step = 0
 
-    def forward(self, agent, mask, info=None):
+    def forward(self, agent, mask, info=None, eval=False):
 
         if self.step == 0:
             self.actions_model.agent_decoder.init_rnn_state(agent.size(0), agent.size(1), agent.device)
