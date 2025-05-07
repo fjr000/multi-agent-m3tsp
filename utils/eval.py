@@ -13,7 +13,7 @@ from algorithm.DNN5.AgentV6 import Agent as Agent
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=5)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -28,13 +28,13 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=100)
-    parser.add_argument("--eval_size", type=int, default=10)
+    parser.add_argument("--eval_size", type=int, default=200)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=1900004) # 710 2.493 / 850 2.489 910 2.486
+    parser.add_argument("--agent_id", type=int, default=2195004) # 710 2.493 / 850 2.489 910 2.486
     parser.add_argument("--tsp_agent_id", type=int, default=00)
-    parser.add_argument("--env_masks_mode", type=int, default=5,
+    parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not  allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
@@ -81,17 +81,20 @@ if __name__ == "__main__":
         names = []
 
         eval_graph = graph
-        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env)
-        costs.append(greedy_cost)
-        trajs.append(greedy_traj[0])
-        times.append(greedy_time)
-        names.append("greedy")
 
         no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env,{"use_conflict_model":False})
         costs.append(no_conflict_greedy_cost)
         trajs.append(no_conflict_greedy_traj[0])
         times.append(no_conflict_greedy_time)
         names.append("no_conflict_greedy")
+
+        greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env)
+        costs.append(greedy_cost)
+        trajs.append(greedy_traj[0])
+        times.append(greedy_time)
+        names.append("greedy")
+
+
         #
         # if args.tsp_agent_id > 0:
         #     optim_cost, optim_traj, optim_time = EvalTools.EvalTSPGreedy(eval_graph, TSP_agent, [greedy_traj[0]] if args.batch_size == 1 else greedy_traj)
