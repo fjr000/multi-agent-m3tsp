@@ -345,7 +345,7 @@ class ActionDecoder(nn.Module):
         )
 
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.action = SingleHeadAttentionCacheK(embed_dim)
+        self.action = SingleHeadAttentionCacheK(embed_dim, tanh_clip=30)
         self.num_heads = num_heads
 
         self.rnn = None
@@ -668,18 +668,18 @@ class Model(nn.Module):
             final_actions_logits[:, :, 0] = 1.0 # 模拟选择仓库
             final_actions_logits[batch_mask] = actions_logits
 
-            final_agents_logits = torch.eye(A, device=actions_logits.device).repeat(B, 1, 1)
-            final_agents_logits[batch_mask] = agents_logits
+            if agents_logits is not None:
+                final_agents_logits = torch.eye(A, device=actions_logits.device).repeat(B, 1, 1)
+                final_agents_logits[batch_mask] = agents_logits
+                agents_logits = final_agents_logits
 
-
-            final_masks = torch.ones((B, A), dtype=torch.bool, device=masks.device)
-            final_masks[batch_mask] = masks
+                final_masks = torch.ones((B, A), dtype=torch.bool, device=masks.device)
+                final_masks[batch_mask] = masks
+                masks = final_masks
 
             actions_logits = final_actions_logits
-            agents_logits = final_agents_logits
             acts = final_acts
             acts_no_conflict = final_acts_no_conflict
-            masks = final_masks
         return actions_logits, agents_logits, acts, acts_no_conflict, masks
 
 

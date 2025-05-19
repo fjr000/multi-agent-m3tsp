@@ -134,7 +134,7 @@ class AgentBase:
 
         return act_loss, agents_loss
 
-    def __get_loss_only_instance(self, act_logp, agents_logp, costs):
+    def _get_loss_only_instance(self, act_logp, agents_logp, costs):
         # 智能体间平均， 组间最小化最大
 
         agents_avg_cost = np.mean(costs, keepdims=True, axis=-1)
@@ -178,7 +178,7 @@ class AgentBase:
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
         if self.args.only_one_instance:
-            act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
+            act_loss, agents_loss = self._get_loss_only_instance(act_logp, agents_logp, costs)
         else:
             act_loss, agents_loss = self._get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent

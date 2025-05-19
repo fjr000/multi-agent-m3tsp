@@ -8,12 +8,12 @@ sys.path.append("./")
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
 
-from algorithm.DNN5.AgentV6 import Agent as Agent
+from algorithm.DNN5.AgentV8 import Agent as Agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=5)
+    parser.add_argument("--agent_num", type=int, default=3)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=5)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=2195004) # 710 2.493 / 850 2.489 910 2.486
+    parser.add_argument("--agent_id", type=int, default=470006) # 710 2.493 / 850 2.489 910 2.486
     parser.add_argument("--tsp_agent_id", type=int, default=00)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not  allow back depot; 1 for only the max cost allow back depot")
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser.add_argument("--conflict_loss_rate", type=float, default=0.5 + 0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=13000, help="save model interval")
-    parser.add_argument("--seed", type=int, default=3333, help="random seed")
+    parser.add_argument("--seed", type=int, default=528, help="random seed")
     parser.add_argument("--draw", type=bool, default=True, help="whether to draw result")
 
     args = parser.parse_args()

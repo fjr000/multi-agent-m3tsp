@@ -88,7 +88,7 @@ class Agent(AgentBase):
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
         if self.args.only_one_instance:
-            act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
+            act_loss, agents_loss = self._get_loss_only_instance(act_logp, agents_logp, costs)
         else:
             act_loss = self._get_loss(act_logp, agents_logp,alpha_logp, costs)
 

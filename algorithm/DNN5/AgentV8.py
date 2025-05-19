@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from model.n4Model.model_v8 import Model
@@ -51,13 +52,87 @@ class Agent(AgentBase):
             mode="sample", info=info, eval=False)
         return actions.cpu().numpy(), actions_no_conflict.cpu().numpy(), act_logp, agents_logp,stay_up_logp, act_entropy, agt_entropy
 
+    def _get_loss(self, act_logp, agents_logp, costs):
+
+        # 智能体间平均， 组间最小化最大
+        costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
+        act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
+
+        # agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
+        agents_max_cost = np.max(costs_8, axis=-1)
+        # # 智能体间优势
+        # agents_adv = costs_8 - agents_max_cost
+        # # agents_adv = agents_adv - agents_adv.mean(keepdims=True, axis=-1)
+        # agents_adv = (agents_adv - agents_adv.mean(keepdims=True, axis=-1)) / (
+        #         agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        # agents_adv = (agents_adv - agents_adv.mean( keepdims=True,axis = -1))/(agents_adv.std(axis=-1, keepdims=True) + 1e-8)
+        # 实例间优势
+        # group_adv = agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
+                agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
+        # 组合优势
+        # adv = self.args.agents_adv_rate * agents_adv + group_adv
+        adv = group_adv
+
+        # 转换为tensor并放到指定的device上
+        adv_t = _convert_tensor(adv, device=self.device)
+
+        # 对动作概率为零的样本进行掩码
+        act_logp_8_sum = act_logp_8.sum(dim=-1)
+        mask_ = ((act_logp_8_sum != 0) & (~torch.isnan(act_logp_8_sum)))
+
+        # 计算动作网络的损失，mask之后加权平均
+        act_loss = (torch.exp(act_logp_8_sum[mask_] - act_logp_8_sum[mask_].detach()) * adv_t[mask_]).mean()
+        if agents_logp is not None:
+            agents_logp_8 = agents_logp.reshape(agents_logp.shape[0] // 8, 8, -1)  # 将智能体动作概率按实例组进行分组
+            # 对智能体的动作概率进行掩码
+            mask_ = ((agents_logp_8 != 0) & (~torch.isnan(agents_logp_8)))
+
+            # 计算智能体的损失，mask之后加权平均
+            agents_loss = ((agents_logp_8[mask_] - agents_logp_8[mask_].detach()) * adv_t[...,None].expand(-1,-1,mask_.size(-1))[mask_]).mean()
+        else:
+            agents_loss = None
+
+        return act_loss, agents_loss
+
+    def _get_loss_only_instance(self, act_logp, agents_logp, costs):
+        # 智能体间平均， 组间最小化最大
+        # agents_avg_cost = np.mean(costs_8, keepdims=True, axis=-1)
+        agents_max_cost = np.max(costs, axis=-1)
+        group_adv = (agents_max_cost - np.mean(agents_max_cost, axis=-1)) / (
+                agents_max_cost.std(axis=-1) + 1e-8)
+        # 组合优势
+        # adv = self.args.agents_adv_rate * agents_adv + group_adv
+        adv = group_adv
+
+        # 转换为tensor并放到指定的device上
+        adv_t = _convert_tensor(adv, device=self.device)
+
+        # 对动作概率为零的样本进行掩码
+        act_logp_sum = act_logp.sum(dim=-1)
+        mask_ = ((act_logp_sum != 0) & (~torch.isnan(act_logp_sum)))
+
+        # 计算动作网络的损失，mask之后加权平均
+        act_loss = (torch.exp(act_logp_sum[mask_] - act_logp_sum[mask_].detach()) * adv_t[mask_]).mean()
+        if agents_logp is not None:
+            # 对智能体的动作概率进行掩码
+            mask_ = ((agents_logp != 0) & (~torch.isnan(agents_logp)))
+
+            # 计算智能体的损失，mask之后加权平均
+            agents_loss = ((agents_logp[mask_] - agents_logp[mask_].detach()) *
+                           adv_t[..., None].expand(-1, mask_.size(-1))[mask_]).mean()
+        else:
+            agents_loss = None
+
+        return act_loss, agents_loss
+
     def learn(self, act_logp, agents_logp,stay_up_likelihood, act_ent, agt_ent, costs):
         self.model.train()
         self.train_count += 1
         agt_ent_loss = torch.tensor([0], device=self.device)
         agents_loss = torch.tensor([0], device=self.device)
         if self.args.only_one_instance:
-            act_loss, agents_loss = self.__get_loss_only_instance(act_logp, agents_logp, costs)
+            act_loss, agents_loss = self._get_loss_only_instance(act_logp, agents_logp, costs)
         else:
             act_loss, agents_loss = self._get_loss(act_logp, agents_logp, costs)
         act_ent_loss = act_ent
@@ -76,8 +151,9 @@ class Agent(AgentBase):
         if self.args.train_actions_model:
             loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
 
-        stay_up_loss = stay_up_likelihood.mean()
-        loss += 0.01 * stay_up_loss
+        stay_up_loss = torch.tensor([0])
+        # stay_up_loss = stay_up_likelihood.sum(dim=-1).mean()
+        # loss += 0.0005 * torch.exp(stay_up_loss - stay_up_loss.detach())
         loss /= self.args.accumulation_steps
         loss.backward()
 
@@ -87,7 +163,7 @@ class Agent(AgentBase):
             self.optim.step()
             self.optim.zero_grad()
         if agents_logp is None:
-            return act_loss.item(), 0, act_ent_loss.item(), 0
+            return act_loss.item(), 0,stay_up_loss.item(), act_ent_loss.item(), 0, pre_grad
         return act_loss.item(), agents_loss.item(),stay_up_loss.item(), act_ent_loss.item(), agt_ent_loss.item(), pre_grad
 
     def run_batch_episode(self, env, batch_graph, agent_num, eval_mode=False, exploit_mode="sample", info=None):
@@ -163,7 +239,7 @@ class Agent(AgentBase):
             return env_info
         else:
             act_logp = torch.cat(act_logp_list, dim=-1)
-            act_ent = torch.cat(act_ent_list, dim=-1).mean()
+            act_ent = torch.cat(act_ent_list, dim=-1).sum(dim=1)
             act_ent = act_ent.sum() / act_ent.count_nonzero()
             # act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
             act_likelihood = torch.sum(act_logp, dim=-1)
