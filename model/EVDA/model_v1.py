@@ -9,6 +9,7 @@ import math
 from model.Base.Net import SkipConnection
 from model.ET.model_v1 import MultiHeadAttentionCacheKV, SingleHeadAttentionCacheK
 from model.n4Model.model_v4 import CrossAttentionCacheKVLayer
+from utils.TensorTools import _convert_tensor
 
 class Config(object):
     agent_dim = 10
@@ -24,7 +25,7 @@ class Config(object):
     agent_encoder_num_heads = 8
 
     action_decoder_hidden_dim = 128
-    action_decoder_num_layers = 3
+    action_decoder_num_layers = 2
     action_decoder_num_heads = 8
 
     conflict_deal_hidden_dim = 128
@@ -73,8 +74,10 @@ class GlobalGraphEmbed(nn.Module):
 
     def forward(self, num, city_embed):
         depot = city_embed[:,0:1]
-        num_embed = self.num_embed_layer(num)
-        query = self.query_embed(torch.cat([depot, num_embed], dim=-1))
+        num_t = _convert_tensor(np.array([num]),device=city_embed.device)
+        num_embed = self.num_embed_layer(num_t)
+        num_embed_expand = num_embed.reshape(1,1,city_embed.size(-1)).expand(city_embed.size(0),-1,-1)
+        query = self.query_embed(torch.cat([depot, num_embed_expand], dim=-1))
         kv = city_embed
         global_graph_embed = self.global_graph_embed(query, kv, kv)
         return global_graph_embed
@@ -123,7 +126,6 @@ class GateConnection(nn.Module):
 
 
 from model.Common.MHA import Normalization
-
 
 class BNMHAGATEFFNLayer(nn.Module):
     def __init__(self, n_head, embed_dim, hidden_dim, normalization='batch', dropout=0):
@@ -174,12 +176,13 @@ class CityEncoder(nn.Module):
         self.position_encoder = VectorizedRadialEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.alpha = nn.Parameter(torch.tensor([0.1]))
-        self.city_embed_mean = None
+        self.global_graph_embed_layer = GlobalGraphEmbed(1000, embed_dim, hidden_dim)
+        self.global_graph_embed = None
         self.city_embed = None
 
     def update_city_mean(self, n_agent, city_mask=None, batch_mask=None):
         if (city_mask is None):
-            return self.city_embed_mean
+            return self.global_graph_embed
         else:
             # 获取原始城市嵌入（排除最后n_agent个）
             if batch_mask is not None:
@@ -198,8 +201,14 @@ class CityEncoder(nn.Module):
             # 计算掩码后的均值
             masked_sum = (ori_city_embed * valid_mask.unsqueeze(-1).float()).sum(dim=1, keepdim=True)
             mean = masked_sum / valid_counts.view(-1, 1, 1)
-            self.city_embed_mean = mean
-            return self.city_embed_mean
+            self.global_graph_embed = mean
+            return self.global_graph_embed
+
+    def update_global_graph_embed(self, n_agent, batch_mask=None):
+        if (batch_mask is None):
+            return self.global_graph_embed
+        else:
+            return self.global_graph_embed[batch_mask]
 
     def forward(self, city, n_agents, city_mask=None):
         """
@@ -221,11 +230,12 @@ class CityEncoder(nn.Module):
         for model in self.city_self_att:
             graph_embed = model(graph_embed, key_padding_mask=city_mask)
 
-        self.city_embed_mean = graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
+        # self.global_graph_embed = graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
+        self.global_graph_embed = self.global_graph_embed_layer(n_agents, graph_embed)
         self.city_embed = graph_embed
         return (
             self.city_embed,  # (B,A+N,E)
-            self.city_embed_mean
+            self.global_graph_embed
         )
 
 
@@ -619,45 +629,18 @@ class ActionsModel(nn.Module):
         self.city_embed, self.city_embed_mean = self.city_encoder(city, n_agents)
         self.agent_decoder.init(self.city_embed, n_agents)
 
-    def update_city_mean(self, n_agent, mask=None, batch_mask=None):
-        self.city_embed_mean = self.city_encoder.update_city_mean(n_agent, mask, batch_mask)
+    def update_global_graph_embed(self, n_agent, batch_mask=None):
+        self.city_embed_mean = self.city_encoder.update_global_graph_embed(n_agent, batch_mask)
 
     def forward(self, agent, mask, info=None):
-        # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
-        # ori_expand_graph = self.city_embed.expand(*batch_mask.shape)
-        # mask_expand_graph = ori_expand_graph * batch_mask
-        # mask_sum_expand_graph = mask_expand_graph.sum(1)
-        # non_zero_count = batch_mask.sum(1)
-        # avg_graph = mask_sum_expand_graph / non_zero_count
 
-        # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
-        # expand_graph = self.city_embed_mean.unsqueeze(1)
-        # city_mask = None if info is None else info.get("mask", None)
-        # self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
-        # cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
-        # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
-        # del city_mask
         batch_mask = None if info is None else info.get ("batch_mask", None)
         city_embed = self.city_embed
         if batch_mask is not None:
             city_embed = self.city_embed[batch_mask]
         actions_logits, agent_embed = self.agent_decoder(agent, self.city_embed_mean, city_embed, mask, batch_mask)
-        # x = torch.all(torch.isinf(actions_logits), dim=-1)
-        # xxx = torch.isnan(actions_logits).any().item()
-        # xx = x.any().item()
-        # if xx or xxx:
-        #     a = torch.argwhere(torch.isnan(actions_logits))
-        #     pass
-        # a = torch.argwhere(x)
 
         del mask
-
-        # agents_logits = self.deal_conflict(agent_embed, self.city_embed, actions_logits)
-
-        # expanded_city_embed = self.city_embed.expand(select.size(1), -1, -1)
-        # expanded_select = select.unsqueeze(-1).expand(-1,-1,128)
-        # select_city_embed = torch.gather(expanded_city_embed,1, expanded_select)
-        # reselect = self.action_reselector(agent_embed, select_city_embed)
         return actions_logits, agent_embed
 
 
@@ -666,6 +649,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.actions_model = ActionsModel(config)
         self.conflict_model = ConflictModel(config)
+        self.critic_model = GraphCritic(config.embed_dim, 256)
         initialize_weights(self)
         self.step = 0
         self.cfg = config
@@ -673,6 +657,8 @@ class Model(nn.Module):
     def init_city(self, city, n_agents):
         self.actions_model.init_city(city, n_agents)
         self.step = 0
+        value = self.critic_model(self.actions_model.city_encoder.global_graph_embed)
+        return value
 
     def forward(self, agent, mask, info=None, eval=False):
 
@@ -691,7 +677,7 @@ class Model(nn.Module):
             city_mask = city_mask[batch_mask] if city_mask is not None else city_mask
             mask = mask[batch_mask] if mask is not None else mask
 
-        self.actions_model.update_city_mean(agent.size(1), city_mask, batch_mask)
+        self.actions_model.update_global_graph_embed(agent.size(1), batch_mask)
 
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
