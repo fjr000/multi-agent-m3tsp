@@ -97,7 +97,9 @@ class AgentBase:
     def _compute_adv(self, costs, value):
         with torch.no_grad():
             costs_t = _convert_tensor(costs, device=self.device)
-            adv = (costs_t - value.detach())
+            baseline = value.detach()
+            baseline_8 = baseline.view(value.size(0) //8, 8 ,1).mean(dim=1).unsqueeze(1).repeat(1, 8, 1).view(-1, 1)
+            adv = (costs_t - baseline_8)
 
             adv_norm = (adv - adv.mean()) / (adv.std() + 1e-8)
 
@@ -108,13 +110,20 @@ class AgentBase:
         value_loss = nn.MSELoss()(instance_costs_t, value)
         return value_loss
 
+    def _get_consistency_loss(self, value):
+        consistency_loss = value.view(value.size(0) // 8, 8, 1).var(dim=1).mean()
+        return consistency_loss
+
     def _get_policy_loss(self, act_logp, agents_logp, costs, value):
 
         adv = self._compute_adv(costs, value)
 
-        act_loss = (act_logp * adv).sum(dim=-1).mean()
+        act_ratio = torch.exp(act_logp - act_logp.detach())
+        act_loss = (act_ratio * adv).sum(dim=-1).mean()
+
         if agents_logp is not None:
-            agents_loss = (agents_logp * adv).sum(dim=-1).mean()
+            agt_ratio = torch.exp(agents_logp - agents_logp.detach())
+            agents_loss = (agt_ratio * adv).sum(dim=-1).mean()
         else:
             agents_loss = None
 
@@ -129,6 +138,7 @@ class AgentBase:
 
         act_loss, agents_loss = self._get_policy_loss(act_logp, agents_logp, costs, value)
         value_loss = self._get_value_loss(instance_costs, value)
+        consistency_loss = self._get_consistency_loss(value)
         loss = torch.zeros((1), device=self.device)
 
         if agents_logp is not None and self.args.train_conflict_model:
@@ -145,6 +155,7 @@ class AgentBase:
             loss += act_loss + self.args.entropy_coef * (- act_ent_loss)
 
         loss += 0.5 * value_loss
+        loss += 0.1 * consistency_loss
 
         loss /= self.args.accumulation_steps
         loss.backward()
@@ -164,6 +175,7 @@ class AgentBase:
             "act_ent_loss": check(act_ent_loss),
             "agt_ent_loss": check(agt_ent_loss),
             "value_loss": check(value_loss),
+            "consistency_loss":check(consistency_loss),
             "grad": check(pre_grad),
         }
 
