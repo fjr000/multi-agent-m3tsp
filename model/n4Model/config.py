@@ -12,7 +12,7 @@ class Config(object):
     agent_encoder_num_heads = 8
 
     action_decoder_hidden_dim = 128
-    action_decoder_num_layers = 1
+    action_decoder_num_layers = 3
     action_decoder_num_heads = 8
 
     conflict_deal_hidden_dim = 128
