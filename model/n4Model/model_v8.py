@@ -345,7 +345,7 @@ class ActionDecoder(nn.Module):
         )
 
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.action = SingleHeadAttentionCacheK(embed_dim, tanh_clip=30)
+        self.action = SingleHeadAttentionCacheK(embed_dim, tanh_clip=10)
         self.num_heads = num_heads
 
         self.rnn = None

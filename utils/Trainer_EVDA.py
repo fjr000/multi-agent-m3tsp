@@ -70,10 +70,10 @@ if __name__ == "__main__":
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=999999999)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=1000, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")

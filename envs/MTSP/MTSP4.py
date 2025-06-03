@@ -50,8 +50,6 @@ class MTSPEnv:
 
         self.dim = 13
         self.step_count = 0
-        self.step_limit = -1
-        self.stay_still_limit = -1
         # self.remain_stay_still_log = None
 
         self.traj_stages = None
@@ -104,7 +102,6 @@ class MTSPEnv:
         self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float32)
         self.mask = np.ones((self.problem_size, self.cities,), dtype=np.bool_)
         self.mask[:,0] = 0
-        self.step_limit = self.cities
         # self.remain_stay_still_log = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32)
         self.traj_stages = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
         self.stage_2 = self.traj_stages >= 2
