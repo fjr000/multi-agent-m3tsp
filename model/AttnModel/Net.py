@@ -5,10 +5,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+
+class SwiGLU(nn.Module):
+    def __init__(self, dim, hidden_dim=128):
+        super().__init__()
+        hidden_dim = hidden_dim or dim * 2
+        self.w = nn.Linear(dim, hidden_dim * 2)
+        self.out = nn.Linear(hidden_dim, dim)
+
+    def forward(self, x):
+        a, b = self.w(x).chunk(2, dim=-1)
+        h = F.silu(a) * b
+        out = self.out(h)
+        return out
+
+
 class MultiHeadAttention(nn.Module):
-    def __init__(self, embedding_dim, n_heads, dropout=0):
+    def __init__(self, embedding_dim, n_heads):
         super(MultiHeadAttention, self).__init__()
-        self.layer = nn.MultiheadAttention(embedding_dim, n_heads, dropout=dropout, batch_first=True)
+        self.layer = nn.MultiheadAttention(embedding_dim, n_heads, batch_first=True)
 
     def forward(self, x, key_padding_mask=None, attn_mask=None):
         out, _ = self.layer(x, x, x,
@@ -18,49 +33,54 @@ class MultiHeadAttention(nn.Module):
 
 
 class CrossAttentionLayer(nn.Module):
-    def __init__(self, embedding_dim, num_heads, use_FFN=True, hidden_size=128, dropout=0):
+    def __init__(self, embedding_dim, num_heads, hidden_size=128):
         super(CrossAttentionLayer, self).__init__()
         self.embedding_dim = embedding_dim
-        self.use_FFN = use_FFN
         self.multiHeadAttention = nn.MultiheadAttention(embedding_dim, num_heads,
                                                         batch_first=True,
-                                                        dropout=dropout)
+                                                        )
         self.normalization1 = nn.LayerNorm(embedding_dim)
         self.alpha1 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
         self.alpha2 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
 
-        if self.use_FFN:
-            self.feedForward = nn.Sequential(
-                nn.Linear(embedding_dim, hidden_size),
-                nn.GELU(),
-                nn.Linear(hidden_size, embedding_dim)
-            )
-            self.normalization2 = nn.LayerNorm(embedding_dim)
-            self._reset_parameters_ffn()
+        self.ff = SwiGLU(embedding_dim, hidden_size)
 
-    def _reset_parameters_ffn(self):
-        for layer in self.feedForward:
-            if isinstance(layer, nn.Linear):
-                torch.nn.init.xavier_uniform_(layer.weight)
+        self.normalization2 = nn.LayerNorm(embedding_dim)
 
     def forward(self, q, k, v, attn_mask=None):
-        assert q.shape[-1] == self.embedding_dim and \
-               k.shape[-1] == self.embedding_dim and \
-               len(q.shape) == len(k.shape) and \
-               q.shape[0] == k.shape[0] and \
-               k.shape == v.shape, \
-            f"q.shape == k.shape == v.shape should be [B,S,{self.embedding_dim}]"
+        q_norm = self.normalization1(q)
+        att_out, _ = self.multiHeadAttention(q_norm, k, v, attn_mask = attn_mask)
+        hidden = q + self.alpha1 * att_out
 
-        att_out, _ = self.multiHeadAttention(q, k, v, attn_mask=attn_mask)
-        hidden = self.alpha1 * att_out + q
-        hidden_ln = self.normalization1(hidden)
+        hidden_norm = self.normalization2(hidden)
+        ff_out = self.ff(hidden_norm)
+        out = hidden + self.alpha2 * ff_out
+        return out
 
-        if self.use_FFN:
-            fn_out = self.feedForward(hidden_ln)
-            out = self.alpha2 * fn_out + hidden_ln
-            out = self.normalization2(out)
-        else:
-            out = hidden_ln
+
+class CrossAttentionCacheKVLayer(nn.Module):
+    def __init__(self, embedding_dim, num_heads, hidden_size=128):
+        super(CrossAttentionCacheKVLayer, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.multiHeadAttention = MultiHeadAttentionCacheKV(embedding_dim, num_heads)
+        self.normalization1 = nn.LayerNorm(embedding_dim)
+        self.normalization2 = nn.LayerNorm(embedding_dim)
+        self.alpha1 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
+        self.alpha2 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
+
+        self.ff = SwiGLU(embedding_dim, hidden_size)
+
+    def cache_keys(self, city_embed):
+        self.multiHeadAttention.cache_keys(city_embed)
+
+    def forward(self, q, attn_mask=None, batch_mask=None):
+        q_norm = self.normalization1(q)
+        att_out = self.multiHeadAttention(q_norm, attn_mask, batch_mask)
+        hidden = q + self.alpha1 * att_out
+
+        hidden_norm = self.normalization2(hidden)
+        ff_out = self.ff(hidden_norm)
+        out = hidden + self.alpha2 * ff_out
         return out
 
 
@@ -79,7 +99,7 @@ class SkipConnection(nn.Module):
 
 
 class MultiHeadAttentionCacheKV(nn.Module):
-    def __init__(self, d_model, n_head, dropout=0.1):
+    def __init__(self, d_model, n_head, dropout=0):
         super(MultiHeadAttentionCacheKV, self).__init__()
         self.d_model = d_model
         self.n_head = n_head
@@ -102,49 +122,31 @@ class MultiHeadAttentionCacheKV(nn.Module):
         self.glimpse_K = self.glimpse_K.view(B, -1, self.n_head, self.head_dim).permute(0, 2, 3, 1)
         self.glimpse_V = self.glimpse_V.view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
 
+    def forward(self, q_embed, mask=None, batch_mask = None):
+        B = q_embed.size(0)
+        glimpse_Q = self.W_q(q_embed).view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
 
-class CrossAttentionCacheKVLayer(nn.Module):
-    def __init__(self, embedding_dim, num_heads, use_FFN=True, hidden_size=128, dropout=0):
-        super(CrossAttentionCacheKVLayer, self).__init__()
-        self.embedding_dim = embedding_dim
-        self.use_FFN = use_FFN
-        self.multiHeadAttention = MultiHeadAttentionCacheKV(embedding_dim, num_heads, dropout=dropout)
-        self.normalization1 = nn.LayerNorm(embedding_dim)
-        self.alpha1 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
-        self.alpha2 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
+        glimpse_K = self.glimpse_K
+        glimpse_V = self.glimpse_V
+        if batch_mask is not None:
+            glimpse_K = glimpse_K[batch_mask]
+            glimpse_V = glimpse_V[batch_mask]
 
-        if self.use_FFN:
-            self.feedForward = nn.Sequential(
-                nn.Linear(embedding_dim, hidden_size),
-                nn.GELU(),
-                nn.Linear(hidden_size, embedding_dim)
-            )
-            self.normalization2 = nn.LayerNorm(embedding_dim)
-            self._reset_parameters_ffn()
+        score = torch.matmul(glimpse_Q, glimpse_K) / math.sqrt(self.head_dim)
 
-    def _reset_parameters_ffn(self):
-        for layer in self.feedForward:
-            if isinstance(layer, nn.Linear):
-                torch.nn.init.xavier_uniform_(layer.weight)
+        if mask is not None:
+            score = score.masked_fill(mask.unsqueeze(1), -torch.inf)
 
-    def cache_keys(self, city_embed):
-        self.multiHeadAttention.cache_keys(city_embed)
+        attn_weight = F.softmax(score, dim=-1)
+        attn_weight = self.dropout(attn_weight)
 
-    def forward(self, q, attn_mask=None, batch_mask=None):
-        att_out = self.multiHeadAttention(q, attn_mask, batch_mask)
-        hidden = self.alpha1 * att_out + q
-        hidden_ln = self.normalization1(hidden)
-
-        if self.use_FFN:
-            fn_out = self.feedForward(hidden_ln)
-            out = self.alpha2 * fn_out + hidden_ln
-            out = self.normalization2(out)
-        else:
-            out = hidden_ln
+        context = torch.matmul(attn_weight, glimpse_V)
+        context = context.transpose(1, 2).contiguous().view(B, -1, self.d_model)
+        out = self.out(context)
         return out
 
 class SingleHeadAttention(nn.Module):
-    def __init__(self, d_model: int, tanh_clip: float = 10.0, use_query_proj: bool = False, use_cache: bool = False,):
+    def __init__(self, d_model: int, tanh_clip: float = 10.0, use_query_proj: bool = False, use_cache: bool = False, ):
         super().__init__()
         self.d_model = d_model
         self.tanh_clip = tanh_clip
@@ -177,10 +179,11 @@ class SingleHeadAttention(nn.Module):
         self.glimpse_K = self.W_k(embed).transpose(-2, -1)  # shape: [B, d_model, N]
 
     def forward(
-        self,
-        q_embed: torch.Tensor,              # shape: [B, H, d_model]
-        mask: Optional[torch.BoolTensor] = None,  # shape: [B, H, N]
-        batch_mask: Optional[torch.BoolTensor] = None  # shape: [B]
+            self,
+            q_embed: torch.Tensor,  # shape: [B, H, d_model]
+            k_embed: torch.Tensor = None,  # shape: [B, N, d_model]
+            mask: Optional[torch.BoolTensor] = None,  # shape: [B, H, N]
+            batch_mask: Optional[torch.BoolTensor] = None  # shape: [B]
     ) -> torch.Tensor:
         """
         Args:
@@ -199,11 +202,10 @@ class SingleHeadAttention(nn.Module):
         else:
             glimpse_Q = q_embed
 
-        if self.use_cache:
-            # 获取缓存的 Key
-            glimpse_K = self.glimpse_K  # shape: [B, d_model, N]
-        else:
-            glimpse_K = self.cache_keys(glimpse_Q)
+        if not self.use_cache:
+            # 不使用缓存，则每次都计算
+            self.cache_keys(k_embed)
+        glimpse_K = self.glimpse_K  # shape: [B, d_model, N]
 
         # 如果有 batch_mask，则筛选对应的 batch
         if batch_mask is not None:
@@ -218,8 +220,45 @@ class SingleHeadAttention(nn.Module):
 
         # 应用 mask
         if mask is not None:
-            if mask.dtype != torch.bool:
-                mask = mask.bool()
+            assert mask.dtype == torch.bool
             logits = logits.masked_fill(mask, -torch.inf)
 
         return logits
+
+
+class Normalization(nn.Module):
+
+    def __init__(self, embed_dim, normalization='batch'):
+        super(Normalization, self).__init__()
+
+        normalizer_class = {
+            'batch': nn.BatchNorm1d,
+            'instance': nn.InstanceNorm1d,
+            'layer': nn.LayerNorm,
+        }.get(normalization, None)
+
+        if normalization == 'layer':
+            self.normalizer = nn.LayerNorm(embed_dim)
+        else:
+            self.normalizer = normalizer_class(embed_dim, affine=True)
+
+        # Normalization by default initializes affine parameters with bias 0 and weight unif(0,1) which is too large!
+        self.init_parameters()
+
+    def init_parameters(self):
+
+        for name, param in self.named_parameters():
+            stdv = 1. / math.sqrt(param.size(-1))
+            param.data.uniform_(-stdv, stdv)
+
+    def forward(self, input):
+
+        if isinstance(self.normalizer, nn.BatchNorm1d):
+            return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
+        elif isinstance(self.normalizer, nn.InstanceNorm1d):
+            return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
+        elif isinstance(self.normalizer, nn.LayerNorm):
+            return self.normalizer(input)
+        else:
+            assert self.normalizer is None, "Unknown normalizer type"
+            return input

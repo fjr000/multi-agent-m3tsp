@@ -1,29 +1,21 @@
-import argparse
-import numpy as np
-from model.Base.Net import MultiHeadAttentionLayer, MultiHeadAttention
-from model.Base.Net import CrossAttentionLayer, SingleHeadAttention
 import torch
 import torch.nn as nn
-from model.Base.Net import initialize_weights
 import math
-from model.Base.Net import SkipConnection
-from model.ET.model_v1 import MultiHeadAttentionCacheKV, SingleHeadAttentionCacheK
-from model.n4Model.model_v4 import CrossAttentionCacheKVLayer
-from utils.TensorTools import _convert_tensor
 
+from model.AttnModel.Net import MultiHeadAttention
+from model.AttnModel.Net import CrossAttentionLayer, CrossAttentionCacheKVLayer
+from model.AttnModel.Net import SkipConnection
+from model.AttnModel.Net import SingleHeadAttention
+
+from model.AttnModel.Utils import initialize_weights
 
 class Config(object):
-    agent_dim = 10
     embed_dim = 128
     dropout = 0
 
     city_encoder_hidden_dim = 128
     city_encoder_num_layers = 3
     city_encoder_num_heads = 8
-
-    agent_encoder_hidden_dim = 128
-    agent_encoder_num_layers = 2
-    agent_encoder_num_heads = 8
 
     action_decoder_hidden_dim = 128
     action_decoder_num_layers = 2
@@ -38,73 +30,8 @@ class Config(object):
     action_num_heads = 8
 
 
-"""
-采用AC架构
-采用Encoder-Decoder架构
-Encoder输出Value
-Decoder输出Action
-Value针对图进行输出，而不是每步输出
-Value需要图结构和智能体数量
-Action每步输出
-"""
-
-
-class NumberEmbed(nn.Module):
-    def __init__(self, max_num=1000, embed_dim=128, hidden_dim=128):
-        super(NumberEmbed, self).__init__()
-        self.max_num = max_num
-        self.layer = nn.Sequential(
-            nn.Linear(1, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, embed_dim),
-        )
-
-    def forward(self, num):
-        num_norm = num.float() / self.max_num
-        num_embed = self.layer(num_norm)
-        return num_embed
-
-
-class GlobalGraphEmbed(nn.Module):
-    def __init__(self, max_num=1000, embed_dim=128, hidden_dim=128):
-        super(GlobalGraphEmbed, self).__init__()
-        self.num_embed_layer = NumberEmbed(max_num=max_num, embed_dim=embed_dim, hidden_dim=hidden_dim)
-        self.query_embed = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim),
-        )
-        self.global_graph_embed = CrossAttentionLayer(embed_dim, 8, True, 128)
-        self.alpha = nn.Parameter(torch.tensor([0.1]))
-
-    def forward(self, num, city_embed):
-        depot = city_embed[:, 0:1]
-        num_t = _convert_tensor(np.array([num]), device=city_embed.device)
-        num_embed = self.num_embed_layer(num_t)
-        num_embed_expand = num_embed.reshape(1, 1, city_embed.size(-1)).expand(city_embed.size(0), -1, -1)
-        query = depot + self.alpha * num_embed_expand
-        kv = city_embed
-        global_graph_embed = self.global_graph_embed(query, kv, kv)
-        return global_graph_embed
-
-
-class GraphCritic(nn.Module):
-    def __init__(self, embed_dim=128, hidden_dim=128):
-        super(GraphCritic, self).__init__()
-        self.value = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
-        )
-
-    def forward(self, global_graph_embed):
-        return self.value(global_graph_embed)
-
-
 class CityEmbedding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, embed_dim):
+    def __init__(self, input_dim, embed_dim):
         super().__init__()
         self.embed_dim = embed_dim
         self.depot_embed = nn.Linear(input_dim, embed_dim)
@@ -120,78 +47,45 @@ class CityEmbedding(nn.Module):
         return self.depot_embed(city[:, :1]), self.city_embed(city[:, 1:])
 
 
-class GateConnection(nn.Module):
-    def __init__(self, model, embed_dim):
-        super(GateConnection, self).__init__()
-        self.model = model
-        self.gate = nn.Linear(embed_dim, embed_dim)
-
-    def forward(self, x):
-        gate = self.gate(x)
-        return x + gate * self.model(x)
-
-
-from model.Common.MHA import Normalization
-
-
-class BNMHAGATEFFNLayer(nn.Module):
-    def __init__(self, n_head, embed_dim, hidden_dim, normalization='batch', dropout=0):
-        super(BNMHAGATEFFNLayer, self).__init__()
-        self.n_head = n_head
-        self.embed_dim = embed_dim
-        self.hidden_dim = hidden_dim
-
-        self.attn = GateConnection(
-            nn.Sequential(
-                Normalization(self.embed_dim, normalization),
-                MultiHeadAttention(
-                    embed_dim,
-                    n_head,
-                    dropout=dropout
-                )
-            )
-            , embed_dim=self.embed_dim
-        )
-        self.ffn = GateConnection(
-            nn.Sequential(
-                Normalization(self.embed_dim, normalization),
-                nn.Linear(embed_dim, hidden_dim),
-                nn.GELU(),
-                nn.Linear(hidden_dim, embed_dim)
-            )
-            , embed_dim=self.embed_dim
-        )
-
-    def forward(self, x, key_padding_mask=None, masks=None):
-        o = self.attn(x)
-        o = self.ffn(o)
-        return o
-
-
 class CityEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
         super(CityEncoder, self).__init__()
-        self.city_embedder = CityEmbedding(input_dim, hidden_dim, embed_dim)
+        self.city_embedder = CityEmbedding(input_dim, embed_dim)
         self.city_self_att = nn.ModuleList(
             [
-                BNMHAGATEFFNLayer(num_heads, embed_dim, hidden_dim, normalization='batch')
+                CrossAttentionCacheKVLayer(embed_dim,num_heads=num_heads,hidden_size=hidden_dim)
                 for _ in range(num_layers)
             ]
         )
 
         # self.position_encoder = PositionalEncoder(embed_dim)
         self.position_encoder = VectorizedRadialEncoder(embed_dim)
-        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.alpha = nn.Parameter(torch.tensor([0.1]))
-        self.global_graph_embed_layer = GlobalGraphEmbed(1000, embed_dim, hidden_dim)
-        self.global_graph_embed = None
+        self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.alpha = nn.Parameter(torch.tensor([0.1]), requires_grad=True)
+        self.city_embed_mean = None
         self.city_embed = None
 
-    def update_global_graph_embed(self, batch_mask=None):
-        if (batch_mask is None):
-            return self.global_graph_embed
+    def update_city_mean(self, n_agent, city_mask=None, batch_mask=None):
+        if (city_mask is None):
+            return self.city_embed_mean
         else:
-            return self.global_graph_embed[batch_mask]
+            # 获取原始城市嵌入（排除最后n_agent个）
+            if batch_mask is not None:
+                ori_city_embed = self.city_embed[batch_mask][:, :-n_agent]
+            else:
+                ori_city_embed = self.city_embed[:, :-n_agent]
+            # 反转掩码（True表示有效位置）
+            valid_mask = ~city_mask
+            valid_mask[:, 0] = True
+
+            # 计算有效位置的数量 [B]
+            valid_counts = valid_mask.sum(dim=1).clamp(min=1)  # 确保至少为1
+
+            # 计算掩码后的均值
+            masked_sum = (ori_city_embed * valid_mask.unsqueeze(-1).float()).sum(dim=1, keepdim=True)
+            mean = masked_sum / valid_counts.view(-1, 1, 1)
+            self.city_embed_mean = mean
+            return self.city_embed_mean
 
     def forward(self, city, n_agents, city_mask=None):
         """
@@ -211,64 +105,11 @@ class CityEncoder(nn.Module):
         graph_embed = torch.cat([depot_embed, city_embed, depot_pos_embed], dim=1)
 
         for model in self.city_self_att:
-            graph_embed = model(graph_embed, key_padding_mask=city_mask)
+            model.cache_keys(graph_embed)
+            graph_embed = model(graph_embed, attn_mask=city_mask)
 
-        # self.global_graph_embed = graph_embed.mean(keepdim=True, dim=1)  # (batch_size, 1, embed_dim) mean(A+E)
-        self.global_graph_embed = self.global_graph_embed_layer(n_agents, graph_embed)
         self.city_embed = graph_embed
-        return (
-            self.city_embed,  # (B,A+N,E)
-            self.global_graph_embed
-        )
-
-
-class PositionalEncoder(nn.Module):
-    def __init__(self, d_model, max_seq_len=1000):
-        super().__init__()
-        self.d_model = d_model
-
-        # 创建位置编码
-        position_encoding = torch.zeros(max_seq_len, d_model)
-        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-
-        position_encoding[:, 0::2] = torch.sin(position * div_term)
-        position_encoding[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('position_encoding', position_encoding)
-        self.requires_grad_(False)
-
-    def forward(self, seq_len):
-        return self.position_encoding[:seq_len, :]
-
-
-class DynamicPositionalEncoder(nn.Module):
-    def __init__(self, d_model):
-        """
-        初始化位置编码模块。
-        :param d_model: 嵌入维度（必须是偶数）
-        """
-        super(DynamicPositionalEncoder, self).__init__()
-        self.d_model = d_model
-
-    def forward(self, num_agents):
-        """
-        根据智能体数量动态生成位置编码。
-        :param num_agents: 当前智能体数量 (int)
-        :return: 嵌入张量 (Tensor)，形状为 (num_agents, d_model)
-        """
-        # 动态计算频率缩放因子
-        scale_factor = 10 * math.log(num_agents + 1)  # 根据智能体数量调整
-
-        # 创建位置编码
-        position_encoding = torch.zeros(num_agents, self.d_model)
-        position = torch.arange(0, num_agents, dtype=torch.float).unsqueeze(1)  # [num_agents, 1]
-        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-math.log(scale_factor) / self.d_model))
-
-        # 使用正弦和余弦函数生成位置编码
-        position_encoding[:, 0::2] = torch.sin(position * div_term)  # 偶数索引：正弦
-        position_encoding[:, 1::2] = torch.cos(position * div_term)  # 奇数索引：余弦
-
-        return position_encoding
+        return self.city_embed  # (B,A+N,E)
 
 
 class VectorizedRadialEncoder(nn.Module):
@@ -326,31 +167,35 @@ class AgentEmbedding(nn.Module):
         self.embed_dim = embed_dim
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-
-        self.depot_pos_embed = nn.Sequential(
-            nn.Linear(2 * self.embed_dim, self.embed_dim),
-            # nn.LayerNorm(self.embed_dim),
-        )
+        self.graph_pre_embed = nn.Linear(self.embed_dim, self.embed_dim)
+        # self.cur_pos_embed = nn.Sequential(
+        #     nn.Linear(self.embed_dim, self.embed_dim),
+        #     # nn.LayerNorm(self.embed_dim),
+        # )
         self.distance_cost_embed = nn.Sequential(
-            nn.Linear(7, self.embed_dim),
+            nn.Linear(7, self.embed_dim//2),
             # nn.LayerNorm(self.embed_dim),
         )
         self.global_embed = nn.Sequential(
-            nn.Linear(4, self.embed_dim),
+            nn.Linear(4, self.embed_dim//2),
             # nn.LayerNorm(self.embed_dim),
         )
-        self.graph_embed = nn.Sequential(
-            nn.Linear(self.embed_dim, self.embed_dim),
-            # nn.LayerNorm(self.embed_dim),
-        )
+        # self.graph_embed = nn.Sequential(
+        #     nn.Linear(self.embed_dim, self.embed_dim),
+        #     # nn.LayerNorm(self.embed_dim),
+        # )
         self.context = nn.Sequential(
             nn.Linear(self.embed_dim * 4, self.embed_dim),
             nn.GELU(),
             nn.LayerNorm(self.embed_dim),
             nn.Linear(self.embed_dim, self.embed_dim),
         )
+        self.global_depot_embed = None
 
-    def forward(self, cities_embed, n_depot_embed, graph_embed, agent_state):
+    def cache_embed(self, global_depot_embed, n_depot_embed):
+        self.global_depot_embed = self.graph_pre_embed(global_depot_embed.expand_as(n_depot_embed) + n_depot_embed)
+
+    def forward(self, cities_embed, graph_embed, agent_state, batch_mask = None):
         """
         :param graph_embed
         :param agent_state: [B,M,14]
@@ -361,19 +206,19 @@ class AgentEmbedding(nn.Module):
                   agent_state[:, :, 1].long(),
                   :
                   ]
-        depot_pos = torch.cat([n_depot_embed, cur_pos], dim=-1)
-        depot_pos_embed = self.depot_pos_embed(depot_pos)
+        # cur_pos_embed = self.cur_pos_embed(cur_pos)
         distance_cost_embed = self.distance_cost_embed(agent_state[:, :, 2:9])
         global_embed = self.global_embed(agent_state[:, :, 9:])
-        global_graph_embed = self.graph_embed(graph_embed).expand(-1, agent_state.size(1), -1)
+        # global_graph_embed = self.graph_embed(graph_embed).expand(-1, agent_state.size(1), -1)
 
         agent_embed = self.context(
             torch.cat(
                 [
-                    depot_pos_embed,
+                    self.global_depot_embed[batch_mask] if batch_mask is not None else self.global_depot_embed,
+                    cur_pos,
                     distance_cost_embed,
                     global_embed,
-                    global_graph_embed
+                    graph_embed.expand(-1, agent_state.size(1), -1)
                 ], dim=-1)
         )
         return agent_embed
@@ -394,12 +239,11 @@ class DecoderBlock(nn.Module):
         self.cross_att = CrossAttentionCacheKVLayer(
             self.embed_dim,
             self.n_heads,
-            use_FFN=True,
             hidden_size=hidden_dim
         )
 
-    def init(self, city_embed):
-        self.cross_att.init(city_embed)
+    def cache_keys(self, city_embed):
+        self.cross_att.cache_keys(city_embed)
 
     def forward(self, Q, cross_attn_mask=None, batch_mask=None):
         embed = self.self_att(Q)
@@ -420,7 +264,7 @@ class ActionDecoder(nn.Module):
         )
 
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.action = SingleHeadAttentionCacheK(embed_dim, tanh_clip=30)
+        self.action = SingleHeadAttention(embed_dim, tanh_clip=10, use_cache=True)
         self.num_heads = num_heads
 
         self.rnn = None
@@ -468,18 +312,19 @@ class ActionDecoder(nn.Module):
         else:
             raise NotImplementedError
 
-    def init(self, city_embed, n_agent):
+    def cache_keys(self, city_embed, n_agent):
         for model in self.blocks:
-            model.init(city_embed)
-        self.action.init(city_embed[:, :-n_agent])
+            model.cache_keys(city_embed)
+        self.action.cache_keys(city_embed[:, :-n_agent])
+        self.agent_embed_proj.cache_embed(city_embed[:,0:1],city_embed[:, -n_agent:, :])
 
     def forward(self, agent, city_embed_mean, city_embed, masks, batch_mask=None):
         n_agents = agent.size(1)
 
         agent_embed = self.agent_embed_proj(
             city_embed[:, :-n_agents, :],
-            city_embed[:, -n_agents:, :],
-            city_embed_mean, agent
+            city_embed_mean, agent,
+            batch_mask = batch_mask
         )
 
         extra_masks = ~torch.eye(
@@ -489,11 +334,6 @@ class ActionDecoder(nn.Module):
         ).unsqueeze(0).expand(agent_embed.size(0), -1, -1)
 
         expand_masks = torch.cat([masks, extra_masks], dim=-1)
-        # expand_masks = expand_masks.unsqueeze(1).expand(
-        #     agent_embed.size(0), self.num_heads, -1, -1
-        # ).reshape(
-        #     -1, *expand_masks.shape[-2:]
-        # )
 
         for block in self.blocks[:-1]:
             agent_embed = block(agent_embed, expand_masks, batch_mask)
@@ -506,19 +346,12 @@ class ActionDecoder(nn.Module):
 
         agent_embed = self.blocks[-1](agent_embed, expand_masks, batch_mask)
 
-        # comm = agent_embed[..., :agent_embed.size(2) // 4]
-        # # comm = comm_model(comm)
-        # comm, _ = comm.max(dim=1, keepdim=True)
-        # comm = comm.expand(-1, agent_embed.size(1), -1)
-        # priv = agent_embed[..., agent_embed.size(2) // 4:]
-        # agent_embed = torch.cat([comm, priv], dim=-1)
-
         self.agent_embed = agent_embed
 
         action_logits = self.action(
             agent_embed,
-            masks,
-            batch_mask
+            mask= masks,
+            batch_mask=batch_mask
         )
 
         del masks, expand_masks
@@ -532,8 +365,7 @@ class ConflictModel(nn.Module):
         # 不能使用dropout
         self.city_agent_att = nn.ModuleList([
             CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
-                                use_FFN=True, hidden_size=config.conflict_deal_hidden_dim,
-                                dropout=0)
+                                hidden_size=config.conflict_deal_hidden_dim)
             for _ in range(config.conflict_deal_num_layers)
         ])
         # self.linear_forward = nn.Linear(embed_dim, embed_dim)
@@ -599,7 +431,7 @@ class ActionsModel(nn.Module):
                                            )
         self.city = None
         self.city_embed = None
-        self.global_graph_embed = None
+        self.city_embed_mean = None
         self.nodes_embed = None
         self.config = config
 
@@ -609,20 +441,48 @@ class ActionsModel(nn.Module):
         :return: None
         """
         self.city = city
-        self.city_embed, self.global_graph_embed = self.city_encoder(city, n_agents)
-        self.agent_decoder.init(self.city_embed, n_agents)
+        self.city_embed = self.city_encoder(city, n_agents)
+        self.agent_decoder.cache_keys(self.city_embed, n_agents)
 
-    def update_global_graph_embed(self, batch_mask=None):
-        self.global_graph_embed = self.city_encoder.update_global_graph_embed(batch_mask)
+    def update_city_mean(self, n_agent, mask=None, batch_mask=None):
+        self.city_embed_mean = self.city_encoder.update_city_mean(n_agent, mask, batch_mask)
 
     def forward(self, agent, mask, info=None):
+        # batch_mask = mask[:,0,:].unsqueeze(-1).expand(mask.size(0),mask.size(2),self.city_embed.shape[-1])
+        # ori_expand_graph = self.city_embed.expand(*batch_mask.shape)
+        # mask_expand_graph = ori_expand_graph * batch_mask
+        # mask_sum_expand_graph = mask_expand_graph.sum(1)
+        # non_zero_count = batch_mask.sum(1)
+        # avg_graph = mask_sum_expand_graph / non_zero_count
+
+        # expand_graph = self.city_embed_mean.unsqueeze(1).expand(agent.size(0), agent.size(1), -1)
+        # expand_graph = self.city_embed_mean.unsqueeze(1)
+        # city_mask = None if info is None else info.get("mask", None)
+        # self.city_embed = self.city_encoder(self.city, city_mask = city_mask)
+        # cnt = torch.count_nonzero(~city_mask, dim=-1).unsqueeze(-1)
+        # self.city_embed_mean = torch.sum(self.city_embed, dim=1) / cnt
+        # del city_mask
         batch_mask = None if info is None else info.get("batch_mask", None)
         city_embed = self.city_embed
         if batch_mask is not None:
             city_embed = self.city_embed[batch_mask]
-        actions_logits, agent_embed = self.agent_decoder(agent, self.global_graph_embed, city_embed, mask, batch_mask)
+        actions_logits, agent_embed = self.agent_decoder(agent, self.city_embed_mean, city_embed, mask, batch_mask)
+        # x = torch.all(torch.isinf(actions_logits), dim=-1)
+        # xxx = torch.isnan(actions_logits).any().item()
+        # xx = x.any().item()
+        # if xx or xxx:
+        #     a = torch.argwhere(torch.isnan(actions_logits))
+        #     pass
+        # a = torch.argwhere(x)
 
         del mask
+
+        # agents_logits = self.deal_conflict(agent_embed, self.city_embed, actions_logits)
+
+        # expanded_city_embed = self.city_embed.expand(select.size(1), -1, -1)
+        # expanded_select = select.unsqueeze(-1).expand(-1,-1,128)
+        # select_city_embed = torch.gather(expanded_city_embed,1, expanded_select)
+        # reselect = self.action_reselector(agent_embed, select_city_embed)
         return actions_logits, agent_embed
 
 
@@ -631,7 +491,6 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.actions_model = ActionsModel(config)
         self.conflict_model = ConflictModel(config)
-        self.critic_model = GraphCritic(config.embed_dim, 256)
         initialize_weights(self)
         self.step = 0
         self.cfg = config
@@ -639,8 +498,6 @@ class Model(nn.Module):
     def init_city(self, city, n_agents):
         self.actions_model.init_city(city, n_agents)
         self.step = 0
-        value = self.critic_model(self.actions_model.city_encoder.global_graph_embed)
-        return value
 
     def forward(self, agent, mask, info=None, eval=False):
 
@@ -659,33 +516,43 @@ class Model(nn.Module):
             city_mask = city_mask[batch_mask] if city_mask is not None else city_mask
             mask = mask[batch_mask] if mask is not None else mask
 
-        self.actions_model.update_global_graph_embed(batch_mask)
+        self.actions_model.update_city_mean(agent.size(1), city_mask, batch_mask)
 
         mode = "greedy" if info is None else info.get("mode", "greedy")
         use_conflict_model = True if info is None else info.get("use_conflict_model", True)
         actions_logits, agents_embed = self.actions_model(agent, mask, info)
         acts = None
         if mode == "greedy":
+            # 1. 获取初始选择 --------------------------------------------------------
+            # if self.step == 0:
+            #     acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            #     _, acts = acts_p[:, 0, :].topk(agent.size(1), dim=-1)
+            # else:
             acts = actions_logits.argmax(dim=-1)
+            # acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
+            # if self.step == 0:
+            #     acts_p = nn.functional.softmax(actions_logits, dim=-1)
+            #     _, acts  = acts_p[:,0,:].topk(agent.size(1), dim=-1)
+            # else:
             acts = torch.distributions.Categorical(logits=actions_logits).sample()
 
         else:
             raise NotImplementedError
-        if use_conflict_model:
-            agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
-
-            agents = agents_logits.argmax(dim=-1)
-
-            # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
-            pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
-            masks = torch.logical_or(agents == pos, acts == 0)
-            del pos
-            acts_no_conflict = torch.where(masks, acts, -1)
-        else:
-            agents_logits = None
-            acts_no_conflict = acts
-            masks = None
+        # if use_conflict_model:
+        #     agents_logits = self.conflict_model(agents_embed, self.actions_model.city_embed, acts, info)
+        #
+        #     agents = agents_logits.argmax(dim=-1)
+        #
+        #     # pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0).expand(agent.size(0), -1)
+        #     pos = torch.arange(agents_embed.size(1), device=agents.device).unsqueeze(0)
+        #     masks = torch.logical_or(agents == pos, acts == 0)
+        #     del pos
+        #     acts_no_conflict = torch.where(masks, acts, -1)
+        # else:
+        #     agents_logits = None
+        #     acts_no_conflict = acts
+        #     masks = None
         self.step += 1
 
         if batch_mask is not None:
@@ -695,11 +562,11 @@ class Model(nn.Module):
 
             final_acts = torch.zeros((B, A), dtype=torch.int64, device=actions_logits.device)
             final_acts[batch_mask] = acts
-            final_acts_no_conflict = torch.zeros((B, A), dtype=torch.int64, device=actions_logits.device)
-            final_acts_no_conflict[batch_mask] = acts_no_conflict
+            # final_acts_no_conflict = torch.zeros((B, A), dtype=torch.int64, device=actions_logits.device)
+            # final_acts_no_conflict[batch_mask] = acts_no_conflict
 
             if eval:
-                return None, None, final_acts, final_acts_no_conflict, None
+                return None, final_acts
 
             final_actions_logits = torch.full((B, A, N),
                                               fill_value=-torch.inf,
@@ -707,17 +574,16 @@ class Model(nn.Module):
                                               device=actions_logits.device)
             final_actions_logits[:, :, 0] = 1.0  # 模拟选择仓库
             final_actions_logits[batch_mask] = actions_logits
-
-            if agents_logits is not None:
-                final_agents_logits = torch.eye(A, device=actions_logits.device).repeat(B, 1, 1)
-                final_agents_logits[batch_mask] = agents_logits
-                agents_logits = final_agents_logits
-
-                final_masks = torch.ones((B, A), dtype=torch.bool, device=masks.device)
-                final_masks[batch_mask] = masks
-                masks = final_masks
+            #
+            # if agents_logits is not None:
+            #     final_agents_logits = torch.eye(A, device=actions_logits.device).repeat(B, 1, 1)
+            #     final_agents_logits[batch_mask] = agents_logits
+            #     agents_logits = final_agents_logits
+            #
+            #     final_masks = torch.ones((B, A), dtype=torch.bool, device=masks.device)
+            #     final_masks[batch_mask] = masks
+            #     masks = final_masks
 
             actions_logits = final_actions_logits
             acts = final_acts
-            acts_no_conflict = final_acts_no_conflict
-        return actions_logits, agents_logits, acts, acts_no_conflict, masks
+        return actions_logits, acts
