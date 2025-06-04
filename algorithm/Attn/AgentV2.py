@@ -54,8 +54,8 @@ class Agent(AgentBase):
         adv_t = _convert_tensor(adv, device=self.device)
         ratio = torch.exp(new_act_logp - old_act_logp)
         surr1 = ratio * adv_t
-        surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.3) * adv_t
-        act_loss = torch.min(surr1, surr2).sum(-1).mean()
+        surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.3) * (-adv_t)
+        act_loss = -torch.min(surr1, surr2).sum(-1).mean()
         return act_loss
 
     def learn(self, buffer):

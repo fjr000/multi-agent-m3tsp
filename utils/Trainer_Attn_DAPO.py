@@ -56,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
