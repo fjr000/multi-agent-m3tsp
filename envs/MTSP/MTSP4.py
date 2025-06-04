@@ -496,38 +496,56 @@ class MTSPEnv:
 
     def deal_conflict_batch(self, actions: np.ndarray):
         """
-        实现的动作冲突解决函数，跳过动作值为1的冲突
+        实现的动作冲突解决函数，跳过动作值为1的冲突。
+        使用完全向量化方式处理冲突动作，避免 Python 循环。
 
         参数:
         actions: np.ndarray, 形状为[B,A], B为批次数, A为智能体数量
-        costs: np.ndarray, 形状为[B,A], 表示每个批次每个智能体的开销
 
         返回:
         resolved_actions: np.ndarray, 形状为[B,A], 解决冲突后的动作
         """
         B, A = actions.shape
-        # 初始化结果数组为原始动作值
         resolved_actions = actions.copy()
 
-        for b, acts in enumerate(resolved_actions):
-            unique_act, unique_count = np.unique(acts, return_counts=True)
-            for a, c in zip(unique_act, unique_count):
-                if a <=1 or c == 1:
-                    pass
-                else:
-                    idx = np.argwhere(acts == a)
-                    min_cost = np.inf
-                    min_id = -1
-                    for i in idx:
-                        cmp_cost = self.costs[b,i] + self.graph_matrix[b,self.cur_pos[b,i].item(), a-1]
-                        if cmp_cost < min_cost:
-                            min_cost = cmp_cost
-                            min_id = i
-                    for i in idx:
-                        if i == min_id:
-                            acts[i] = a
-                        else:
-                            acts[i] = self.trajectories[b,i,self.step_count]
+        # 遍历每个 batch
+        for b in range(B):
+            acts = resolved_actions[b]
+
+            # 获取当前 batch 中所有动作及其出现次数
+            unique_act, counts = np.unique(acts, return_counts=True)
+
+            # 筛选出大于1且出现次数>1的动作（即冲突动作）
+            conflict_actions = unique_act[(unique_act > 1) & (counts > 1)]
+
+            # 对每个冲突动作进行处理
+            for a in conflict_actions:
+                # 创建掩码：找出哪些智能体选择了该动作
+                mask = acts == a
+                conflict_indices = np.where(mask)[0]  # 获取冲突智能体索引列表
+
+                if len(conflict_indices) <= 1:
+                    continue
+
+                # 向量化获取当前 batch 和位置信息
+                costs_b = self.costs[b]
+                cur_pos_b = self.cur_pos[b]
+                graph_b = self.graph_matrix[b]
+
+                # 向量化计算成本
+                cost_list = (
+                        costs_b[mask] +
+                        graph_b[cur_pos_b[mask], a - 1]
+                )
+
+                # 找到最小成本对应的索引（在 conflict_indices 中）
+                min_idx_in_mask = np.argmin(cost_list)
+                min_id = conflict_indices[min_idx_in_mask]
+
+                # 将非最优者的动作替换为上一时刻轨迹
+                non_min_ids = conflict_indices[conflict_indices != min_id]
+                resolved_actions[b, non_min_ids] = self.trajectories[b, non_min_ids, self.step_count]
+
         return resolved_actions
 
     def _get_masks_in_salesmen(self):

@@ -106,10 +106,13 @@ class MultiHeadAttentionCacheKV(nn.Module):
         assert d_model % n_head == 0
         self.head_dim = d_model // n_head
 
-        self.W_kv = nn.Linear(self.d_model, self.d_model * 2, bias=False)
-        self.W_q = nn.Linear(self.d_model, self.d_model, bias=False)
-        self.out = nn.Linear(self.d_model, self.d_model, bias=False)
-        self.dropout = nn.Dropout(dropout)
+        # Query 投影
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
+        # Key & Value 投影
+        self.W_kv = nn.Linear(d_model, d_model * 2, bias=False)
+
+        # 输出投影
+        self.out = nn.Linear(d_model, d_model, bias=False)
 
         self.glimpse_K = None
         self.glimpse_V = None
@@ -119,29 +122,46 @@ class MultiHeadAttentionCacheKV(nn.Module):
             self.W_kv = self.W_kv.to(embed.device)
         B, A, E = embed.shape
         self.glimpse_K, self.glimpse_V = self.W_kv(embed).chunk(2, dim=-1)
-        self.glimpse_K = self.glimpse_K.view(B, -1, self.n_head, self.head_dim).permute(0, 2, 3, 1)
+
+        self.glimpse_K = self.glimpse_K.view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
+        if not self.glimpse_K.is_contiguous():
+            self.glimpse_K = self.glimpse_K.contiguous()
+
         self.glimpse_V = self.glimpse_V.view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
+        if not self.glimpse_V.is_contiguous():
+            self.glimpse_V = self.glimpse_V.contiguous()
 
     def forward(self, q_embed, mask=None, batch_mask = None):
-        B = q_embed.size(0)
-        glimpse_Q = self.W_q(q_embed).view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
+        B, M, _ = q_embed.shape
 
-        glimpse_K = self.glimpse_K
-        glimpse_V = self.glimpse_V
+        # 生成 Query
+        Q = self.W_q(q_embed).view(B, -1, self.n_head, self.head_dim).transpose(1, 2).contiguous()  # [B, H, M, D]
+
+        # 获取缓存的 Key/Value
+        if self.glimpse_K is None or self.glimpse_V is None:
+            raise RuntimeError("Key and Value must be cached before calling forward")
+
+        K = self.glimpse_K
+        V = self.glimpse_V
+
+        # 如果有 batch_mask，则筛选对应的 K/V
         if batch_mask is not None:
-            glimpse_K = glimpse_K[batch_mask]
-            glimpse_V = glimpse_V[batch_mask]
+            K = K[batch_mask].contiguous()
+            V = V[batch_mask].contiguous()
 
-        score = torch.matmul(glimpse_Q, glimpse_K) / math.sqrt(self.head_dim)
+        # 使用 PyTorch 内建函数计算 attention
+        context = F.scaled_dot_product_attention(
+            Q, K, V,
+            attn_mask=None if mask is None else mask.unsqueeze(1),
+        )
 
-        if mask is not None:
-            score = score.masked_fill(mask.unsqueeze(1), -torch.inf)
+        # 合并 head 维度
+        context = context.transpose(1, 2)
+        if not context.is_contiguous():
+            context = context.contiguous()
+        context = context.view(B, M, self.d_model)
 
-        attn_weight = F.softmax(score, dim=-1)
-        attn_weight = self.dropout(attn_weight)
-
-        context = torch.matmul(attn_weight, glimpse_V)
-        context = context.transpose(1, 2).contiguous().view(B, -1, self.d_model)
+        # 输出映射
         out = self.out(context)
         return out
 
@@ -172,11 +192,8 @@ class SingleHeadAttention(nn.Module):
         Args:
             embed: [B, N, d_model]
         """
-        # 确保 embed 是连续内存
-        if not embed.is_contiguous():
-            embed = embed.contiguous()
         # 计算并缓存 K
-        self.glimpse_K = self.W_k(embed).transpose(-2, -1)  # shape: [B, d_model, N]
+        self.glimpse_K = self.W_k(embed).transpose(-2, -1).contiguous() # shape: [B, d_model, N]
 
     def forward(
             self,
@@ -196,29 +213,26 @@ class SingleHeadAttention(nn.Module):
         """
         B, H, _ = q_embed.shape
 
-        # Apply query projection if enabled
         if self.use_query_proj:
-            glimpse_Q = self.W_q(q_embed)  # shape: [B, H, d_model]
+            glimpse_Q = self.W_q(q_embed)
         else:
             glimpse_Q = q_embed
 
         if not self.use_cache:
-            # 不使用缓存，则每次都计算
+            if k_embed is None:
+                raise ValueError("k_embed must be provided when use_cache is False")
             self.cache_keys(k_embed)
+
         glimpse_K = self.glimpse_K  # shape: [B, d_model, N]
 
-        # 如果有 batch_mask，则筛选对应的 batch
         if batch_mask is not None:
-            glimpse_K = glimpse_K[batch_mask]  # shape: [B', d_model, N]
+            glimpse_K = glimpse_K[batch_mask].contiguous()
 
-        # 点积计算 logits = Q @ K / sqrt(d_model)
         logits = torch.bmm(glimpse_Q, glimpse_K) * self.norm_factor
 
-        # 应用 tanh clipping
         if self.tanh_clip > 0:
             logits = torch.tanh(logits) * self.tanh_clip
 
-        # 应用 mask
         if mask is not None:
             assert mask.dtype == torch.bool
             logits = logits.masked_fill(mask, -torch.inf)

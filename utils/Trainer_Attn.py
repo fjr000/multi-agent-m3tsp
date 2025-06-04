@@ -3,18 +3,16 @@ import numpy as np
 import random
 import torch
 import sys
-
-from sympy import floor
+from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
+import argparse
+import tqdm
 
 sys.path.append("../")
 sys.path.append("./")
 
-from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
-import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
 from algorithm.Attn.AgentV1 import Agent as Agent
-import tqdm
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
@@ -29,7 +27,6 @@ def set_seed(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)  # 多GPU时
-
     # # 禁用CUDA不确定算法
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
@@ -51,13 +48,13 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
-    parser.add_argument("--accumulation_steps", type=int, default=512//64)
+    parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
@@ -66,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
-    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
@@ -75,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=1.0, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--save_model_interval", type=int, default=1000, help="save model interval")
+    parser.add_argument("--save_model_interval", type=int, default=200, help="save model interval")
     parser.add_argument("--seed", type=int, default=1234, help="random seed")
     parser.add_argument("--epoch_size", type=int, default=1280000, help="number of instance for each epoch")
     parser.add_argument("--n_epoch", type=int, default=100, help="number of epoch")
@@ -98,23 +95,15 @@ if __name__ == "__main__":
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model":args.use_conflict_model
     })
-    from algorithm.OR_Tools.mtsp import ortools_solve_mtsp
-
-    # indexs, cost, used_time = ortools_solve_mtsp(graph, args.agent_num, 10000)
-    # env.draw(graph, cost, indexs, used_time, agent_name="or_tools")
-    # print(f"or tools :{cost}")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
     x =  str(args)
-    agent = Agent(args, Config)
-    agent.load_model(args.agent_id)
-    for lr in agent.optim.param_groups:
-        lr["lr"] = args.lr
-    from CourseController import CourseController
 
-    CC = CourseController()
+    agent = Agent(args, Config)
+    info = agent.load_model(args.agent_id)
+
     agent_num, city_nums = args.agent_num, args.city_nums
 
     train_info={
@@ -132,10 +121,27 @@ if __name__ == "__main__":
 
     step_epoch = args.epoch_size // args.batch_size
 
-    for epoch in range(args.n_epoch):
+    total_step = 0 if info is None else info.get("total_step", 0)
+    start_epoch = total_step // step_epoch
+    start_step = total_step % step_epoch
+
+    save_info = {
+        "args": args,
+        "total_step": total_step,
+    }
+
+    for epoch in range(start_epoch, args.n_epoch):
         print("start epoch:",epoch)
-        for i in tqdm.tqdm(range(step_epoch), mininterval=1):
+        _start_step = start_step
+        if epoch == start_epoch:
+            _start_step = start_step
+        else:
+            _start_step = 0
+
+        for i in tqdm.tqdm(range(_start_step, step_epoch), mininterval=1):
             # agent_num, city_nums = CC.get_course()
+            total_step = epoch * step_epoch + i +1
+            save_info.update({"total_step": total_step})
 
             if args.fixed_agent_num:
                 agent_num = args.agent_num
@@ -149,8 +155,6 @@ if __name__ == "__main__":
                 city_nums = np.random.randint(args.city_nums - 20, args.city_nums+1)
             else:
                 city_nums = args.city_nums
-            #skip
-            # agent_num, city_nums = CC.get_course()
 
             if args.only_one_instance:
                 graph = graphG.generate(1).repeat(args.batch_size, axis=0)
@@ -167,25 +171,18 @@ if __name__ == "__main__":
                               agent.optim.param_groups[0]["lr"]
                               )
 
-            if ((i + 1) % args.eval_interval) == 0:
+            if total_step % (args.accumulation_steps * args.eval_interval) == 0:
                 greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env)
-                writer.add_scalar("eval/cost", greedy_cost, i+1)
-                print(f"agent_num:{eval_agent_num},city_num:{eval_graph.shape[1]},"
+                writer.add_scalar("eval/cost", greedy_cost, total_step)
+                print(f"total_step:{total_step}, agent_num:{eval_agent_num},city_num:{eval_graph.shape[1]},"
                       f"costs:{greedy_cost:.5f},"
                       )
                 agent.lr_scheduler.step(greedy_cost)
                 if greedy_cost < eval_min_cost:
-                    agent.save_model(999_999_999)
-                    print(f"Saving Model {999_999_999}")
+                    agent.save_model(999_999_999, save_info)
                 eval_min_cost = min(greedy_cost, eval_min_cost)
-                # last_course = CC.course
-                # CC.update_result(greedy_gap / 100)
-                # if last_course != CC.course:
-                #     print(f"cur course: {CC.course}")
 
-            if (i + 1) % (args.save_model_interval ) == 0:
-                agent.save_model( i + 1)
-                print(f"Saving Model { i + 1}")
+            if total_step % (args.accumulation_steps *  args.save_model_interval) == 0:
+                agent.save_model(epoch + 1, save_info)
 
-        agent.save_model(epoch + 1)
-        print(f"Saving Model {epoch + 1}")
+        agent.save_model(epoch + 1, save_info)

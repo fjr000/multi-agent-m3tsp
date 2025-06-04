@@ -3,21 +3,24 @@ import torch.nn as nn
 import torch.optim as optim
 from utils.TensorTools import _convert_tensor
 import numpy as np
-
+import random
+import os
 
 class AgentBase:
     def __init__(self, args, config, model_class):
         self.args = args
         self.model = model_class(config)
+        torch.set_float32_matmul_precision('high')
+        # self.model = torch.compile(self.model, mode='default')
         self.conflict_model = None
 
         self.lr = args.lr
         self.grad_max_norm = args.grad_max_norm
         self.optim = optim.AdamW(self.model.parameters(), lr=self.lr)
-        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim, "min",
                                                                        patience=10000 / args.eval_interval, factor=0.95,
                                                                        min_lr=1e-5)
+        self.device = torch.device(f"cuda:{args.cuda_id}" if torch.cuda.is_available() and self.args.use_gpu else "cpu")
         self.model.to(self.device)
         self.train_count = 0
 
@@ -224,32 +227,53 @@ class AgentBase:
             trajectory = eval_info["trajectories"]
             return cost, trajectory
 
-    def state_dict(self):
+    def state_dict(self, info = None):
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            # "model_act_optim": self.act_optim.state_dict(),
-            # "model_conf_optim": self.conf_optim.state_dict(),
             "model_optim": self.optim.state_dict(),
+            "model_scheduler":self.lr_scheduler.state_dict(),
+            "rng_state":{
+                'python': random.getstate(),
+                'numpy': np.random.get_state(),
+                'torch': torch.get_rng_state(),
+                'torch_cuda': torch.cuda.get_rng_state() if torch.cuda.is_available() else None
+            },
+            "info": info,
         }
         return checkpoint
 
     def load_state_dict(self, checkpoint):
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        # self.act_optim.load_state_dict(checkpoint["model_act_optim"])
-        # self.conf_optim.load_state_dict(checkpoint["model_conf_optim"])
         self.optim.load_state_dict(checkpoint["model_optim"])
 
-    def _save_model(self, model_dir, filename):
+        model_scheduler = checkpoint.get("model_scheduler", None)
+        if model_scheduler is not None:
+            self.lr_scheduler.load_state_dict(checkpoint["model_scheduler"])
+
+        rng_state = checkpoint.get("rng_state", None)
+        if rng_state is not None:
+            random.setstate(rng_state["python"])
+            np.random.set_state(rng_state["numpy"])
+            torch.set_rng_state(rng_state["torch"])
+            torch.set_rng_state(rng_state["torch_cuda"])
+
+        info = checkpoint.get("info", None)
+        return info
+
+    def _save_model(self, model_dir, filename, info = None):
         save_path = f"{model_dir}{filename}.pth"
-        checkpoint = self.state_dict()
+        checkpoint = self.state_dict(info)
         torch.save(checkpoint, save_path)
+        print(f"save {save_path} successfully")
 
     def _load_model(self, model_dir, filename):
         load_path = f"{model_dir}{filename}.pth"
-        import os
+        info = None
         if os.path.isfile(load_path):
             checkpoint = torch.load(load_path, weights_only=False, map_location=self.device)
-            self.load_state_dict(checkpoint)
+            info = self.load_state_dict(checkpoint)
             print(f"load {load_path} successfully")
         else:
             print("model file doesn't exist")
+
+        return info

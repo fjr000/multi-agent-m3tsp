@@ -8,13 +8,13 @@ class Agent(AgentBase):
         super(Agent, self).__init__(args, config, Model)
         self.model.to(self.device)
 
-    def save_model(self, id):
+    def save_model(self, id, info = None):
         filename = f"Attn_AgentV1_{id}"
-        super(Agent, self)._save_model(self.args.model_dir, filename)
+        super(Agent, self)._save_model(self.args.model_dir, filename, info)
 
     def load_model(self, id):
         filename = f"Attn_AgentV1_{id}"
-        super(Agent, self)._load_model(self.args.model_dir, filename)
+        return super(Agent, self)._load_model(self.args.model_dir, filename)
 
 
 if __name__ == '__main__':
