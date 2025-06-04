@@ -304,29 +304,29 @@ class ActionDecoder(nn.Module):
         self.rnn_state = None
         self.agent_embed = None
 
-    def init_rnn_state(self, batch_size, agent_num, device):
-        if isinstance(self.rnn, nn.GRU):
-            self.rnn_state = torch.zeros(
-                (1, batch_size * agent_num, self.rnn.hidden_size),
-                dtype=torch.float32,
-                device=device
-            )
-        elif isinstance(self.rnn, nn.LSTM):
-            self.rnn_state = [torch.zeros(
-                (1, batch_size * agent_num, self.rnn.hidden_size),
-                dtype=torch.float32,
-                device=device
-            ),
-                torch.zeros(
-                    (1, batch_size * agent_num, self.rnn.hidden_size),
-                    dtype=torch.float32,
-                    device=device
-                )
-            ]
-        elif self.rnn is None:
-            pass
-        else:
-            raise NotImplementedError
+    # def init_rnn_state(self, batch_size, agent_num, device):
+    #     if isinstance(self.rnn, nn.GRU):
+    #         self.rnn_state = torch.zeros(
+    #             (1, batch_size * agent_num, self.rnn.hidden_size),
+    #             dtype=torch.float32,
+    #             device=device
+    #         )
+    #     elif isinstance(self.rnn, nn.LSTM):
+    #         self.rnn_state = [torch.zeros(
+    #             (1, batch_size * agent_num, self.rnn.hidden_size),
+    #             dtype=torch.float32,
+    #             device=device
+    #         ),
+    #             torch.zeros(
+    #                 (1, batch_size * agent_num, self.rnn.hidden_size),
+    #                 dtype=torch.float32,
+    #                 device=device
+    #             )
+    #         ]
+    #     elif self.rnn is None:
+    #         pass
+    #     else:
+    #         raise NotImplementedError
 
     def cache_keys(self, city_embed, n_agent):
         for model in self.blocks:
@@ -491,8 +491,8 @@ class Model(nn.Module):
 
     def forward(self, agent, mask, info=None, eval=False):
 
-        if self.step == 0:
-            self.actions_model.agent_decoder.init_rnn_state(agent.size(0), agent.size(1), agent.device)
+        # if self.step == 0:
+        #     self.actions_model.agent_decoder.init_rnn_state(agent.size(0), agent.size(1), agent.device)
 
         dones = None if info is None else info.get("dones", None)
         batch_mask = None if dones is None else ~dones
@@ -515,8 +515,10 @@ class Model(nn.Module):
 
             acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
-
-            acts = torch.distributions.Categorical(logits=actions_logits).sample()
+            probs = torch.softmax(actions_logits.view(-1, actions_logits.size(-1)), dim=-1)
+            acts = torch.multinomial(probs, num_samples=1).squeeze(-1)
+            acts = acts.view(actions_logits.size(0), actions_logits.size(1))
+            # acts = torch.distributions.Categorical(logits=actions_logits).sample()
 
         else:
             raise NotImplementedError
