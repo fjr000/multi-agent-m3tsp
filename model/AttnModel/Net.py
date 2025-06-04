@@ -184,7 +184,8 @@ class SingleHeadAttention(nn.Module):
             self.register_module('W_q', None)
 
         # 缓存的 key（shape: [B, d_model, N]）
-        self.register_buffer('glimpse_K', None)
+        self.glimpse_K = None
+        # self.register_buffer('glimpse_K', None)
 
     def cache_keys(self, embed: torch.Tensor) -> None:
         """

@@ -1,3 +1,4 @@
+import collections
 
 import numpy as np
 import random
@@ -12,7 +13,7 @@ sys.path.append("../")
 sys.path.append("./")
 
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.Attn.AgentV1 import Agent as Agent
+from algorithm.Attn.AgentV2 import Agent as Agent
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
@@ -55,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -130,6 +131,8 @@ if __name__ == "__main__":
         "total_step": total_step,
     }
 
+    buffer_list = collections.deque(maxlen=10)
+
     for epoch in range(start_epoch, args.n_epoch):
         print("start epoch:",epoch)
         _start_step = start_step
@@ -163,8 +166,11 @@ if __name__ == "__main__":
                 graph = graphG.generate(args.batch_size, city_nums)
                 graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
-            output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
-            loss_s = agent.learn(*output)
+            with torch.no_grad():
+                output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
+            buffer_list.append(output)
+            # for i in range(3):
+            loss_s = agent.learn(buffer_list[-1])
 
             tensorboard_write(writer, i,
                               loss_s,

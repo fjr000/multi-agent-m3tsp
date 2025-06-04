@@ -14,11 +14,11 @@ class Agent(AgentBase):
         self.model.to(self.device)
 
     def save_model(self, id, info = None):
-        filename = f"Attn_AgentV1_{id}"
+        filename = f"Attn_AgentV2_{id}"
         super(Agent, self)._save_model(self.args.model_dir, filename, info)
 
     def load_model(self, id):
-        filename = f"Attn_AgentV1_{id}"
+        filename = f"Attn_AgentV2_{id}"
         return super(Agent, self)._load_model(self.args.model_dir, filename)
 
     def _get_action_logprob(self, states, masks, mode="greedy", info=None, eval=False):
@@ -28,7 +28,7 @@ class Agent(AgentBase):
         })
         actions_logits, acts = self.model(states, masks, info, eval=eval)
         if eval:
-            return acts, None, None
+            return acts
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
@@ -44,42 +44,41 @@ class Agent(AgentBase):
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions, _ = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=True)
+        actions = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=True)
         return actions.cpu().numpy()
 
-    def _get_loss(self, act_logp, adv):
+    def _get_loss(self, new_act_logp, old_act_logp, adv):
 
-        act_logp_8 = act_logp.reshape(act_logp.shape[0] // 8, 8, -1)  # 将动作概率按实例组进行分组
 
         # 转换为tensor并放到指定的device上
         adv_t = _convert_tensor(adv, device=self.device)
-
-        # 对动作概率为零的样本进行掩码
-        act_logp_8_sum = act_logp_8.sum(dim=-1)
-        mask_ = ((act_logp_8_sum != 0) & (~torch.isnan(act_logp_8_sum)))
-
-        # 计算动作网络的损失，mask之后加权平均
-        act_loss = (torch.exp(act_logp_8_sum[mask_] - act_logp_8_sum[mask_].detach()) * adv_t[mask_]).mean()
+        ratio = torch.exp(new_act_logp - old_act_logp)
+        surr1 = ratio * adv_t
+        surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.3) * adv_t
+        act_loss = torch.min(surr1, surr2).sum(-1).mean()
         return act_loss
 
     def learn(self, buffer):
         self.model.train()
 
-        # buffer = {
-        #     "graph": graph,
-        #     "agent_num": agent_num,
-        #
-        #     "states": buffer_states,
-        #     "city_mask": buffer_city_mask,
-        #     "dones": buffer_dones,
-        #     "act_logp": buffer_act_logp,
-        #     "adv": adv
-        # }
-        # self.reset_graph(graph)
+        self.reset_graph(buffer['graph'], buffer['agent_num'], buffer['length'])
+        logits, _ = self.model(_convert_tensor(buffer['states'],device=self.device),
+                               _convert_tensor(buffer['salesmen_masks'], dtype=torch.bool, device = self.device),
+                               {
+                                    "mask": _convert_tensor(buffer['city_mask'], dtype=torch.bool, device=self.device),
+                                    "dones": _convert_tensor(buffer['dones'], dtype=torch.bool, device=self.device),
+                                }
+                               )
+        dist = torch.distributions.Categorical(logits=logits)
+        new_act_logp = dist.log_prob(_convert_tensor(buffer['act'],dtype=torch.long, device=self.device))
+
+
+        old_act_logp = _convert_tensor(buffer['act_logp'], device=self.device)
+        adv = buffer['adv']
 
         self.train_count += 1
-        act_loss = self._get_loss(act_logp, adv)
-        act_ent_loss = act_ent
+        act_loss = self._get_loss(new_act_logp, old_act_logp, adv)
+        act_ent_loss = dist.entropy().mean()
 
         loss = act_loss + self.args.entropy_coef * (- act_ent_loss)
         loss /= self.args.accumulation_steps
@@ -132,6 +131,8 @@ class Agent(AgentBase):
 
         states_list = []
         # masks_in_salesmen_list = []
+        act_lsit = []
+        salesmen_masks_list = []
         city_mask_list = []
         dones_list = []
 
@@ -156,6 +157,7 @@ class Agent(AgentBase):
             # 样本记录
             states_list.append(states)
             # masks_in_salesmen_list.append(~masks_in_salesmen)
+            salesmen_masks_list.append(~salesmen_masks)
             city_mask_list.append(~city_mask)
             if dones is None:
                 dones_list.append(np.zeros(states.shape[0], dtype=bool))
@@ -172,6 +174,7 @@ class Agent(AgentBase):
             masks_in_salesmen = env_info["masks_in_salesmen"]
             city_mask = env_info["mask"]
             dones = env_info["dones"]
+            act_lsit.append(acts)
 
         if eval_mode:
             return env_info
@@ -180,9 +183,11 @@ class Agent(AgentBase):
             # act_logp = torch.where(act_logp == 0, 0.0, act_logp)  # logp为0时置为0
 
             buffer_states = np.concatenate(states_list, axis=0)
+            buffer_salesmen = np.concatenate(salesmen_masks_list, axis=0)
             buffer_city_mask = np.concatenate(city_mask_list, axis=0)
             buffer_dones = np.concatenate(dones_list, axis=0)
             buffer_act_logp = act_logp.detach().cpu().numpy()
+            buffer_act = np.concatenate(act_lsit, axis=0)
 
             costs = env_info["costs"]
             # 智能体间平均， 组间最小化最大
@@ -193,15 +198,19 @@ class Agent(AgentBase):
             adv = group_adv.reshape(1,-1,1)
             adv = adv.repeat(agent_num, axis = 2).repeat(len(act_logp_list), axis = 0).reshape(-1,agent_num)
 
+
             buffer = {
                 "graph":graph,
                 "agent_num": agent_num,
 
                 "states": buffer_states,
+                "salesmen_masks": buffer_salesmen,
                 "city_mask": buffer_city_mask,
                 "dones": buffer_dones,
+                "act":buffer_act,
                 "act_logp": buffer_act_logp,
-                "adv": adv
+                "adv": adv,
+                "length": len(act_logp_list)
             }
 
             return buffer
@@ -276,4 +285,4 @@ if __name__ == '__main__':
         graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
     output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
-    loss_s = agent.learn(*output)
+    loss_s = agent.learn(output)

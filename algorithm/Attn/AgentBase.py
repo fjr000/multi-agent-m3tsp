@@ -24,13 +24,13 @@ class AgentBase:
         self.model.to(self.device)
         self.train_count = 0
 
-    def reset_graph(self, graph, n_agents):
+    def reset_graph(self, graph, n_agents, repeat_times = 1):
         """
         :param graph: [B,N,2]
         :return:
         """
         graph_t = _convert_tensor(graph, device=self.device, target_shape_dim=3)
-        self.model.init_city(graph_t, n_agents)
+        self.model.init_city(graph_t, n_agents, repeat_times)
 
     def _get_action_logprob(self, states, masks, mode="greedy", info=None, eval=False):
         info = {} if info is None else info
@@ -236,13 +236,16 @@ class AgentBase:
                 'python': random.getstate(),
                 'numpy': np.random.get_state(),
                 'torch': torch.get_rng_state(),
-                'torch_cuda': torch.cuda.get_rng_state() if torch.cuda.is_available() else None
+                'torch_cuda': torch.cuda.get_rng_state(self.device) if torch.cuda.is_available() else None,
+                'torch_cuda_all':torch.cuda.get_rng_state_all()if torch.cuda.is_available() else None
             },
             "info": info,
         }
         return checkpoint
 
     def load_state_dict(self, checkpoint):
+        if 'actions_model.agent_decoder.action.glimpse_K' in checkpoint['model_state_dict']:
+            checkpoint['model_state_dict'].pop('actions_model.agent_decoder.action.glimpse_K')
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optim.load_state_dict(checkpoint["model_optim"])
 
@@ -254,8 +257,10 @@ class AgentBase:
         if rng_state is not None:
             random.setstate(rng_state["python"])
             np.random.set_state(rng_state["numpy"])
-            torch.set_rng_state(rng_state["torch"])
-            torch.set_rng_state(rng_state["torch_cuda"])
+            torch.set_rng_state(rng_state["torch"].cpu())
+            torch.cuda.set_rng_state(rng_state["torch_cuda"].cpu(), self.device)
+            if "torch_cuda_all" in rng_state:
+                torch.cuda.set_rng_state_all(rng_state["torch_cuda_all"].cpu())
 
         info = checkpoint.get("info", None)
         return info

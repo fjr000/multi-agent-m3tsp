@@ -451,13 +451,16 @@ class ActionsModel(nn.Module):
         self.nodes_embed = None
         self.config = config
 
-    def init_city(self, city, n_agents):
+    def init_city(self, city, n_agents, repeat_times = 1):
         """
         :param city: [B,N,2]
         :return: None
         """
         self.city = city
         self.city_embed = self.city_encoder(city, n_agents)
+        if repeat_times > 1:
+            self.city_embed = self.city_embed.unsqueeze(0).expand(repeat_times, -1, -1, -1).reshape(-1, self.city_embed.size(1), self.city_embed.size(2))
+            self.city_encoder.city_embed = self.city_embed
         self.agent_decoder.cache_keys(self.city_embed, n_agents)
 
     def update_city_mean(self, n_agent, mask=None, batch_mask=None):
@@ -485,8 +488,8 @@ class Model(nn.Module):
         self.step = 0
         self.cfg = config
 
-    def init_city(self, city, n_agents):
-        self.actions_model.init_city(city, n_agents)
+    def init_city(self, city, n_agents,repeat_times = 1):
+        self.actions_model.init_city(city, n_agents, repeat_times)
         self.step = 0
 
     def forward(self, agent, mask, info=None, eval=False):
