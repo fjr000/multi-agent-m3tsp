@@ -53,10 +53,10 @@ class MTSPEnv:
         # self.remain_stay_still_log = None
 
         self.traj_stages = None
-        self.dones_step = None
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
+        self.conflict_count = None
 
         self.distance_scale = np.sqrt(2)
 
@@ -94,102 +94,30 @@ class MTSPEnv:
         # self.graph = self.graph - self.graph[0]
 
         self.step_count = 0
-        self.trajectories = np.ones((self.problem_size,self.salesmen,self.cities+1), dtype=np.int32)
-        self.cur_pos = self.trajectories[...,self.step_count] -1
+        self.trajectories = np.ones((self.problem_size, self.salesmen, self.cities + 1), dtype=np.int32)
+        self.cur_pos = self.trajectories[..., self.step_count] - 1
 
         # self.last_costs = np.zeros(self.salesmen)
         # self.costs = np.zeros(self.salesmen)
         self.costs = np.zeros((self.problem_size, self.salesmen), dtype=np.float32)
         self.mask = np.ones((self.problem_size, self.cities,), dtype=np.bool_)
-        self.mask[:,0] = 0
+        self.mask[:, 0] = 0
         # self.remain_stay_still_log = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32)
-        self.traj_stages = np.zeros((self.problem_size, self.salesmen,), dtype=np.int32) # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
-        self.stage_2 = self.traj_stages >= 2
-        self.dones_step = np.zeros((self.problem_size, self.salesmen), dtype=np.int32)
-        self.dones = np.zeros(self.problem_size, dtype=np.bool_)
-        self.states = np.empty((self.problem_size,self.salesmen, self.dim), dtype=np.float32)
+        self.traj_stages = np.zeros((self.problem_size, self.salesmen,),
+                                    dtype=np.int32)  # 0 -> prepare; 1 -> travelling; 2 -> finished; 3 -> stay depot
+        self.stage_2 = np.zeros_like(self.traj_stages, dtype=np.bool_)
+        self.dones = None
+        self.states = None
         self.batch_ar = np.arange(self.problem_size)
         self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
         self.salesmen_masks = None
         self.actions = None
         self.ori_actions = None
+        self.conflict_count_exp = np.zeros((self.problem_size, self.salesmen), dtype=np.int32)
+        self.conflict_count = self.conflict_count_exp.copy()
         # self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
         # self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
-        self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
-
-    def _get_salesmen_states2(self):
-
-        B = self.problem_size
-        N = self.cities
-        A = self.salesmen
-
-        # Constants and basic indices
-        depot_idx = 0
-        batch_indices = self.batch_ar[:, None]  # [B, 1]
-        sqrt2 = np.sqrt(2)  # Precompute normalization factor
-
-        # 生成批量索引 [B, A]
-        # 1. Current cost related features
-        cur_cost = self.costs  # [B,A]
-        max_cost = np.max(cur_cost, axis=1, keepdims=True)  # [B,1]
-        min_cost = np.min(cur_cost, axis=1, keepdims=True)  # [B,1]
-        mean_cost = np.mean(cur_cost, axis=1, keepdims=True)  # [B,1]
-
-        # Cost differential features
-        diff_max_cost = max_cost - cur_cost  # [B,A]
-        diff_min_cost = min_cost - cur_cost  # [B,A]
-
-        # Advanced cost balancing feature
-        sum_costs = np.sum(cur_cost, axis=1, keepdims=True)  # [B,1]
-        denominator = max(A - 1, 1)
-        avg_diff_cost = (sum_costs - A * cur_cost) / denominator  # [B,A]
-
-        # 2. Distance to depot features
-        dis_depot = self.graph_matrix[batch_indices, self.cur_pos, depot_idx]  # [B,A]
-
-        # 3. Future distance estimation features
-        selected_dists = self.graph_matrix[batch_indices, self.cur_pos, :]  # [B,A,N]
-        each_depot_dist = self.graph_matrix[:, 0:1, :]  # Depot to all cities [B,1,N]
-        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
-
-        # Masked distance calculations
-        masked_dist = np.where(self.mask[:, None, :], selected_dists_depot, np.nan)
-        avg_dist_depot = np.nanmean(masked_dist, axis=2)  # [B,A]
-        max_dist_depot = np.nanmax(masked_dist, axis=2)  # [B,A]
-        min_dist_depot = np.nanmin(masked_dist, axis=2)  # [B,A]
-
-        # 4. Resource allocation features
-        # remain_salesmen = (A - np.count_nonzero(self.stage_2, axis=1, keepdims=True)) / self.salesmen  # [B,1]
-        remain_cities = np.count_nonzero(self.mask, axis=1, keepdims=True) / self.cities  # [B,1]
-
-        self.states[..., 0] = 0
-        self.states[..., 1] = self.cur_pos
-
-        self.states[..., 2] = cur_cost / sqrt2
-        self.states[..., 3] = max_cost / sqrt2
-        self.states[..., 4] = diff_max_cost / sqrt2
-        self.states[..., 5] = min_cost / sqrt2
-        self.states[..., 6] = diff_min_cost / sqrt2
-        self.states[..., 7] = mean_cost / sqrt2
-        self.states[..., 8] = avg_diff_cost / sqrt2
-
-        self.states[..., 9] = dis_depot / sqrt2
-        self.states[..., 10] = max_dist_depot / sqrt2 / 2
-        self.states[..., 11] = avg_dist_depot / sqrt2 / 2
-        self.states[..., 12] = min_dist_depot / sqrt2 / 2
-        self.states[..., 13] = remain_cities.repeat(A,axis = -1)
-
-        # self.states[..., 4] = diff_min_cost
-        # self.states[..., 5] = avg_diff_cost
-
-        # self.states[..., 7] = average_distances_depot
-
-
-        # self.states[..., 11] = np.clip(self.traj_stages, a_min=0, a_max=2) - 1
-
-        # self.states[..., 9] = 1 - rank
-
-        return self.states
+        # self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
 
     def _get_salesmen_states(self):
 
@@ -198,7 +126,7 @@ class MTSPEnv:
         # Constants and basic indices
         depot_idx = 0
         batch_indices = self.batch_ar[:, None]  # [B, 1]
-        city_mask = self.mask[:,None,:]
+        city_mask = self.mask[:, None, :]
         cur_pos_dists = self.graph_matrix[batch_indices, self.cur_pos, :]
         remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
 
@@ -208,7 +136,7 @@ class MTSPEnv:
         min_cost = np.min(self.costs, axis=1, keepdims=True)  # [B,1]
         depot_dist = self.graph_matrix[batch_indices, self.cur_pos, 0]
         expect_dist = self.costs + depot_dist
-        max_expect_dist = np.max(expect_dist, axis=1, keepdims=True) # 若现在结束的开销
+        # max_expect_dist = np.max(expect_dist, axis=1, keepdims=True)  # 若现在结束的开销
 
         # 最近-最远点距离
         masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
@@ -228,9 +156,10 @@ class MTSPEnv:
         max_max_dist_depot = np.max(self.costs + max_dist_depot, axis=1, keepdims=True)
 
         # === 4. 全局任务特征 ===
-        progress = 1 - remain_cities / (N-1)  # [B,1]
+        progress = 1 - remain_cities / (N - 1)  # [B,1]
         # workload_ratio = remain_cities / (remain_cities + A)
 
+        self.states = np.empty((B, A, self.dim), dtype=np.float32)
         self.states[..., 0] = depot_idx
         self.states[..., 1] = self.cur_pos
 
@@ -255,69 +184,6 @@ class MTSPEnv:
 
         return self.states
 
-    def _get_salesmen_states3(self):
-
-        B, A, N = self.problem_size, self.salesmen, self.cities
-
-        # Constants and basic indices
-        depot_idx = 0
-        batch_indices = self.batch_ar[:, None]  # [B, 1]
-        city_mask = self.mask[:,None,:]
-        cur_pos_dists = self.norm_graph[batch_indices, self.cur_pos, :]
-        remain_cities = np.sum(self.mask, axis=1, keepdims=True)  # [B,1]
-
-        # === 2. 智能体级特征 ===
-        # 成本特征
-        max_cost = np.max(self.costs, axis=1, keepdims=True)  # [B,1]
-        mean_cost = np.mean(self.costs, axis=1, keepdims=True)  # [B,1]
-
-        norm_costs = self.costs / (max_cost + 1e-8)  # [B,A]
-        diff_costs = (self.costs - mean_cost) / (max_cost + 1e-8)
-        depot_dist = self.norm_graph[batch_indices, self.cur_pos, 0]  # [B,A] 到仓库距离
-
-        # 位置特征
-        masked_dists = np.where(city_mask, cur_pos_dists, np.nan)
-        mean_dists = np.nanmean(masked_dists, axis=2)
-        max_dists = np.nanmax(masked_dists, axis=2)
-        min_dists = np.nanmin(masked_dists, axis=2)
-
-        # 3. Future distance estimation features
-        selected_dists = cur_pos_dists  # [B,A,N]
-        each_depot_dist = self.norm_graph[:, 0:1, :]  # Depot to all cities [B,1,N]
-        selected_dists_depot = selected_dists + each_depot_dist  # [B,A,N]
-
-        # Masked distance calculations
-        masked_dist_depot = np.where(city_mask, selected_dists_depot, np.nan)
-        mean_dist_depot = np.nanmean(masked_dist_depot, axis=2)  # [B,A]
-        max_dist_depot = np.nanmax(masked_dist_depot, axis=2)  # [B,A]
-        min_dist_depot = np.nanmin(masked_dist_depot, axis=2)  # [B,A]
-
-        # === 4. 全局任务特征 ===
-        progress = 1 - remain_cities / (N-1)  # [B,1]
-        workload_ratio = remain_cities / (remain_cities + A)
-
-        self.states[..., 0] = depot_idx
-        self.states[..., 1] = self.cur_pos
-
-        # scale = (max_cost + 1e-8)
-        self.states[..., 2] = norm_costs
-        self.states[..., 3] = self.costs / self.distance_scale.squeeze(-1)
-        self.states[..., 4] = diff_costs
-
-        self.states[..., 5] = mean_dists
-        self.states[..., 6] = max_dists
-        self.states[..., 7] = min_dists
-        self.states[..., 8] = depot_dist
-
-        self.states[..., 9] = mean_dist_depot / 2
-        self.states[..., 10] = max_dist_depot / 2
-        self.states[..., 11] = min_dist_depot / 2
-
-        self.states[..., 12] = progress
-        self.states[..., 13] = workload_ratio
-
-        return self.states
-
     def _get_distance(self, id1, id2):
         return np.sqrt(np.sum(np.square(self.graph[id1 - 1] - self.graph[id2 - 1])))
 
@@ -336,15 +202,15 @@ class MTSPEnv:
 
         active_agents = self.traj_stages == 1
         batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
-        batch_indices = batch_indices_1d[:,None]
+        batch_indices = batch_indices_1d[:, None]
 
         if self.env_masks_mode == 0:
             # 返回仓库优化 (新增阶段0排除)
             masked_cost = np.where(active_agents, self.costs, np.inf)
             masked_cost_sl = masked_cost[batch_indices_1d]
-            min_cost_idx =  np.argmin(masked_cost_sl, axis=-1)
+            min_cost_idx = np.argmin(masked_cost_sl, axis=-1)
             repeat_masks[batch_indices, :, 0] = 1
-            repeat_masks[batch_indices, min_cost_idx[:,None], 0] = 0
+            repeat_masks[batch_indices, min_cost_idx[:, None], 0] = 0
             # # 仅不允许最小开销的智能体留在原地
             # 允许所有激活智能体留在原地
             # 筛选有效批次的 mask 和 indices
@@ -355,7 +221,7 @@ class MTSPEnv:
             repeat_masks[batch_indices, np.arange(A), valid_indices] = valid_mask
 
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
-            repeat_masks[batch_indices, min_cost_idx[:,None], x_min_cur_pos[:,None]] = 0
+            repeat_masks[batch_indices, min_cost_idx[:, None], x_min_cur_pos[:, None]] = 0
 
             # for b_idx, min_idx in zip(batch_indices.squeeze(1), min_cost_idx):
             #     active_agts = active_agents[b_idx]
@@ -377,11 +243,11 @@ class MTSPEnv:
             masked_cost_sl = masked_cost[batch_indices_1d]
             max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
             # 将最大开销的智能体的城市0的mask置为1，其他智能体的城市0mask为0
-            repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
-            repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
+            repeat_masks[batch_indices, :, 0][active_agents[batch_indices]] = 0
+            repeat_masks[batch_indices, max_cost_idx[:, None], 0] = 1
             # 仅允许最大开销的智能体留在原地
             x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
-            repeat_masks[batch_indices, max_cost_idx[:,None], x_max_cur_pos[:,None]] = 1
+            repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
             # repeat_masks[batch_indices, max_cost_idx[:,None], cur_pos] = 1
             #
             # min_cost_idx =  np.argmin(masked_cost_sl, axis=-1)
@@ -394,7 +260,7 @@ class MTSPEnv:
             # repeat_masks[batch_indices, min_cost_idx[:,None], x_min_cur_pos[:,None]] = 0
         elif self.env_masks_mode == 2:
             # 结合回仓库距离
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, self.cur_pos[batch_indices_1d], 0]  # [B,A]
             expect_dis = self.costs[batch_indices_1d] + dis_depot
 
             # 返回仓库优化 (新增阶段0排除)
@@ -407,12 +273,12 @@ class MTSPEnv:
             valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
 
             # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A)[None,:], valid_indices] = valid_mask
+            repeat_masks[batch_indices, np.arange(A)[None, :], valid_indices] = valid_mask
             x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
             repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = 0
 
         elif self.env_masks_mode == 3:
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, self.cur_pos[batch_indices_1d], 0]  # [B,A]
             expect_dis = self.costs[batch_indices_1d] + dis_depot
             # 返回仓库优化 (新增阶段0排除)
             masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
@@ -422,7 +288,7 @@ class MTSPEnv:
             repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
 
             # repeat_masks[batch_indices, :, 0][active_agents[batch_indices]]= 0
-            repeat_masks[batch_indices, max_cost_idx[:,None], 0] = 1
+            repeat_masks[batch_indices, max_cost_idx[:, None], 0] = 1
 
             # valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
             #
@@ -458,8 +324,8 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
-            "min_distance": np.min(np.where(np.isclose(self.graph_matrix, 0), np.inf, self.graph_matrix)),
-            "dones":None
+            "min_distance": np.min(np.where(np.isclose(self.graph_matrix, 0), np.inf, self.graph_matrix), axis=(1,2)),
+            "dones": None
         }
 
         return self._get_salesmen_states(), env_info
@@ -470,6 +336,7 @@ class MTSPEnv:
         # self.rewards = np.where(self.dones[:,None], -np.max(self.costs,keepdims=True, axis=1).repeat(self.salesmen, axis = 1), 0)
         self.rewards = np.where(self.dones, -np.max(self.costs, axis=1), 0)
         return self.rewards
+
     def deal_conflict(self, actions: np.ndarray):
         mp = {}
         new_actions = np.zeros_like(actions)
@@ -566,56 +433,55 @@ class MTSPEnv:
 
         # return self.masks_in_salesmen
         return None
+
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
 
         # 生成条件掩码 [B, A]
         same_pos_mask = (self.cur_pos == actions)
 
-        # # 批量更新停留计数 (向量化条件判断)
-        # self.remain_stay_still_log = np.where(
-        #     same_pos_mask,
-        #     self.remain_stay_still_log + 1,  # 条件为真时+1
-        #     0  # 条件为假时重置为0
-        # )
-
         # 将保持静止的动作置本身 [B, A]
         actions = np.where(same_pos_mask, self.cur_pos, actions)
-        actions = np.where(actions == 0, self.trajectories[...,self.step_count], actions)
+        actions = np.where(actions == 0, self.trajectories[..., self.step_count], actions)
 
         return actions
 
-    def step(self, ori_actions: np.ndarray):
+    def _do_actions(self, ori_actions):
         actions = self.reset_actions(ori_actions)
         if not self.use_conflict_model:
             actions = self.deal_conflict_batch(actions)
         self.actions = actions
         self.step_count += 1
         self.trajectories[..., self.step_count] = actions
-        # 生成行索引 [B*A]
-        self.batch_salesmen_ar = np.repeat(self.batch_ar, self.salesmen)
 
+        return actions
+
+    def _update_normal_city_masks(self, actions):
         # 展平列索引 [B*A]
-        col_indices = actions.ravel()-1
+        col_indices = actions.ravel() - 1
         # 批量置零操作
         self.mask[self.batch_salesmen_ar, col_indices] = 0
 
-        last_pos = self.trajectories[..., self.step_count-1]-1
-        self.cur_pos = self.trajectories[...,self.step_count]-1
-
+    def _update_costs(self, last_pos, cur_pos):
         self.costs += self.graph_matrix[
             self.batch_ar[:, None],
             last_pos,
-            self.cur_pos,
+            cur_pos,
         ]
 
-        batch_complete = np.all(~self.mask, axis=1)
-        # 判断哪些批次所有城市已访问完成 [B]
+    def _update_conflict_count(self, is_stay_up, not_stay_up):
+        # 判断哪些智能体停留在原地
+        # 统计停留次数，若停留后回到城市0则不算停留
+        self.conflict_count_exp += is_stay_up.astype(int)
+        _update = (self.cur_pos != 0) & (not_stay_up)
+        self.conflict_count[_update] = self.conflict_count_exp[_update]
 
+    def _update_stages(self, batch_complete, not_stay_up, last_pos):
+        # 判断哪些批次所有城市已访问完成 [B]
         self.traj_stages = np.where(
-            ((last_pos != self.cur_pos)
-            &
-            ((last_pos == 0)|(self.cur_pos == 0)))
+            (not_stay_up
+             &
+             ((last_pos == 0) | (self.cur_pos == 0)))
             |
             (batch_complete[:, None]),
             # |
@@ -632,21 +498,32 @@ class MTSPEnv:
             self.traj_stages  # 否则保持原值
         )
 
-
-        # # 找出需要处理的旅行商 [B, A]
-        # need_process = (
-        #         batch_complete[:, None] &  # 批次完成标记
-        #         (self.traj_stages == 0)    # 未出发状态
-        # )
-        #
-        # # 批量更新轨迹和状态
-        # if np.any(need_process):
-        #     # 更新状态
-        #     self.traj_stages[need_process] = 1
-
-        self.mask[batch_complete,0] =1
-
         self.stage_2 = self.traj_stages >= 2
+
+    def step(self, ori_actions: np.ndarray):
+        # 执行动作
+        actions = self._do_actions(ori_actions)
+
+        # 更新城市mask
+        self._update_normal_city_masks(actions)
+
+        # 更新实时成本
+        last_pos = self.trajectories[..., self.step_count - 1] - 1
+        self.cur_pos = self.trajectories[..., self.step_count] - 1
+
+        is_stay_up = last_pos == self.cur_pos
+        not_stay_up = ~is_stay_up
+
+        self._update_costs(last_pos, self.cur_pos)
+
+        # 更新统计量
+        self._update_conflict_count(is_stay_up, not_stay_up)
+
+        # 统计未完成批次
+        batch_complete = np.all(~self.mask, axis=1)
+        self.mask[batch_complete, 0] = 1  # 已完成批次允许留在仓库
+
+        self._update_stages(batch_complete, not_stay_up, last_pos)
 
         self._get_reward()
 
@@ -657,38 +534,26 @@ class MTSPEnv:
             "dones": self.dones if any(self.dones) else None
         }
 
-        # self.ori_actions_list.append(ori_actions)
-        # self.actions_list.append(actions)
-        # self.salesmen_masks_list.append(info["salesmen_masks"])
-        # self.traj_stage_list.append(self.traj_stages)
-
-        self.path_count = np.where(
-            ((self.cur_pos != last_pos)
-             &(self.cur_pos != 0)),
-            # |
-            # (np.all(actions == 1)),
-            self.path_count + 1,  # 满足条件时阶段+1
-            self.path_count  # 否则保持原值
-        )
+        # self.path_count = np.where(
+        #     ((self.cur_pos != last_pos)
+        #      &(self.cur_pos != 0)),
+        #     # |
+        #     # (np.all(actions == 1)),
+        #     self.path_count + 1,  # 满足条件时阶段+1
+        #     self.path_count  # 否则保持原值
+        # )
 
         if self.done:
 
-            # valid = self.check_array_structure()
-            # ca = self.compress_array()
-            # t = self.convert_to_list(ca)
-
-            self.costs += self.graph_matrix[
-                self.batch_ar[:, None],
-                np.zeros_like(self.cur_pos),
-                self.cur_pos,
-            ]
+            self._update_costs(self.cur_pos, np.zeros_like(self.cur_pos))
 
             self._get_reward()
 
             info.update(
                 {
-                    "trajectories": self.trajectories[...,:self.step_count+2],
+                    "trajectories": self.trajectories[..., :self.step_count + 2],
                     "costs": self.costs,
+                    "conflict_count": self.conflict_count
                 }
             )
 
@@ -760,6 +625,7 @@ class MTSPEnv:
         B, A, T = arr.shape
         return [[list(filter(lambda x: x != 0, arr[b, a])) for a in range(A)] for b in range(B)]
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
@@ -779,7 +645,8 @@ if __name__ == '__main__':
     parser.add_argument("--city_nums", type=int, default=20)
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=1, help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
+    parser.add_argument("--env_masks_mode", type=int, default=1,
+                        help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     args = parser.parse_args()
@@ -789,7 +656,7 @@ if __name__ == '__main__':
         "cities": args.city_nums,
         "seed": None,
         "mode": 'rand',
-        "env_masks_mode":args.env_masks_mode,
+        "env_masks_mode": args.env_masks_mode,
         "use_conflict_model": args.use_conflict_model
     }
     env = MTSPEnv(
@@ -812,11 +679,12 @@ if __name__ == '__main__':
     import numpy as np
     import torch
     from envs.GraphGenerator import GraphGenerator as GG
-    g =GG()
-    batch_graph = g.generate(batch_size=args.batch_size,num=args.city_nums)
-    states, info = env.reset(graph = batch_graph)
+
+    g = GG()
+    batch_graph = g.generate(batch_size=args.batch_size, num=args.city_nums)
+    states, info = env.reset(graph=batch_graph)
     salesmen_masks = info["salesmen_masks"]
     agent.reset_graph(batch_graph, 3)
-    done =False
+    done = False
     agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
-                "use_conflict_model": args.use_conflict_model})
+        "use_conflict_model": args.use_conflict_model})

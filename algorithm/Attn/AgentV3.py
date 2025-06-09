@@ -196,9 +196,9 @@ class Agent(AgentBase):
             buffer_act_logp = act_logp.detach().cpu().numpy()
             buffer_act = np.concatenate(act_lsit, axis=0)
 
-            # adv = self.compute_advs(env_info['costs'], len(act_logp_list))
+            adv = self.compute_advs(env_info['costs'], len(act_logp_list), agent_num / graph.shape[1] * min_distance, env_info['conflict_count'])
 
-            adv = self.compute_advs_with_stayup_penalty(env_info['costs'], min_distance, env_info['trajectories'])
+            # adv = self.compute_advs_with_stayup_penalty(env_info['costs'], min_distance, env_info['trajectories'])
 
             buffer = {
                 "graph":graph,
@@ -217,8 +217,11 @@ class Agent(AgentBase):
             return buffer
 
 
-    def compute_advs(self, costs, repeat_times):
-        rewards = -costs
+    def compute_advs(self, costs, repeat_times, stand_penalty_meta = 0, stand_count = None):
+        if stand_count is None:
+            rewards = -costs
+        else:
+            rewards = -costs - stand_count * stand_penalty_meta[:,np.newaxis]
         # 智能体间平均， 组间最小化最大
         rewards_8 = rewards.reshape(rewards.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
         agents_max_rewards = np.min(rewards_8, axis=-1)
@@ -246,7 +249,7 @@ class Agent(AgentBase):
 
             trimmed_seq = seq[start:end + 1]
 
-            # Step 2: 统计连续重复的次数（不是段数，而是“不变”的次数）
+            # Step 2: 统计连续重复的次数
             repeats = 0
             cur_num = trimmed_seq[0]
             for i in range(1, len(trimmed_seq)):
@@ -262,7 +265,7 @@ class Agent(AgentBase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--agent_num", type=int, default=5)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
