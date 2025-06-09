@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from model.AttnModel.Model import Model, Config
+from model.AttnModel.ModelV3 import Model, Config
 from algorithm.Attn.AgentBase import AgentBase
 from utils.TensorTools import _convert_tensor
 
@@ -12,7 +12,7 @@ class Agent(AgentBase):
     def __init__(self, args, config):
         super(Agent, self).__init__(args, config, Model)
         self.model.to(self.device)
-        self.name = "Attn_AgentV2"
+        self.name = "Attn_AgentV3"
 
     def save_model(self, id, info = None):
         filename = f"{self.name}_{id}"
@@ -66,19 +66,23 @@ class Agent(AgentBase):
                                _convert_tensor(buffer['salesmen_masks'], dtype=torch.bool, device = self.device),
                                {
                                     "mask": _convert_tensor(buffer['city_mask'], dtype=torch.bool, device=self.device),
-                                    "dones": _convert_tensor(buffer['dones'], dtype=torch.bool, device=self.device),
+                                    "dones": None,
                                 }
                                )
+
+        undones = ~buffer['dones']
+        logits = logits[undones]
         dist = torch.distributions.Categorical(logits=logits)
-        new_act_logp = dist.log_prob(_convert_tensor(buffer['act'],dtype=torch.long, device=self.device))
+        act = buffer['act'][undones]
+        act_logp = buffer['act_logp'][undones]
+        adv = buffer['adv'][undones]
+        act_ent_loss = dist.entropy().mean()
 
-
-        old_act_logp = _convert_tensor(buffer['act_logp'], device=self.device)
-        adv = buffer['adv']
+        new_act_logp = dist.log_prob(_convert_tensor( act,dtype=torch.long, device=self.device))
+        old_act_logp = _convert_tensor(act_logp, device=self.device)
 
         self.train_count += 1
         act_loss = self._get_loss(new_act_logp, old_act_logp, adv)
-        act_ent_loss = dist.entropy().mean()
 
         loss = act_loss + self.args.entropy_coef * (- act_ent_loss)
         loss /= self.args.accumulation_steps
@@ -126,6 +130,7 @@ class Agent(AgentBase):
         dones = env_info["dones"]
 
         graph = env_info["graph"]
+        min_distance = env_info["min_distance"]
 
         self.reset_graph(graph, agent_num)
         act_logp_list = []
@@ -191,15 +196,9 @@ class Agent(AgentBase):
             buffer_act_logp = act_logp.detach().cpu().numpy()
             buffer_act = np.concatenate(act_lsit, axis=0)
 
-            costs = -env_info["costs"]
-            # 智能体间平均， 组间最小化最大
-            costs_8 = costs.reshape(costs.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
-            agents_max_cost = np.min(costs_8, axis=-1)
-            group_adv = (agents_max_cost - np.mean(agents_max_cost, keepdims=True, axis=1)) / (
-                    agents_max_cost.std(keepdims=True, axis=1) + 1e-8)
-            adv = group_adv.reshape(1,-1,1)
-            adv = adv.repeat(agent_num, axis = 2).repeat(len(act_logp_list), axis = 0).reshape(-1,agent_num)
+            # adv = self.compute_advs(env_info['costs'], len(act_logp_list))
 
+            adv = self.compute_advs_with_stayup_penalty(env_info['costs'], min_distance, env_info['trajectories'])
 
             buffer = {
                 "graph":graph,
@@ -217,6 +216,48 @@ class Agent(AgentBase):
 
             return buffer
 
+
+    def compute_advs(self, costs, repeat_times):
+        rewards = -costs
+        # 智能体间平均， 组间最小化最大
+        rewards_8 = rewards.reshape(rewards.shape[0] // 8, 8, -1)  # 将成本按实例组进行分组
+        agents_max_rewards = np.min(rewards_8, axis=-1)
+        group_adv = (agents_max_rewards - np.mean(agents_max_rewards, keepdims=True, axis=1)) / (
+                agents_max_rewards.std(keepdims=True, axis=1) + 1e-8)
+        adv = group_adv.reshape(1, -1, 1)
+        adv = adv.repeat(agent_num, axis=2).repeat(repeat_times, axis=0).reshape(-1, agent_num)
+        return adv
+
+    def compute_advs_with_stayup_penalty(self, costs, min_distance, trajs):
+        rewards = -costs
+        penalty = - min_distance / 10
+
+        def count_repeated_steps(seq):
+            # Step 1: 去除头尾的 1
+            start = 0
+            while start < len(seq) and seq[start] == 1:
+                start += 1
+            end = len(seq) - 1
+            while end >= 0 and seq[end] == 1:
+                end -= 1
+
+            if start > end:
+                return 0  # 全是 1
+
+            trimmed_seq = seq[start:end + 1]
+
+            # Step 2: 统计连续重复的次数（不是段数，而是“不变”的次数）
+            repeats = 0
+            cur_num = trimmed_seq[0]
+            for i in range(1, len(trimmed_seq)):
+                if trimmed_seq[i] == trimmed_seq[i - 1]:
+                    repeats += 1
+
+            return repeats
+
+        vectorized_count = np.vectorize(count_repeated_steps, signature='(t)->()')
+        ans = vectorized_count(trajs)
+        pass
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

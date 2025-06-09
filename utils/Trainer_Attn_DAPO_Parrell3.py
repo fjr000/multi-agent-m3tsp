@@ -1,3 +1,4 @@
+import collections
 
 import numpy as np
 import random
@@ -12,7 +13,7 @@ sys.path.append("../")
 sys.path.append("./")
 
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.Attn.AgentV1 import Agent as Agent
+from algorithm.Attn.AgentV2 import Agent as Agent
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
@@ -48,14 +49,14 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=4e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
-    parser.add_argument("--use_gpu", type=bool, default=True)
+    parser.add_argument("--use_gpu", type=bool, default=False)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -97,7 +98,7 @@ if __name__ == "__main__":
     })
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    writer = SummaryWriter(f"../log/{Agent.__name__}-{timestamp}")
+    writer = SummaryWriter(f"../log/workflow-{timestamp}")
     writer.add_text("agent_config", str(args), 0)
     x =  str(args)
 
@@ -129,6 +130,9 @@ if __name__ == "__main__":
         "args": args,
         "total_step": total_step,
     }
+
+    buffer_list = collections.deque(maxlen=10)
+    k_epoch = 2
 
     for epoch in range(start_epoch, args.n_epoch):
         print("start epoch:",epoch)
@@ -163,13 +167,16 @@ if __name__ == "__main__":
                 graph = graphG.generate(args.batch_size, city_nums)
                 graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
-            output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
-            loss_s = agent.learn(*output)
+            with torch.no_grad():
+                output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
+            buffer_list.append(output)
+            # for i in range(k_epoch):
+            #     loss_s = agent.learn(random.choice(buffer_list))
 
-            tensorboard_write(writer, total_step,
-                              loss_s,
-                              agent.optim.param_groups[0]["lr"]
-                              )
+            # tensorboard_write(writer, i,
+            #                   loss_s,
+            #                   agent.optim.param_groups[0]["lr"]
+            #                   )
 
             if total_step % (args.accumulation_steps * args.eval_interval) == 0:
                 greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env)

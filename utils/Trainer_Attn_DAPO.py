@@ -56,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
@@ -132,6 +132,7 @@ if __name__ == "__main__":
     }
 
     buffer_list = collections.deque(maxlen=10)
+    k_epoch = 2
 
     for epoch in range(start_epoch, args.n_epoch):
         print("start epoch:",epoch)
@@ -169,8 +170,8 @@ if __name__ == "__main__":
             with torch.no_grad():
                 output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
             buffer_list.append(output)
-            # for i in range(3):
-            loss_s = agent.learn(buffer_list[-1])
+            for i in range(k_epoch):
+                loss_s = agent.learn(random.choice(buffer_list))
 
             tensorboard_write(writer, i,
                               loss_s,

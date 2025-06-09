@@ -83,8 +83,8 @@ class CityEncoder(nn.Module):
 
             # 计算掩码后的均值
             masked_sum = (ori_city_embed * valid_mask.unsqueeze(-1).float()).sum(dim=1, keepdim=True)
-            mean = masked_sum / valid_counts.view(-1, 1, 1)
-            self.city_embed_mean = mean
+            self.city_embed_mean = masked_sum / valid_counts.view(-1, 1, 1)
+            del masked_sum, valid_counts, ori_city_embed
             return self.city_embed_mean
 
     def forward(self, city, n_agents, city_mask=None):
@@ -109,6 +109,9 @@ class CityEncoder(nn.Module):
             graph_embed = model(graph_embed, attn_mask=city_mask)
 
         self.city_embed = graph_embed
+
+        del graph_embed, depot_pos_embed,pos_embed
+
         return self.city_embed  # (B,A+N,E)
 
 
@@ -237,6 +240,9 @@ class AgentEmbedding(nn.Module):
                     global_graph_embed
                 ], dim=-1)
         )
+
+        del cur_pos_embed, distance_cost_embed, global_embed, salesman_embed, global_graph_embed
+
         return agent_embed
 
 
@@ -370,7 +376,7 @@ class ActionDecoder(nn.Module):
             batch_mask=batch_mask
         )
 
-        del masks, expand_masks
+        del masks, expand_masks, extra_masks
 
         return action_logits, self.agent_embed
 

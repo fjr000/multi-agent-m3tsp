@@ -458,6 +458,7 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
+            "min_distance": np.min(np.where(np.isclose(self.graph_matrix, 0), np.inf, self.graph_matrix)),
             "dones":None
         }
 

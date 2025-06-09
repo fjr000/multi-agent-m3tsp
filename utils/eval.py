@@ -6,9 +6,11 @@ sys.path.append("../")
 sys.path.append("./")
 
 import argparse
+import time
 from envs.MTSP.MTSP5 import MTSPEnv
 
-from algorithm.DNN5.AgentV8 import Agent as Agent
+# from algorithm.DNN5.AgentV8 import Agent as Agent
+from algorithm.Attn.AgentV3 import Agent as Agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -32,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=115008) # 710 2.493 / 850 2.489 910 2.486
+    parser.add_argument("--agent_id", type=int, default=999999999) # 710 2.493 / 850 2.489 910 2.486
     parser.add_argument("--tsp_agent_id", type=int, default=00)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not  allow back depot; 1 for only the max cost allow back depot")
@@ -47,7 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--conflict_loss_rate", type=float, default=0.5 + 0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=13000, help="save model interval")
-    parser.add_argument("--seed", type=int, default=528, help="random seed")
+    parser.add_argument("--seed", type=int, default=3333 , help="random seed")
     parser.add_argument("--draw", type=bool, default=True, help="whether to draw result")
 
     args = parser.parse_args()
@@ -72,6 +74,7 @@ if __name__ == "__main__":
     from EvalTools import EvalTools
     import numpy as np
     np.random.seed(args.seed)
+    st_start = time.time_ns()
     for i in (range(100_000_000)):
         graph = graphG.generate()
 
@@ -87,7 +90,7 @@ if __name__ == "__main__":
         trajs.append(no_conflict_greedy_traj[0])
         times.append(no_conflict_greedy_time)
         names.append("no_conflict_greedy")
-
+        #
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env)
         costs.append(greedy_cost)
         trajs.append(greedy_traj[0])
@@ -120,6 +123,7 @@ if __name__ == "__main__":
         print(costs)
         print(times)
         print(names)
+        print(f"{i+1} times:{(time.time_ns() - st_start) / 1e9 / (i+1)}")
         if args.batch_size == 1:
             env.draw_multi(
                 graph,

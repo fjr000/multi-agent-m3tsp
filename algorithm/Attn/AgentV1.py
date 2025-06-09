@@ -7,13 +7,14 @@ class Agent(AgentBase):
     def __init__(self, args, config):
         super(Agent, self).__init__(args, config, Model)
         self.model.to(self.device)
+        self.name = "Attn_AgentV1"
 
     def save_model(self, id, info = None):
-        filename = f"Attn_AgentV1_{id}"
+        filename = f"{self.name}_{id}"
         super(Agent, self)._save_model(self.args.model_dir, filename, info)
 
     def load_model(self, id):
-        filename = f"Attn_AgentV1_{id}"
+        filename = f"{self.name}_{id}"
         return super(Agent, self)._load_model(self.args.model_dir, filename)
 
 

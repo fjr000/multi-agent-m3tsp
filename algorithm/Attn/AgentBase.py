@@ -260,7 +260,7 @@ class AgentBase:
             torch.set_rng_state(rng_state["torch"].cpu())
             torch.cuda.set_rng_state(rng_state["torch_cuda"].cpu(), self.device)
             if "torch_cuda_all" in rng_state:
-                torch.cuda.set_rng_state_all(rng_state["torch_cuda_all"].cpu())
+                torch.cuda.set_rng_state_all([x.cpu() for x in rng_state["torch_cuda_all"]])
 
         info = checkpoint.get("info", None)
         return info
