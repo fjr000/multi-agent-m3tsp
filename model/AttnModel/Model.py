@@ -456,6 +456,7 @@ class ActionsModel(nn.Module):
         self.city_embed_mean = None
         self.nodes_embed = None
         self.config = config
+        self.agent_embed = None
 
     def init_city(self, city, n_agents, repeat_times = 1):
         """

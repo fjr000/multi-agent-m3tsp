@@ -10,7 +10,7 @@ import time
 from envs.MTSP.MTSP5 import MTSPEnv
 
 # from algorithm.DNN5.AgentV8 import Agent as Agent
-from algorithm.Attn.AgentV3 import Agent as Agent
+from algorithm.Attn.AgentV4 import Agent as Agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

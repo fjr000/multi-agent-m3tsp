@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from model.AttnModel.ModelV3 import Model, Config
+from model.AttnModel.ModelV4 import Model, Config
 from algorithm.Attn.AgentBase import AgentBase
 from utils.TensorTools import _convert_tensor
 
@@ -12,7 +12,7 @@ class Agent(AgentBase):
     def __init__(self, args, config):
         super(Agent, self).__init__(args, config, Model)
         self.model.to(self.device)
-        self.name = "Attn_AgentV3"
+        self.name = "Attn_AgentV4"
 
     def save_model(self, id, info = None):
         filename = f"{self.name}_{id}"
@@ -27,26 +27,26 @@ class Agent(AgentBase):
         info.update({
             "mode": mode,
         })
-        actions_logits, acts = self.model(states, masks, info, eval=eval)
+        actions_logits, acts, acts_ncf = self.model(states, masks, info, eval=eval)
         if eval:
-            return acts
+            return acts, acts_ncf
         actions_dist = torch.distributions.Categorical(logits=actions_logits)
         act_logp = actions_dist.log_prob(acts)
 
-        return acts, act_logp
+        return acts, act_logp, acts_ncf
 
     def predict(self, states_t, masks_t, info=None):
         self.model.train()
 
-        actions, act_logp = self._get_action_logprob(
+        actions, act_logp, acts_ncf = self._get_action_logprob(
             states_t, masks_t,
             mode="sample", info=info, eval=False)
-        return actions.cpu().numpy(), act_logp
+        return actions.cpu().numpy(), act_logp, acts_ncf.cpu().numpy() if acts_ncf is not None else None
 
     def exploit(self, states_t, masks_t, mode="greedy", info=None):
         self.model.eval()
-        actions = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=True)
-        return actions.cpu().numpy()
+        actions, acts_ncf = self._get_action_logprob(states_t, masks_t, mode=mode, info=info, eval=True)
+        return actions.cpu().numpy(), acts_ncf.cpu().numpy() if acts_ncf is not None else None
 
     def _get_loss(self, new_act_logp, old_act_logp, adv):
 
@@ -54,7 +54,7 @@ class Agent(AgentBase):
         adv_t = _convert_tensor(adv, device=self.device)
         ratio = torch.exp(new_act_logp - old_act_logp)
         surr1 = ratio * adv_t
-        surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.3) * (adv_t)
+        surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.28) * (adv_t)
         act_loss = -torch.min(surr1, surr2).sum(-1).mean()
         return act_loss
 
@@ -62,7 +62,7 @@ class Agent(AgentBase):
         self.model.train()
 
         self.reset_graph(buffer['graph'], buffer['agent_num'], buffer['length'])
-        logits, _ = self.model(_convert_tensor(buffer['states'],device=self.device),
+        logits, _, _ = self.model(_convert_tensor(buffer['states'],device=self.device),
                                _convert_tensor(buffer['salesmen_masks'], dtype=torch.bool, device = self.device),
                                {
                                     "mask": _convert_tensor(buffer['city_mask'], dtype=torch.bool, device=self.device),
@@ -76,7 +76,7 @@ class Agent(AgentBase):
         act = buffer['act'][undones]
         act_logp = buffer['act_logp'][undones]
         adv = buffer['adv'][undones]
-        act_ent_loss = dist.entropy().mean()
+        act_ent = dist.entropy().mean()
 
         new_act_logp = dist.log_prob(_convert_tensor( act,dtype=torch.long, device=self.device))
         old_act_logp = _convert_tensor(act_logp, device=self.device)
@@ -84,7 +84,7 @@ class Agent(AgentBase):
         self.train_count += 1
         act_loss = self._get_loss(new_act_logp, old_act_logp, adv)
 
-        loss = act_loss + self.args.entropy_coef * (- act_ent_loss)
+        loss = act_loss
         loss /= self.args.accumulation_steps
         loss.backward()
 
@@ -102,7 +102,7 @@ class Agent(AgentBase):
 
         return_info = {
             "act_loss": check(act_loss),
-            "act_ent_loss": check(act_ent_loss),
+            "act_ent": check(act_ent),
             "grad": check(pre_grad),
         }
 
@@ -172,16 +172,20 @@ class Agent(AgentBase):
                 dones_list.append(dones)
 
             if eval_mode:
-                acts = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
+                acts, acts_ncf = self.exploit(states_t, salesmen_masks_t, exploit_mode, info)
             else:
-                acts, act_logp = self.predict(states_t, salesmen_masks_t, info)
+                acts, act_logp, acts_ncf = self.predict(states_t, salesmen_masks_t, info)
                 act_logp_list.append(act_logp)
-            states, r, done, env_info = env.step(acts + 1)
+                act_lsit.append(acts)
+
+            if acts_ncf is None:
+                states, r, done, env_info = env.step(acts + 1)
+            else:
+                states, r, done, env_info = env.step(acts_ncf + 1)
             salesmen_masks = env_info["salesmen_masks"]
             masks_in_salesmen = env_info["masks_in_salesmen"]
             city_mask = env_info["mask"]
             dones = env_info["dones"]
-            act_lsit.append(acts)
 
         if eval_mode:
             return env_info
@@ -232,36 +236,6 @@ class Agent(AgentBase):
         adv = adv.repeat(agent_num, axis=2).repeat(repeat_times, axis=0).reshape(-1, agent_num)
         return adv
 
-    def compute_advs_with_stayup_penalty(self, costs, min_distance, trajs):
-        rewards = -costs
-        penalty = - min_distance / 10
-
-        def count_repeated_steps(seq):
-            # Step 1: 去除头尾的 1
-            start = 0
-            while start < len(seq) and seq[start] == 1:
-                start += 1
-            end = len(seq) - 1
-            while end >= 0 and seq[end] == 1:
-                end -= 1
-
-            if start > end:
-                return 0  # 全是 1
-
-            trimmed_seq = seq[start:end + 1]
-
-            # Step 2: 统计连续重复的次数
-            repeats = 0
-            cur_num = trimmed_seq[0]
-            for i in range(1, len(trimmed_seq)):
-                if trimmed_seq[i] == trimmed_seq[i - 1]:
-                    repeats += 1
-
-            return repeats
-
-        vectorized_count = np.vectorize(count_repeated_steps, signature='(t)->()')
-        ans = vectorized_count(trajs)
-        pass
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

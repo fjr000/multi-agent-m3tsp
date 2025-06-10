@@ -13,9 +13,9 @@ sys.path.append("../")
 sys.path.append("./")
 
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.Attn.AgentV3 import Agent as Agent
+from model.AttnModel.ModelV4 import Config as Config
+from algorithm.Attn.AgentV4 import Agent as Agent
 from EvalTools import EvalTools
-from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
 import torch.multiprocessing as mp
 
@@ -44,7 +44,12 @@ def tensorboard_write(writer, train_count, learn_info, lr):
 
 
 
-def worker_process(share_agent, agent_class, args, env_class, env_config, recv_pipe, queue):
+def worker_process(share_agent, agent_class, args, env_class, env_config, recv_pipe, queue, worker_id):
+    seed = args.seed + worker_id
+    set_seed(seed)
+
+    graphG = GG(args.batch_size, args.city_nums, 2)
+
     env = env_class(env_config)
     work_agent = share_agent
     # work_agent = agent_class(args, Config)
@@ -53,16 +58,41 @@ def worker_process(share_agent, agent_class, args, env_class, env_config, recv_p
         "train_conflict_model": args.train_conflict_model,
         "train_actions_model": args.train_actions_model,
     }
+    print(f"Woker Process {worker_id} start")
+    episode = 0
     while True:
-        graph_8, agent_num = recv_pipe.recv()
+        if args.fixed_agent_num:
+            agent_num = args.agent_num
+        else:
+            # agent_num = np.random.randint(1, args.agent_num + 1)
+            def triangular_random(low, high):
+                """数值越接近 low，概率越高"""
+                return int(np.floor(random.triangular(low, high + 1, low)))
+
+            agent_num = triangular_random(low=2, high=args.agent_num)
+        if args.random_city_num:
+            city_nums = np.random.randint(args.city_nums - 20, args.city_nums + 1)
+        else:
+            city_nums = args.city_nums
+
+        if args.only_one_instance:
+            graph = graphG.generate(1).repeat(args.batch_size, axis=0)
+            graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
+        else:
+            graph = graphG.generate(args.batch_size, city_nums)
+            graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 
         # work_agent.model.load_state_dict(share_agent.model.state_dict())
         # work_agent.model.to(torch.device("cuda"))
         with torch.no_grad():
             buffer = work_agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
         queue.put(buffer)
+        episode+=1
+        if episode % 1000 == 0:
+            print(f"Woker Process {worker_id} Episode: {episode} finished")
+
         del buffer
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
 
 def train_process(share_agent, args, agent_class, agent_args, send_pipes, queue):
@@ -129,36 +159,35 @@ def train_process(share_agent, args, agent_class, agent_args, send_pipes, queue)
             total_step = epoch * step_epoch + i + 1
             save_info.update({"total_step": total_step})
 
-            if args.fixed_agent_num:
-                agent_num = args.agent_num
-            else:
-                # agent_num = np.random.randint(1, args.agent_num + 1)
-                def triangular_random(low, high):
-                    """数值越接近 low，概率越高"""
-                    return int(np.floor(random.triangular(low, high + 1, low)))
-
-                agent_num = triangular_random(low=2, high=args.agent_num)
-            if args.random_city_num:
-                city_nums = np.random.randint(args.city_nums - 20, args.city_nums + 1)
-            else:
-                city_nums = args.city_nums
-
-            if args.only_one_instance:
-                graph = graphG.generate(1).repeat(args.batch_size, axis=0)
-                graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
-            else:
-                graph = graphG.generate(args.batch_size, city_nums)
-                graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
-
-            for pipe in send_pipes:
-                pipe.send((graph_8, agent_num))
+            # if args.fixed_agent_num:
+            #     agent_num = args.agent_num
+            # else:
+            #     # agent_num = np.random.randint(1, args.agent_num + 1)
+            #     def triangular_random(low, high):
+            #         """数值越接近 low，概率越高"""
+            #         return int(np.floor(random.triangular(low, high + 1, low)))
+            #
+            #     agent_num = triangular_random(low=2, high=args.agent_num)
+            # if args.random_city_num:
+            #     city_nums = np.random.randint(args.city_nums - 20, args.city_nums + 1)
+            # else:
+            #     city_nums = args.city_nums
+            #
+            # if args.only_one_instance:
+            #     graph = graphG.generate(1).repeat(args.batch_size, axis=0)
+            #     graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
+            # else:
+            #     graph = graphG.generate(args.batch_size, city_nums)
+            #     graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
+            #
+            # for pipe in send_pipes:
+            #     pipe.send((graph_8, agent_num))
 
             for i in range(agent_args.num_worker):
                 buffer = queue.get()
                 loss = train_agent.learn(buffer)
                 del buffer
-
-            share_agent.model.load_state_dict(train_agent.model.state_dict())
+                share_agent.model.load_state_dict(train_agent.model.state_dict())
             # if total_step % 50 == 0:
             #     torch.cuda.empty_cache()
             tensorboard_write(writer, total_step,
@@ -194,7 +223,7 @@ class SharelWorker:
         }
         self.num_worker = args.num_worker
 
-        self.queue = mp.Queue()
+        self.queue = mp.Queue(maxsize=self.num_worker * 10)
         self.worker_pipes = [mp.Pipe(duplex=False) for _ in range(self.num_worker)]
         args.use_gpu = False
         self.share_agent = agent_class(args, Config)
@@ -210,7 +239,8 @@ class SharelWorker:
                                              self.env_class,
                                              self.env_config,
                                              self.worker_pipes[worker_id][0],
-                                             self.queue))
+                                             self.queue,
+                                             worker_id))
                             for worker_id in range(self.num_worker)
                             ]
 
@@ -258,31 +288,31 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=7)
+    parser.add_argument("--num_worker", type=int, default=4)
+    parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=128)
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=4e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=False)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=1e-3)
-    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--entropy_coef", type=float, default=0.0)
+    parser.add_argument("--accumulation_steps", type=int, default=4)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=4)
+    parser.add_argument("--agent_id", type=int, default=1)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
-    parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
