@@ -184,11 +184,11 @@ def train_process(share_agent, args, agent_class, agent_args, send_pipes, queue)
             # for pipe in send_pipes:
             #     pipe.send((graph_8, agent_num))
 
-            for i in range(agent_args.num_worker):
-                buffer = queue.get()
-                loss = train_agent.learn(buffer)
-                del buffer
-                share_agent.model.load_state_dict(train_agent.model.state_dict())
+            # for i in range(agent_args.num_worker):
+            buffer = queue.get()
+            loss = train_agent.learn(buffer)
+            del buffer
+            share_agent.model.load_state_dict(train_agent.model.state_dict())
             # if total_step % 50 == 0:
             #     torch.cuda.empty_cache()
             tensorboard_write(writer, total_step,
@@ -289,7 +289,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=4)
+    parser.add_argument("--num_worker", type=int, default=6)
     parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
@@ -302,16 +302,16 @@ if __name__ == "__main__":
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=False)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=0.0)
+    parser.add_argument("--entropy_coef", type=float, default=0)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=1)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=800, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
@@ -321,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
     parser.add_argument("--conflict_loss_rate", type=float, default=1.0, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
-    parser.add_argument("--save_model_interval", type=int, default=200, help="save model interval")
+    parser.add_argument("--save_model_interval", type=int, default=1600, help="save model interval")
     parser.add_argument("--seed", type=int, default=1234, help="random seed")
     parser.add_argument("--epoch_size", type=int, default=1280000, help="number of instance for each epoch")
     parser.add_argument("--n_epoch", type=int, default=100, help="number of epoch")
