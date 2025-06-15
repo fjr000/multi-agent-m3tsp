@@ -11,7 +11,7 @@ import tqdm
 sys.path.append("../")
 sys.path.append("./")
 
-from envs.MTSP.MTSP5 import MTSPEnv
+from envs.MTSP.MTSP5_Penalty import MTSPEnv
 from algorithm.Attn.AgentV1 import Agent as Agent
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
@@ -38,6 +38,17 @@ def tensorboard_write(writer, train_count, learn_info, lr):
         writer.add_scalar(f"train/{k}", v, global_step=train_count)
     writer.add_scalar("train/lr", lr, train_count)
 
+
+def repeat_batch_adjacent(arr: np.ndarray, K: int) -> np.ndarray:
+    B, N, _ = arr.shape
+    # 扩展维度 -> [B, 1, N, 2]
+    expanded = arr[:, None]  # 等价于 np.expand_dims(arr, axis=1)
+    # 重复 K 次 -> [B, K, N, 2]
+    repeated = np.repeat(expanded, repeats=K, axis=1)
+    # reshape 成 [B*K, N, 2]
+    result = repeated.reshape(-1, N, 2)
+    return result
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
@@ -48,22 +59,24 @@ if __name__ == "__main__":
     parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=4e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=4)
+    parser.add_argument("--repeat_times", type=int, default=4)
+    parser.add_argument("--augment", type=int, default=8)
+    parser.add_argument("--agent_id", type=int, default=0)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
-    parser.add_argument("--use_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_conflict_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
     parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
@@ -90,7 +103,9 @@ if __name__ == "__main__":
     set_seed(args.seed)
 
     fig = None
-    graphG = GG(args.batch_size, args.city_nums, 2)
+    graph_num = args.batch_size // args.repeat_times
+
+    graphG = GG(graph_num, args.city_nums, 2)
     env = MTSPEnv({
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model":args.use_conflict_model
@@ -119,7 +134,7 @@ if __name__ == "__main__":
           )
     eval_min_cost = min(greedy_cost, eval_min_cost)
 
-    step_epoch = args.epoch_size // args.batch_size
+    step_epoch = args.epoch_size // args.batch_size * args.repeat_times
 
     total_step = 0 if info is None else info.get("total_step", 0)
     start_epoch = total_step // step_epoch
@@ -146,11 +161,11 @@ if __name__ == "__main__":
             if args.fixed_agent_num:
                 agent_num = args.agent_num
             else:
-                # agent_num = np.random.randint(1, args.agent_num + 1)
-                def triangular_random(low, high):
-                    """数值越接近 low，概率越高"""
-                    return int(np.floor(random.triangular(low, high+1, low)))
-                agent_num = triangular_random(low=2, high=args.agent_num)
+                agent_num = np.random.randint(2, args.agent_num + 1)
+                # def triangular_random(low, high):
+                #     """数值越接近 low，概率越高"""
+                #     return int(np.floor(random.triangular(low, high+1, low)))
+                # agent_num = triangular_random(low=2, high=args.agent_num)
             if args.random_city_num:
                 city_nums = np.random.randint(args.city_nums - 20, args.city_nums+1)
             else:
@@ -160,8 +175,9 @@ if __name__ == "__main__":
                 graph = graphG.generate(1).repeat(args.batch_size, axis=0)
                 graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
             else:
-                graph = graphG.generate(args.batch_size, city_nums)
+                graph = graphG.generate(graph_num, city_nums)
                 graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
+                graph_8 = repeat_batch_adjacent(graph_8, args.repeat_times)
 
             output = agent.run_batch_episode(env, graph_8, agent_num, eval_mode=False, info=train_info)
             loss_s = agent.learn(*output)

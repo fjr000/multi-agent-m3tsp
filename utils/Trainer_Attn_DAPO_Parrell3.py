@@ -19,7 +19,7 @@ from EvalTools import EvalTools
 from envs.GraphGenerator import GraphGenerator as GG
 import torch.multiprocessing as mp
 
-torch.set_num_threads(1)
+# torch.set_num_threads(1)
 
 def set_seed(seed=42):
     # 基础库
@@ -289,7 +289,7 @@ class SharelWorker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_worker", type=int, default=6)
+    parser.add_argument("--num_worker", type=int, default=4)
     parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=3)
@@ -304,7 +304,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=0)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")

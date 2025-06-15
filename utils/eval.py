@@ -1,5 +1,6 @@
 import sys
 
+import tqdm
 from click.core import batch
 
 sys.path.append("../")
@@ -15,7 +16,7 @@ from algorithm.Attn.AgentV4 import Agent as Agent
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=3)
+    parser.add_argument("--agent_num", type=int, default=10)
     parser.add_argument("--fixed_agent_num", type=bool, default=False)
     parser.add_argument("--agent_dim", type=int, default=5)
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_ent", type=bool, default=True)
     parser.add_argument("--entropy_coef", type=float, default=1e-3)
     parser.add_argument("--accumulation_steps", type=int, default=8)
-    parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--eval_size", type=int, default=200)
     parser.add_argument("--city_nums", type=int, default=50)
     parser.add_argument("--random_city_num", type=bool, default=True)
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("--conflict_loss_rate", type=float, default=0.5 + 0.5, help="rate of adv between agents")
     parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
     parser.add_argument("--save_model_interval", type=int, default=13000, help="save model interval")
-    parser.add_argument("--seed", type=int, default=3333 , help="random seed")
+    parser.add_argument("--seed", type=int, default=528 , help="random seed")
     parser.add_argument("--draw", type=bool, default=True, help="whether to draw result")
 
     args = parser.parse_args()
@@ -75,7 +76,8 @@ if __name__ == "__main__":
     import numpy as np
     np.random.seed(args.seed)
     st_start = time.time_ns()
-    for i in (range(100_000_000)):
+    sum_costs_times = 0
+    for i in tqdm.tqdm(range(100)):
         graph = graphG.generate()
 
         costs = []
@@ -84,19 +86,20 @@ if __name__ == "__main__":
         names = []
 
         eval_graph = graph
-
-        no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env,{"use_conflict_model":False})
-        costs.append(no_conflict_greedy_cost)
-        trajs.append(no_conflict_greedy_traj[0])
-        times.append(no_conflict_greedy_time)
-        names.append("no_conflict_greedy")
+        #
+        # no_conflict_greedy_cost, no_conflict_greedy_traj, no_conflict_greedy_time=EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env,{"use_conflict_model":False})
+        # costs.append(no_conflict_greedy_cost)
+        # trajs.append(no_conflict_greedy_traj[0])
+        # times.append(no_conflict_greedy_time)
+        # names.append("no_conflict_greedy")
         #
         greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, agent_nums, agent, env)
         costs.append(greedy_cost)
-        trajs.append(greedy_traj[0])
-        times.append(greedy_time)
-        names.append("greedy")
+        # trajs.append(greedy_traj[0])
+        # times.append(greedy_time)
+        # names.append("greedy")
 
+        sum_costs_times += greedy_cost
 
         #
         # if args.tsp_agent_id > 0:
@@ -120,17 +123,20 @@ if __name__ == "__main__":
         # times.append(LKH_time)
         # names.append("lkh")
 
-        print(costs)
-        print(times)
-        print(names)
-        print(f"{i+1} times:{(time.time_ns() - st_start) / 1e9 / (i+1)}")
-        if args.batch_size == 1:
-            env.draw_multi(
-                graph,
-                costs,# ortools_cost],
-                trajs,# ortools_traj],
-                times,# ortools_time],
-                names,#"or_tools"],
-            )
-            from utils.anima import visualize_agent_trajectories
-            ani = visualize_agent_trajectories(graph[0], greedy_traj[1][0],f"anime{i}.gif")
+        # print(costs)
+        # print(times)
+        # print(names)
+        # print(f"{i+1} times:{(time.time_ns() - st_start) / 1e9 / (i+1)}")
+        # if args.batch_size == 1:
+        #     env.draw_multi(
+        #         graph,
+        #         costs,# ortools_cost],
+        #         trajs,# ortools_traj],
+        #         times,# ortools_time],
+        #         names,#"or_tools"],
+        #     )
+        #     from utils.anima import visualize_agent_trajectories
+        #     ani = visualize_agent_trajectories(graph[0], greedy_traj[1][0],f"anime{i}.gif")
+
+
+    print(sum_costs_times / 100)

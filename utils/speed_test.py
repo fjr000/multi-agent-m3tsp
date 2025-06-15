@@ -15,9 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import argparse
 from envs.MTSP.MTSP5 import MTSPEnv
-from algorithm.DNN5.AgentV8 import Agent as Agent
-import tqdm
-from EvalTools import EvalTools
+from algorithm.Attn.AgentV4 import Agent as Agent
 from model.n4Model.config import Config as Config
 from envs.GraphGenerator import GraphGenerator as GG
 def set_seed(seed=42):
@@ -31,7 +29,7 @@ def set_seed(seed=42):
     torch.cuda.manual_seed_all(seed)  # 多GPU时
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_worker", type=int, default=8)
-parser.add_argument("--agent_num", type=int, default=10)
+parser.add_argument("--agent_num", type=int, default=3)
 parser.add_argument("--fixed_agent_num", type=bool, default=False)
 parser.add_argument("--agent_dim", type=int, default=3)
 parser.add_argument("--hidden_dim", type=int, default=128)
@@ -45,11 +43,11 @@ parser.add_argument("--use_gpu", type=bool, default=True)
 parser.add_argument("--max_ent", type=bool, default=True)
 parser.add_argument("--entropy_coef", type=float, default=1e-3)
 parser.add_argument("--accumulation_steps", type=int, default=1)
-parser.add_argument("--batch_size", type=int, default=16)
+parser.add_argument("--batch_size", type=int, default=1)
 parser.add_argument("--city_nums", type=int, default=50)
 parser.add_argument("--random_city_num", type=bool, default=False)
 parser.add_argument("--model_dir", type=str, default="../pth/")
-parser.add_argument("--agent_id", type=int, default=8)
+parser.add_argument("--agent_id", type=int, default=999999999)
 parser.add_argument("--env_masks_mode", type=int, default=7,
                     help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
 parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -71,8 +69,15 @@ env = MTSPEnv({
     "env_masks_mode": args.env_masks_mode,
     "use_conflict_model": args.use_conflict_model
 })
-agent = Agent(args, Config)
-agent.load_model(args.agent_id)
+train_agent = Agent(args, Config)
+train_agent.load_model(args.agent_id)
+
+args.use_gpu = False
+sample_agent = Agent(args, Config)
+sample_agent.load_model(args.agent_id)
+args.use_gpu = True
+
+
 graph = graphG.generate(args.batch_size, args.city_nums)
 graph_8 = GG.augment_xy_data_by_8_fold_numpy(graph)
 train_info = {
@@ -85,20 +90,28 @@ train_info = {
 # output = agent.run_batch_episode(env, graph_8, args.city_nums, eval_mode=False, info=train_info)
 #
 #
-set_seed(42)
+set_seed(1234)
+
+times = 100
 
 st = time.time_ns()
 # for i in range(100):
 #     output = agent.run_batch_episode(env, graph_8, args.city_nums, eval_mode=False, info=train_info)
 ed1 = time.time_ns()
 # print(f"t1:{(ed1 - st) * 1e-9}")
-# with torch.no_grad():
+with torch.no_grad():
+    for i in range(times):
+        output = sample_agent.run_batch_episode(env, graph_8, args.city_nums, eval_mode=False, info=train_info)
+ed2 = time.time_ns()
+print(f"t2:{(ed2 - ed1) * 1e-9 / times}")
+
+for i in range(times):
+    train_agent.learn(output)
+ed3 = time.time_ns()
+print(f"tl2:{(ed3 - ed2) * 1e-9 / times}")
+
+# with torch.inference_mode():
 #     for i in range(100):
 #         output = agent.run_batch_episode(env, graph_8, args.city_nums, eval_mode=True, info=train_info)
-ed2 = time.time_ns()
-# print(f"t2:{(ed2 - ed1) * 1e-9}")
-with torch.inference_mode():
-    for i in range(100):
-        output = agent.run_batch_episode(env, graph_8, args.city_nums, eval_mode=True, info=train_info)
-ed3 = time.time_ns()
-print(f"t3:{(ed3 - ed2) * 1e-9 }")
+# ed3 = time.time_ns()
+# print(f"t3:{(ed3 - ed2) * 1e-9 }")

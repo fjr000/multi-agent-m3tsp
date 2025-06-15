@@ -59,12 +59,17 @@ class CrossAttentionLayer(nn.Module):
 
 
 class CrossAttentionCacheKVLayer(nn.Module):
-    def __init__(self, embedding_dim, num_heads, hidden_size=128):
+    def __init__(self, embedding_dim, num_heads, hidden_size=128, batch_norm = False):
         super(CrossAttentionCacheKVLayer, self).__init__()
         self.embedding_dim = embedding_dim
         self.multiHeadAttention = MultiHeadAttentionCacheKV(embedding_dim, num_heads)
-        self.normalization1 = nn.LayerNorm(embedding_dim)
-        self.normalization2 = nn.LayerNorm(embedding_dim)
+        self.batch_norm = batch_norm
+        if self.batch_norm:
+            self.normalization1 = nn.BatchNorm1d(embedding_dim)
+            self.normalization2 = nn.BatchNorm1d(embedding_dim)
+        else:
+            self.normalization1 = nn.LayerNorm(embedding_dim)
+            self.normalization2 = nn.LayerNorm(embedding_dim)
         self.alpha1 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
         self.alpha2 = nn.Parameter(torch.tensor([0.1], requires_grad=True))
 
@@ -73,14 +78,29 @@ class CrossAttentionCacheKVLayer(nn.Module):
     def cache_keys(self, city_embed):
         self.multiHeadAttention.cache_keys(city_embed)
 
-    def forward(self, q, attn_mask=None, batch_mask=None):
-        q_norm = self.normalization1(q)
-        att_out = self.multiHeadAttention(q_norm, attn_mask, batch_mask)
-        hidden = q + self.alpha1 * att_out
+    def del_cache(self):
+        self.multiHeadAttention.del_cache()
 
-        hidden_norm = self.normalization2(hidden)
-        ff_out = self.ff(hidden_norm)
-        out = hidden + self.alpha2 * ff_out
+    def forward(self, q, attn_mask=None, batch_mask=None):
+
+        if self.batch_norm:
+            shape = q.shape
+            q_norm = self.normalization1(q.view(-1, self.embedding_dim)).view(*shape)
+            att_out = self.multiHeadAttention(q_norm, attn_mask, batch_mask)
+            hidden = q + self.alpha1 * att_out
+
+            shape = hidden.shape
+            hidden_norm = self.normalization2(hidden.view(-1, self.embedding_dim)).view(*shape)
+            ff_out = self.ff(hidden_norm)
+            out = hidden + self.alpha2 * ff_out
+        else:
+            q_norm = self.normalization1(q)
+            att_out = self.multiHeadAttention(q_norm, attn_mask, batch_mask)
+            hidden = q + self.alpha1 * att_out
+
+            hidden_norm = self.normalization2(hidden)
+            ff_out = self.ff(hidden_norm)
+            out = hidden + self.alpha2 * ff_out
         return out
 
 
@@ -130,6 +150,11 @@ class MultiHeadAttentionCacheKV(nn.Module):
         self.glimpse_V = self.glimpse_V.view(B, -1, self.n_head, self.head_dim).transpose(1, 2)
         if not self.glimpse_V.is_contiguous():
             self.glimpse_V = self.glimpse_V.contiguous()
+
+    def del_cache(self):
+        del self.glimpse_K, self.glimpse_V
+        self.glimpse_K = None
+        self.glimpse_V = None
 
     def forward(self, q_embed, mask=None, batch_mask = None):
         B, M, _ = q_embed.shape

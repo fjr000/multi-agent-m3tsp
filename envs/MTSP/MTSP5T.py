@@ -17,6 +17,7 @@ from envs.GraphGenerator import GraphGenerator as GG
 from utils.GraphPlot import GraphPlot as GP
 from model.NNN.RandomAgent import RandomAgent
 import torch.nn.functional as F
+import torch
 
 
 class MTSPEnv(Env):
@@ -37,186 +38,199 @@ class MTSPEnv(Env):
     def __init__(self, config: Dict = None):
         super(MTSPEnv, self).__init__(config)
 
-    def _get_salesmen_masks(self):
-        B, N = self.mask.shape
+    @torch.no_grad()
+    def _get_salesmen_masks(self) -> np.ndarray:
+        """
+        生成 shape=[B,A,N] 的布尔张量 salesmen_mask，
+        Torch-only 实现，兼容缺少 torch.nan* API 的旧版本。
+        """
+        # ------------ 一些通用变量 ------------
+        B, N = self.mask.size()  # [B,N]
         A = self.salesmen
+        dev = self.mask.device
+        inf = torch.tensor(float('inf'), device=dev)
+        ninf = torch.tensor(-float('inf'), device=dev)
+        nan = torch.tensor(float('nan'), device=dev)
 
-        # 初始化批量掩码 [B, A, N]
-        repeat_masks = self.mask.unsqueeze(1).repeat(1, A, 1)  # [B, A, N]
+        repeat_masks = self.mask[:, None, :].repeat(1, A, 1).clone()  # bool
 
-        active_agents = (self.traj_stages == 1)
-        batch_indices_1d = self.batch_ar[torch.sum(active_agents, dim=-1)> 1]
-        batch_indices = batch_indices_1d[:,None]
+        batch_ar = self.batch_ar  # [B]
+        cur_pos = self.cur_pos  # [B,A]
+        costs = self.costs  # [B,A]
+        gmat = self.graph_matrix  # [B,N,N]
+        mode = self.env_masks_mode
 
-        if self.env_masks_mode == 0:
-            # 返回仓库优化 (新增阶段0排除)
-            masked_cost = np.where(active_agents, self.costs, np.inf)
-            masked_cost_sl = masked_cost[batch_indices_1d]
-            min_cost_idx = np.argmin(masked_cost_sl, axis=-1)
-            # 仅不允许最小开销的智能体留在原地
-            # 允许所有激活智能体留在原地
-            # 筛选有效批次的 mask 和 indices
-            valid_mask = active_agents[batch_indices_1d]  # 形状 (K, A)
-            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+        # ----------- 兼容函数 -----------
+        def _nanmean(x, dim, keepdim=False):
+            """mean 忽略 nan"""
+            mask = x.isnan()
+            s = torch.where(mask, torch.zeros_like(x), x).sum(dim=dim, keepdim=keepdim)
+            cnt = (~mask).sum(dim=dim, keepdim=keepdim).clamp(min=1)
+            return s / cnt
 
-            # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A), valid_indices] = valid_mask
-            x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
-            repeat_masks[batch_indices, min_cost_idx[:, None], x_min_cur_pos[:, None]] = 0
+        def _nanmin(x, dim):
+            """min 忽略 nan"""
+            return torch.where(x.isnan(), inf, x).min(dim=dim).values
 
-        elif self.env_masks_mode == 1:
-            #仅允许最大开销智能体返回仓库
-            # 旅途中阶段：选出最大的旅行开销
-            # 选出处于0-1阶段的智能体
-            masked_cost = np.where(active_agents, self.costs, -np.inf)
-            masked_cost_sl = masked_cost[batch_indices_1d]
-            max_cost_idx = np.argmax(masked_cost_sl, axis=-1)
-            # 仅允许最大开销的智能体留在原地
-            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
-            repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = 1
+        def _nanmax(x, dim):
+            """max 忽略 nan"""
+            return torch.where(x.isnan(), ninf, x).max(dim=dim).values
 
-            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+        # ============ mode 0 / 1 / 2 / 3 ============
+        if mode in (0, 1, 2, 3):
+            active_agents = (self.traj_stages == 1)  # [B,A]
+            sel_batch = torch.nonzero(active_agents.sum(-1) > 1, as_tuple=False).squeeze(1)
+            if sel_batch.numel():
+                K = sel_batch.size(0)
+                active_sub = active_agents[sel_batch]  # [K,A]
+                cur_pos_sub = cur_pos[sel_batch]  # [K,A]
+                costs_sub = costs[sel_batch]  # [K,A]
 
-            # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A), valid_indices] = False
-            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
-            repeat_masks[batch_indices, max_cost_idx[:, None], x_max_cur_pos[:, None]] = True
+                # ------- 最小 / 最大成本选择 -------
+                if mode in (0, 2):  # 最小
+                    if mode == 2:  # 带返回仓库距离
+                        idx_b = sel_batch.view(-1, 1).expand(-1, A)
+                        dis_dep = gmat[idx_b, cur_pos_sub, 0]
+                        costs_eff = costs_sub + dis_dep
+                    else:
+                        costs_eff = costs_sub
+                    masked_cost = torch.where(active_sub, costs_eff, inf)
+                    sel_idx = masked_cost.argmin(dim=-1)  # [K]
+                    allow_flag = True
+                else:  # 最大
+                    if mode == 3:
+                        idx_b = sel_batch.view(-1, 1).expand(-1, A)
+                        dis_dep = gmat[idx_b, cur_pos_sub, 0]
+                        costs_eff = costs_sub + dis_dep
+                    else:
+                        costs_eff = costs_sub
+                    masked_cost = torch.where(active_sub, costs_eff, ninf)
+                    sel_idx = masked_cost.argmax(dim=-1)  # [K]
+                    allow_flag = False
 
-        elif self.env_masks_mode == 2:
-            # 结合回仓库距离
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
-            expect_dis = self.costs[batch_indices_1d] + dis_depot
+                # 批量写入
+                b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
+                a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
+                pos_flat = cur_pos_sub.reshape(-1)
+                repeat_masks[b_flat, a_flat, pos_flat] = active_sub.reshape(-1) ^ allow_flag
+                pos_sel = cur_pos[sel_batch, sel_idx]
+                repeat_masks[sel_batch, sel_idx, pos_sel] = allow_flag
 
-            # 返回仓库优化 (新增阶段0排除)
-            masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
-            min_cost_idx = np.argmin(masked_cost, axis=-1)
-            # 仅不允许最小开销的智能体留在原地
-            # 允许所有激活智能体留在原地
-            # 筛选有效批次的 mask 和 indices
-            valid_mask = active_agents[batch_indices_1d]  # 形状 (K, A)
-            valid_indices = self.cur_pos[batch_indices_1d]  # 形状 (K, A)
+        # ============ mode 4 / 5 / 6 / 7 / 8 ============
+        if mode in (4, 5, 6, 7, 8):
+            active_agents = (self.traj_stages <= 1)  # [B,A]
+            sel_batch = torch.nonzero(active_agents.sum(-1) > 1, as_tuple=False).squeeze(1)
+            if sel_batch.numel():
+                K = sel_batch.size(0)
+                cur_pos_sub = cur_pos[sel_batch]  # [K,A]
+                costs_sub = costs[sel_batch]  # [K,A]
 
-            # 使用高级索引直接赋值
-            repeat_masks[batch_indices, np.arange(A)[None,:], valid_indices] = valid_mask
-            x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
-            repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = 0
+                # 预先算期望距离
+                idx_b = sel_batch.view(-1, 1).expand(-1, A)
+                dis_dep = gmat[idx_b, cur_pos_sub, 0]  # [K,A]
+                exp_dis = costs_sub + dis_dep  # [K,A]
 
-        elif self.env_masks_mode == 3:
-            dis_depot = self.graph_matrix[batch_indices,self.cur_pos[batch_indices_1d],0]  # [B,A]
-            expect_dis = self.costs[batch_indices_1d] + dis_depot
-            # 返回仓库优化 (新增阶段0排除)
-            masked_cost = np.where(active_agents[batch_indices_1d], expect_dis, np.inf)
-            max_cost_idx = np.argmax(masked_cost, axis=-1)
-            # 仅允许最大开销的智能体留在原地
-            x_max_cur_pos = self.cur_pos[batch_indices_1d, max_cost_idx]
-            repeat_masks[batch_indices_1d, max_cost_idx, x_max_cur_pos] = True
+                if mode == 4:
+                    masked_cost = torch.where(active_agents[sel_batch], exp_dis, nan)
+                    mean = _nanmean(masked_cost, 1, keepdim=True)  # [K,1]
+                    stay_mask = masked_cost > mean  # [K,A]
 
-        elif self.env_masks_mode == 4:
+                    # 布尔化写入
+                    b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
+                    a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
+                    pos_flat = cur_pos_sub.reshape(-1)
+                    repeat_masks[b_flat, a_flat, pos_flat] = stay_mask.reshape(-1)
 
-            active_agents = self.traj_stages <= 1
-            batch_indices_1d = self.batch_ar[np.sum(active_agents, axis=-1) > 1]
-            batch_indices = batch_indices_1d[:, None]
+                    # 禁止最小的
+                    inf_masked = torch.where(active_agents[sel_batch], exp_dis, inf)
+                    min_idx = inf_masked.argmin(dim=-1)
+                    pos_min = cur_pos[sel_batch, min_idx]
+                    repeat_masks[sel_batch, min_idx, pos_min] = False
 
-            dis_depot = self.graph_matrix[batch_indices, self.cur_pos[batch_indices_1d], 0]  # [B,A]
-            expect_dis = self.costs[batch_indices_1d] + dis_depot  # [B,A]
+                else:  # mode 5 / 6 / 7 / 8 共用
+                    N_city = gmat.size(-1)
+                    cur_pos_exp = cur_pos_sub.unsqueeze(-1).expand(-1, -1, N_city)
+                    gmat_sel = gmat[sel_batch]  # [K,N,N]
+                    sel_dists = gmat_sel.gather(1, cur_pos_exp)  # [K,A,N]
+                    depot_line = gmat_sel[:, 0:1, :]  # [K,1,N]
+                    trip_cost = costs_sub.unsqueeze(-1) + sel_dists + depot_line  # [K,A,N]
 
-            # 对每个批次掩码活跃智能体的开销
-            masked_costs = np.where(active_agents[batch_indices_1d], expect_dis, np.nan)
+                    city_mask = self.mask[sel_batch].unsqueeze(1)  # [K,1,N]
 
-            # 批量计算均值和标准差 (忽略nan值)
-            mean_costs = np.nanmean(masked_costs, axis=1, keepdims=True)  # [B,1]
-            # std_costs = np.nanstd(masked_costs, axis=1, keepdims=True)  # [B,1]
+                    if mode in (5, 6):
+                        masked = torch.where(city_mask, trip_cost, inf)
+                        min_dist = masked.min(dim=2).values  # [K,A]
+                    else:  # 7 / 8
+                        masked = torch.where(city_mask, trip_cost, nan)
+                        min_dist = _nanmin(masked, 2)  # [K,A]
+                        max_dist = _nanmax(masked, 2)  # [K,A]
 
-            # 设置动态阈值
-            # alpha = 0.5 * (np.count_nonzero(self.mask[batch_indices_1d], axis=-1) / self.cities)
-            thresholds = mean_costs  # [B,1]
-            # thresholds = mean_costs + alpha[:,None] * std_costs  # [B,1]
-            # 计算stay_masks: 哪些智能体超过阈值可以留在原地
-            if len(mean_costs) > 0:
-                stay_masks = masked_costs > thresholds  # [B,A] 布尔数组
-                # 找出所有满足条件的(batch_idx, agent_idx)对
-                # 返回一个(N,2)数组，其中N是True值的数量，每行包含[批次索引,智能体索引]
-                stay_indices = np.argwhere(stay_masks)
+                    max_exp = exp_dis.max(dim=-1, keepdim=True)[0]  # [K,1]
 
-                if len(stay_indices) > 0:  # 确保有满足条件的智能体
-                    # 提取批次和智能体索引
-                    b_indices_rel = stay_indices[:, 0]  # 相对于batch_indices_1d的批次索引
-                    a_indices = stay_indices[:, 1]  # 智能体索引
+                    if mode == 5:
+                        min_min = min_dist.min(dim=1, keepdim=True)[0]
+                        allow_stay = (min_dist >= max_exp) & (min_dist != min_min)
+                    elif mode == 6:
+                        min_min = min_dist.min(dim=1, keepdim=True)[0]
+                        allow_stay = (min_dist != min_min)
+                    elif mode == 7:
+                        min_min = min_dist.min(dim=1, keepdim=True)[0]
+                        allow_stay = (max_dist >= max_exp) & (min_dist != min_min)
+                    else:  # mode 8
+                        min_max = max_dist.min(dim=1, keepdim=True)[0]
+                        allow_stay = (max_dist >= max_exp) & (max_dist != min_max)
 
-                    # 获取实际批次索引
-                    b_indices_abs = batch_indices_1d[b_indices_rel]  # 绝对批次索引
+                    # 写入 allow_stay
+                    b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
+                    a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
+                    pos_flat = cur_pos_sub.reshape(-1)
+                    repeat_masks[b_flat, a_flat, pos_flat] = allow_stay.reshape(-1)
 
-                    # 获取这些智能体的当前位置
-                    positions = self.cur_pos[b_indices_abs, a_indices]
-
-                    # 一次性更新repeat_masks
-                    repeat_masks[b_indices_abs, a_indices, positions] = True
-
-            min_cost_idx = np.argmin(masked_costs, axis=-1)
-            # 使用高级索引直接赋值
-            x_min_cur_pos = self.cur_pos[batch_indices_1d, min_cost_idx]
-            repeat_masks[batch_indices_1d, min_cost_idx, x_min_cur_pos] = False
-        elif self.env_masks_mode == 5:
-            active_agents = self.traj_stages <= 1
-            batch_indices_1d = self.batch_ar[torch.sum(active_agents, dim=-1) > 1]
-            batch_indices = batch_indices_1d[:, None]
-            cur_pos = self.cur_pos[batch_indices_1d]
-            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
-            expect_dis = self.costs[batch_indices_1d] + dis_depot  # [B,A]
-            max_expect_dis =torch.max(expect_dis, dim=-1, keepdim=True).values
-            # 对每个批次掩码活跃智能体的开销
-            # masked_costs = np.where(active_agents[batch_indices_1d], expect_dis, np.nan)
-
-            selected_dists = self.graph_matrix[batch_indices, cur_pos, :]  # [B,A,N]
-            each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
-            selected_dists_depot = self.costs[batch_indices_1d,:,None] + selected_dists + each_depot_dist  # [B,A,N]
-            masked_dist_depot = torch.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, torch.inf)
-            min_dist_depot = torch.min(masked_dist_depot, dim=2).values  # [B,A]
-            min_min_dist_depot = torch.min(min_dist_depot, dim=1, keepdim=True).values
-            allow_stay = min_dist_depot >= max_expect_dis
-            allow_stay = torch.where(min_dist_depot == min_min_dist_depot, False, allow_stay)
-
-            repeat_masks[batch_indices, torch.arange(A)[None,],cur_pos] = allow_stay
-
-        else:
-            raise NotImplementedError
-        #
-        # # 未触发阶段：城市0的mask为0
-        repeat_masks[:, :, 0] = 0
-
-        # 阶段>=2：全掩码关闭但保留depot
-        repeat_masks[self.stage_2] = 0  # 对于stage_2为True的位置，将最后维度的1:之后位置置为0
-        repeat_masks[...,0] = torch.where(self.stage_2, True, repeat_masks[...,0])
+        # ============ traj stage ≥2 处理 ============
+        if self.stage_2.any():
+            repeat_masks[self.stage_2] = False
+            b_idx, a_idx = torch.nonzero(self.stage_2, as_tuple=True)
+            repeat_masks[b_idx, a_idx, 0] = True
 
         self.salesmen_mask = repeat_masks
-
-        return self.salesmen_mask
-
+        return self.salesmen_mask.detach().cpu().numpy()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=5)
-    parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=4)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=9e-5)
-    parser.add_argument("--grad_max_norm", type=float, default=1.0)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=128)
-    parser.add_argument("--city_nums", type=int, default=20)
+    parser.add_argument("--entropy_coef", type=float, default=0)
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--augment", type=int, default=8)
+    parser.add_argument("--repeat_times", type=int, default=1)
+    parser.add_argument("--city_nums", type=int, default=50)
+    parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
-    parser.add_argument("--env_masks_mode", type=int, default=5,
+    parser.add_argument("--agent_id", type=int, default=999999999)
+    parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=1.0, help="rate of adv between agents")
+    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--save_model_interval", type=int, default=800, help="save model interval")
+    parser.add_argument("--seed", type=int, default=1234, help="random seed")
+    parser.add_argument("--epoch_size", type=int, default=1280000, help="number of instance for each epoch")
+    parser.add_argument("--n_epoch", type=int, default=100, help="number of epoch")
     args = parser.parse_args()
 
     env_config = {
@@ -227,6 +241,8 @@ if __name__ == '__main__':
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model": args.use_conflict_model
     }
+
+
     env = MTSPEnv(
         env_config
     )
@@ -236,8 +252,8 @@ if __name__ == '__main__':
     # g = GG(1, env_config["cities"])
     # graph = g.generate(1, env_config["cities"], dim=2)
 
-    from algorithm.DNN5.AgentV5 import Agent as Agent
-    from model.n4Model.config import Config
+    from algorithm.Attn.AgentV7 import Agent as Agent
+    from model.AttnModel.ModelV7 import Config
 
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
@@ -248,34 +264,34 @@ if __name__ == '__main__':
     import torch
     from envs.GraphGenerator import GraphGenerator as GG
 
+    def set_seed(seed=42):
+        # 基础库
+        np.random.seed(seed)
+
+        # PyTorch核心设置
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # 多GPU时
+        # # 禁用CUDA不确定算法
+        # torch.backends.cudnn.deterministic = True
+        # torch.backends.cudnn.benchmark = False
+
+    set_seed()
+
     g = GG()
     batch_graph = g.generate(batch_size=args.batch_size, num=args.city_nums)
-
-    from envs.MTSP.MTSP5 import MTSPEnv as npEnv
-    npenv = npEnv(
-        env_config
-    )
-    states, info = npenv.reset(graph=batch_graph)
-    salesmen_masks = info["salesmen_masks"]
-    st = time.time_ns()
-    agent.reset_graph(batch_graph, args.agent_num)
-    done = False
-    for i in range(100):
-        agent.run_batch_episode(npenv, batch_graph, args.agent_num, False, info={
-            "use_conflict_model": args.use_conflict_model})
-    ed =time.time_ns()
-    print((ed - st) /1e9)
-
+    batch_graph = GG.augment_xy_data_by_8_fold_numpy(batch_graph)
     states, info = env.reset(graph=batch_graph)
     salesmen_masks = info["salesmen_masks"]
-    st = time.time_ns()
-    agent.reset_graph(batch_graph, args.agent_num)
+    agent.reset_graph(batch_graph, 3)
     done = False
+    import time
+    start_time = time.time()
     for i in range(100):
         agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
             "use_conflict_model": args.use_conflict_model})
-    ed =time.time_ns()
-    print((ed - st) /1e9)
+    end_time = time.time()
+    print("--- %s seconds ---" % (end_time - start_time))
 
 
 

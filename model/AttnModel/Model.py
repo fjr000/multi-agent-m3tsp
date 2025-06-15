@@ -46,6 +46,22 @@ class CityEmbedding(nn.Module):
         """
         return self.depot_embed(city[:, :1]), self.city_embed(city[:, 1:])
 
+class PositionalEncoder(nn.Module):
+    def __init__(self, d_model, max_seq_len=100):
+        super().__init__()
+        self.d_model = d_model
+
+        self.encoding = torch.zeros(max_seq_len, d_model)
+        self.encoding.requires_grad = False
+
+        pos = torch.arange(0, max_seq_len, dtype=torch.float32).unsqueeze(dim=1)
+        _2i = torch.arange(0, d_model, step=2, dtype=torch.float32)
+
+        self.encoding[:, 0::2] = torch.sin(pos / (10000 ** (_2i / d_model)))
+        self.encoding[:, 1::2] = torch.cos(pos / (10000 ** (_2i / d_model)))
+
+    def forward(self, seq_len):
+        return self.encoding[:seq_len, :]
 
 class CityEncoder(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=256, embed_dim=128, num_heads=4, num_layers=2):
@@ -58,8 +74,8 @@ class CityEncoder(nn.Module):
             ]
         )
 
-        # self.position_encoder = PositionalEncoder(embed_dim)
-        self.position_encoder = VectorizedRadialEncoder(embed_dim)
+        self.position_encoder = PositionalEncoder(embed_dim)
+        # self.position_encoder = VectorizedRadialEncoder(embed_dim)
         self.pos_embed_proj = nn.Linear(embed_dim, embed_dim, bias=False)
         self.alpha = nn.Parameter(torch.tensor([0.1]), requires_grad=True)
         self.city_embed_mean = None
@@ -380,65 +396,6 @@ class ActionDecoder(nn.Module):
 
         return action_logits, self.agent_embed
 
-
-class ConflictModel(nn.Module):
-    def __init__(self, config: Config):
-        super(ConflictModel, self).__init__()
-        # 不能使用dropout
-        self.city_agent_att = nn.ModuleList([
-            CrossAttentionLayer(config.embed_dim, config.conflict_deal_num_heads,
-                                hidden_size=config.conflict_deal_hidden_dim)
-            for _ in range(config.conflict_deal_num_layers)
-        ])
-        # self.linear_forward = nn.Linear(embed_dim, embed_dim)
-        self.agents = SingleHeadAttention(config.embed_dim)
-        self.num_heads = config.conflict_deal_num_heads
-
-    def forward(self, agent_embed, city_embed, acts, info=None):
-        """
-        Args:
-            agent_embed:   [B,A,E] 智能体特征
-            city_embed:    [B,N,E] 城市特征
-            acts: [B,A] 动作
-        Returns:
-            final_cities: [B,A] 最终分配结果
-            conflict_mask: [B,N] 初始冲突标记
-        """
-        B, A, E = agent_embed.shape
-
-        # 2. 生成初始冲突掩码 ----------------------------------------------------
-        # 扩展维度用于广播比较
-        acts_exp1 = acts.unsqueeze(2)  # [B,5,1]
-        acts_exp2 = acts.unsqueeze(1)  # [B,1,5]
-        # 生成布尔型冲突矩阵
-        conflict_matrix = (acts_exp1 == acts_exp2).bool()  # [B,5,5]
-        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0).bool()  # [1, A, A]
-        conflict_matrix = torch.where(acts_exp1 == 0, identity_matrix, conflict_matrix)
-        conflict_matrix = ~conflict_matrix
-        expand_conflict_mask = conflict_matrix.unsqueeze(1).expand(B, self.num_heads, A, A).reshape(B * self.num_heads,
-                                                                                                    A, A)
-
-        # 3. 提取候选城市特征 -----------------------------------------------------
-        selected_cities = torch.gather(
-            city_embed,
-            1,
-            acts.unsqueeze(-1).expand(-1, -1, E)
-        )  # [B,5,E]
-
-        # 4. 注意力重新分配 ------------------------------------------------------
-        # Q: 候选城市特征 [B,5,E]
-        # K/V: 智能体特征 [B,5,E]
-        cac = selected_cities
-        for att in self.city_agent_att:
-            cac = att(cac, agent_embed, agent_embed, expand_conflict_mask)
-
-        agents_logits = self.agents(cac, agent_embed, conflict_matrix)
-
-        del conflict_matrix, expand_conflict_mask, identity_matrix, acts_exp1, acts_exp2
-
-        return agents_logits
-
-
 class ActionsModel(nn.Module):
     def __init__(self, config: Config):
         super(ActionsModel, self).__init__()
@@ -486,11 +443,47 @@ class ActionsModel(nn.Module):
         return actions_logits, agent_embed
 
 
+class ConflictDeal:
+    def __call__(self, *args, **kwargs):
+        agent_embed, city_embed, acts = args
+
+        B, A, E = agent_embed.shape
+
+        # 2. 生成初始冲突掩码 ----------------------------------------------------
+        # 扩展维度用于广播比较
+        acts_exp1 = acts.unsqueeze(2)  # [B,5,1]
+        acts_exp2 = acts.unsqueeze(1)  # [B,1,5]
+        # 生成布尔型冲突矩阵
+        conflict_matrix = (acts_exp1 == acts_exp2).bool()  # [B,5,5]
+        identity_matrix = torch.eye(A, device=acts.device).unsqueeze(0).bool()  # [1, A, A]
+        conflict_matrix = torch.where(acts_exp1 == 0, identity_matrix, conflict_matrix)
+        conflict_matrix = ~conflict_matrix
+
+        # 3. 提取候选城市特征 -----------------------------------------------------
+        selected_cities = torch.gather(
+            city_embed,
+            1,
+            acts.unsqueeze(-1).expand(-1, -1, E)
+        )  # [B,5,E]
+
+        # 4. 注意力重新分配 ------------------------------------------------------
+        # Q: 候选城市特征 [B,5,E]
+        # K/V: 智能体特征 [B,5,E]
+        cac = selected_cities
+
+        k = agent_embed
+        q = cac
+        score = torch.bmm(q, k.transpose(-2, -1).contiguous())
+        score = score.masked_fill(conflict_matrix, -torch.inf)
+
+        del conflict_matrix, identity_matrix, acts_exp1, acts_exp2
+        return score
+
 class Model(nn.Module):
     def __init__(self, config: Config):
         super(Model, self).__init__()
         self.actions_model = ActionsModel(config)
-        self.conflict_model = ConflictModel(config)
+        self.conflict_model = ConflictDeal()
         initialize_weights(self)
         self.step = 0
         self.cfg = config
@@ -533,6 +526,20 @@ class Model(nn.Module):
         else:
             raise NotImplementedError
 
+        use_conflict_model = False if info is None else info.get("use_conflict_model", False)
+        acts_no_conflict = None
+        if use_conflict_model:
+            act2agent_logits = self.conflict_model(self.actions_model.agent_decoder.action.glimpse_Q,
+                                                  self.actions_model.agent_decoder.action.glimpse_K.transpose(-2,
+                                                                                                              -1).contiguous(),
+                                                  acts)
+            agents = act2agent_logits.argmax(dim=-1)
+            pos = torch.arange(actions_logits.size(1), device=agents.device).unsqueeze(0)
+            masks = torch.logical_or(agents == pos, acts == 0)
+            acts_no_conflict = torch.where(masks, acts, -1)
+            del pos, agents, masks
+
+
         self.step += 1
 
         if batch_mask is not None:
@@ -540,21 +547,25 @@ class Model(nn.Module):
             A = actions_logits.size(1)
             N = actions_logits.size(2)
 
-            final_acts = torch.zeros((B, A), dtype=torch.int64, device=actions_logits.device)
+            final_acts = torch.zeros((B, A), dtype=torch.long, device=actions_logits.device)
             final_acts[batch_mask] = acts
-            # final_acts_no_conflict = torch.zeros((B, A), dtype=torch.int64, device=actions_logits.device)
-            # final_acts_no_conflict[batch_mask] = acts_no_conflict
+            if acts_no_conflict is not None:
+                final_acts_no_conflict = torch.zeros((B, A), dtype=torch.long, device=actions_logits.device)
+                final_acts_no_conflict[batch_mask] = acts_no_conflict
+            else:
+                final_acts_no_conflict = None
 
             if eval:
-                return None, final_acts
+                return None, final_acts, final_acts_no_conflict
 
             final_actions_logits = torch.full((B, A, N),
                                               fill_value=-torch.inf,
-                                              dtype=torch.float32,
+                                              dtype=actions_logits.dtype,
                                               device=actions_logits.device)
             final_actions_logits[:, :, 0] = 1.0  # 模拟选择仓库
             final_actions_logits[batch_mask] = actions_logits
 
             actions_logits = final_actions_logits
             acts = final_acts
-        return actions_logits, acts
+            acts_no_conflict = final_acts_no_conflict
+        return actions_logits, acts, acts_no_conflict

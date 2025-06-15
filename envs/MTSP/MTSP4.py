@@ -59,6 +59,7 @@ class MTSPEnv:
         self.conflict_count = None
 
         self.distance_scale = np.sqrt(2)
+        self._min_distance = 0
 
     def _parse_config(self, config: Dict):
         self.cities = config.get("cities", self.cities)
@@ -115,6 +116,7 @@ class MTSPEnv:
         self.ori_actions = None
         self.conflict_count_exp = np.zeros((self.problem_size, self.salesmen), dtype=np.int32)
         self.conflict_count = self.conflict_count_exp.copy()
+        self._min_distance =  np.min(np.where(np.isclose(self.graph_matrix, 0), np.inf, self.graph_matrix), axis=(1,2))
         # self.distance_scale = np.max(self.graph_matrix, axis=(1,2), keepdims=True)  # 取各矩阵全局最大值
         # self.norm_graph = self.graph_matrix / (self.distance_scale +1e-8)
         # self.path_count = np.ones((self.problem_size, self.salesmen), dtype=np.int32)
@@ -324,7 +326,7 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
-            "min_distance": np.min(np.where(np.isclose(self.graph_matrix, 0), np.inf, self.graph_matrix), axis=(1,2)),
+            "min_distance": self._min_distance,
             "dones": None
         }
 
@@ -452,6 +454,8 @@ class MTSPEnv:
             actions = self.deal_conflict_batch(actions)
         self.actions = actions
         self.step_count += 1
+        if self.step_count >= self.trajectories.shape[-1]:
+            pass
         self.trajectories[..., self.step_count] = actions
 
         return actions
@@ -629,26 +633,38 @@ class MTSPEnv:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_worker", type=int, default=8)
-    parser.add_argument("--agent_num", type=int, default=3)
-    parser.add_argument("--agent_dim", type=int, default=3)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--embed_dim", type=int, default=128)
-    parser.add_argument("--num_heads", type=int, default=4)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=9e-5)
-    parser.add_argument("--grad_max_norm", type=float, default=1.0)
+    parser.add_argument("--agent_num", type=int, default=10)
+    parser.add_argument("--fixed_agent_num", type=bool, default=False)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--grad_max_norm", type=float, default=0.5)
     parser.add_argument("--cuda_id", type=int, default=0)
     parser.add_argument("--use_gpu", type=bool, default=True)
     parser.add_argument("--max_ent", type=bool, default=True)
-    parser.add_argument("--entropy_coef", type=float, default=5e-3)
-    parser.add_argument("--batch_size", type=float, default=256)
-    parser.add_argument("--city_nums", type=int, default=20)
+    parser.add_argument("--entropy_coef", type=float, default=0)
+    parser.add_argument("--accumulation_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--augment", type=int, default=8)
+    parser.add_argument("--repeat_times", type=int, default=1)
+    parser.add_argument("--city_nums", type=int, default=50)
+    parser.add_argument("--random_city_num", type=bool, default=False)
     parser.add_argument("--model_dir", type=str, default="../pth/")
-    parser.add_argument("--agent_id", type=int, default=0)
+    parser.add_argument("--agent_id", type=int, default=999999999)
     parser.add_argument("--env_masks_mode", type=int, default=1,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
-    parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
+    parser.add_argument("--eval_interval", type=int, default=400, help="eval  interval")
     parser.add_argument("--use_conflict_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_conflict_model", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--train_actions_model", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--train_city_encoder", type=bool, default=True, help="0:not use;1:use")
+    parser.add_argument("--use_agents_mask", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--use_city_mask", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--agents_adv_rate", type=float, default=0.0, help="rate of adv between agents")
+    parser.add_argument("--conflict_loss_rate", type=float, default=1.0, help="rate of adv between agents")
+    parser.add_argument("--only_one_instance", type=bool, default=False, help="0:not use;1:use")
+    parser.add_argument("--save_model_interval", type=int, default=800, help="save model interval")
+    parser.add_argument("--seed", type=int, default=1234, help="random seed")
+    parser.add_argument("--epoch_size", type=int, default=1280000, help="number of instance for each epoch")
+    parser.add_argument("--n_epoch", type=int, default=100, help="number of epoch")
     args = parser.parse_args()
 
     env_config = {
@@ -659,6 +675,7 @@ if __name__ == '__main__':
         "env_masks_mode": args.env_masks_mode,
         "use_conflict_model": args.use_conflict_model
     }
+
     env = MTSPEnv(
         env_config
     )
@@ -668,8 +685,8 @@ if __name__ == '__main__':
     # g = GG(1, env_config["cities"])
     # graph = g.generate(1, env_config["cities"], dim=2)
 
-    from algorithm.DNN5.AgentV1 import AgentV1 as Agent
-    from model.n4Model.config import Config
+    from algorithm.Attn.AgentV7 import Agent as Agent
+    from model.AttnModel.ModelV7 import Config
 
     agent = Agent(args, Config)
     agent.load_model(args.agent_id)
@@ -680,11 +697,34 @@ if __name__ == '__main__':
     import torch
     from envs.GraphGenerator import GraphGenerator as GG
 
+
+    def set_seed(seed=42):
+        # 基础库
+        np.random.seed(seed)
+
+        # PyTorch核心设置
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # 多GPU时
+        # # 禁用CUDA不确定算法
+        # torch.backends.cudnn.deterministic = True
+        # torch.backends.cudnn.benchmark = False
+
+    set_seed()
+
     g = GG()
     batch_graph = g.generate(batch_size=args.batch_size, num=args.city_nums)
+    batch_graph = GG.augment_xy_data_by_8_fold_numpy(batch_graph)
     states, info = env.reset(graph=batch_graph)
     salesmen_masks = info["salesmen_masks"]
     agent.reset_graph(batch_graph, 3)
     done = False
-    agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
-        "use_conflict_model": args.use_conflict_model})
+    import time
+
+
+    start_time = time.time()
+    for i in range(100):
+        agent.run_batch_episode(env, batch_graph, args.agent_num, False, info={
+            "use_conflict_model": args.use_conflict_model})
+    end_time = time.time()
+    print("--- %s seconds ---" % (end_time - start_time))
