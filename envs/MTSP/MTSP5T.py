@@ -45,146 +45,34 @@ class MTSPEnv(Env):
         Torch-only 实现，兼容缺少 torch.nan* API 的旧版本。
         """
         # ------------ 一些通用变量 ------------
-        B, N = self.mask.size()  # [B,N]
         A = self.salesmen
-        dev = self.mask.device
-        inf = torch.tensor(float('inf'), device=dev)
-        ninf = torch.tensor(-float('inf'), device=dev)
-        nan = torch.tensor(float('nan'), device=dev)
+        repeat_masks = self.mask.unsqueeze(1).repeat(1, A, 1)  # 结果形状 (B, A, L)
 
-        repeat_masks = self.mask[:, None, :].repeat(1, A, 1).clone()  # bool
+        if self.env_masks_mode == 7:
+            active_agents = self.traj_stages <= 1  # [B,A]
+            batch_indices_1d = self.batch_ar[torch.sum(active_agents, dim=-1) > 1]  # [B,]
+            batch_indices = batch_indices_1d[:, None]  # [B,A]
 
-        batch_ar = self.batch_ar  # [B]
-        cur_pos = self.cur_pos  # [B,A]
-        costs = self.costs  # [B,A]
-        gmat = self.graph_matrix  # [B,N,N]
-        mode = self.env_masks_mode
+            cur_costs = self.costs[batch_indices_1d]  # [B,A]
+            cur_pos = self.cur_pos[batch_indices_1d]  # [B,A]
+            dis_depot = self.graph_matrix[batch_indices, cur_pos, 0]  # [B,A]
+            expect_dis = cur_costs + dis_depot  # [B,A]
+            max_expect_dis = torch.max(expect_dis, dim=-1, keepdim=True)[0]
 
-        # ----------- 兼容函数 -----------
-        def _nanmean(x, dim, keepdim=False):
-            """mean 忽略 nan"""
-            mask = x.isnan()
-            s = torch.where(mask, torch.zeros_like(x), x).sum(dim=dim, keepdim=keepdim)
-            cnt = (~mask).sum(dim=dim, keepdim=keepdim).clamp(min=1)
-            return s / cnt
+            selected_dists = self.graph_matrix[batch_indices, cur_pos]  # [B,A,N]
+            each_depot_dist = self.graph_matrix[batch_indices_1d, 0:1, :]  # Depot to all cities [B,1,N]
+            selected_dists_depot = cur_costs[..., None] + selected_dists + each_depot_dist  # [B,A,N]
+            masked_dist_depot_inf = torch.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, torch.inf)
+            masked_dist_depot_ninf = torch.where(self.mask[batch_indices_1d, None, :], selected_dists_depot, -torch.inf)
+            min_dist_depot = torch.min(masked_dist_depot_inf, dim=2)[0]  # [B,A]
+            max_dist_depot = torch.max(masked_dist_depot_ninf, dim=2)[0]  # [B,A]
+            min_min_dist_depot = torch.min(min_dist_depot, dim=1, keepdim=True)[0]
+            allow_stay = ((max_dist_depot >= max_expect_dis) & (min_dist_depot != min_min_dist_depot))
 
-        def _nanmin(x, dim):
-            """min 忽略 nan"""
-            return torch.where(x.isnan(), inf, x).min(dim=dim).values
+            repeat_masks[batch_indices, torch.arange(A)[None,], cur_pos] = allow_stay
+        else:
+            raise NotImplementedError
 
-        def _nanmax(x, dim):
-            """max 忽略 nan"""
-            return torch.where(x.isnan(), ninf, x).max(dim=dim).values
-
-        # ============ mode 0 / 1 / 2 / 3 ============
-        if mode in (0, 1, 2, 3):
-            active_agents = (self.traj_stages == 1)  # [B,A]
-            sel_batch = torch.nonzero(active_agents.sum(-1) > 1, as_tuple=False).squeeze(1)
-            if sel_batch.numel():
-                K = sel_batch.size(0)
-                active_sub = active_agents[sel_batch]  # [K,A]
-                cur_pos_sub = cur_pos[sel_batch]  # [K,A]
-                costs_sub = costs[sel_batch]  # [K,A]
-
-                # ------- 最小 / 最大成本选择 -------
-                if mode in (0, 2):  # 最小
-                    if mode == 2:  # 带返回仓库距离
-                        idx_b = sel_batch.view(-1, 1).expand(-1, A)
-                        dis_dep = gmat[idx_b, cur_pos_sub, 0]
-                        costs_eff = costs_sub + dis_dep
-                    else:
-                        costs_eff = costs_sub
-                    masked_cost = torch.where(active_sub, costs_eff, inf)
-                    sel_idx = masked_cost.argmin(dim=-1)  # [K]
-                    allow_flag = True
-                else:  # 最大
-                    if mode == 3:
-                        idx_b = sel_batch.view(-1, 1).expand(-1, A)
-                        dis_dep = gmat[idx_b, cur_pos_sub, 0]
-                        costs_eff = costs_sub + dis_dep
-                    else:
-                        costs_eff = costs_sub
-                    masked_cost = torch.where(active_sub, costs_eff, ninf)
-                    sel_idx = masked_cost.argmax(dim=-1)  # [K]
-                    allow_flag = False
-
-                # 批量写入
-                b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
-                a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
-                pos_flat = cur_pos_sub.reshape(-1)
-                repeat_masks[b_flat, a_flat, pos_flat] = active_sub.reshape(-1) ^ allow_flag
-                pos_sel = cur_pos[sel_batch, sel_idx]
-                repeat_masks[sel_batch, sel_idx, pos_sel] = allow_flag
-
-        # ============ mode 4 / 5 / 6 / 7 / 8 ============
-        if mode in (4, 5, 6, 7, 8):
-            active_agents = (self.traj_stages <= 1)  # [B,A]
-            sel_batch = torch.nonzero(active_agents.sum(-1) > 1, as_tuple=False).squeeze(1)
-            if sel_batch.numel():
-                K = sel_batch.size(0)
-                cur_pos_sub = cur_pos[sel_batch]  # [K,A]
-                costs_sub = costs[sel_batch]  # [K,A]
-
-                # 预先算期望距离
-                idx_b = sel_batch.view(-1, 1).expand(-1, A)
-                dis_dep = gmat[idx_b, cur_pos_sub, 0]  # [K,A]
-                exp_dis = costs_sub + dis_dep  # [K,A]
-
-                if mode == 4:
-                    masked_cost = torch.where(active_agents[sel_batch], exp_dis, nan)
-                    mean = _nanmean(masked_cost, 1, keepdim=True)  # [K,1]
-                    stay_mask = masked_cost > mean  # [K,A]
-
-                    # 布尔化写入
-                    b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
-                    a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
-                    pos_flat = cur_pos_sub.reshape(-1)
-                    repeat_masks[b_flat, a_flat, pos_flat] = stay_mask.reshape(-1)
-
-                    # 禁止最小的
-                    inf_masked = torch.where(active_agents[sel_batch], exp_dis, inf)
-                    min_idx = inf_masked.argmin(dim=-1)
-                    pos_min = cur_pos[sel_batch, min_idx]
-                    repeat_masks[sel_batch, min_idx, pos_min] = False
-
-                else:  # mode 5 / 6 / 7 / 8 共用
-                    N_city = gmat.size(-1)
-                    cur_pos_exp = cur_pos_sub.unsqueeze(-1).expand(-1, -1, N_city)
-                    gmat_sel = gmat[sel_batch]  # [K,N,N]
-                    sel_dists = gmat_sel.gather(1, cur_pos_exp)  # [K,A,N]
-                    depot_line = gmat_sel[:, 0:1, :]  # [K,1,N]
-                    trip_cost = costs_sub.unsqueeze(-1) + sel_dists + depot_line  # [K,A,N]
-
-                    city_mask = self.mask[sel_batch].unsqueeze(1)  # [K,1,N]
-
-                    if mode in (5, 6):
-                        masked = torch.where(city_mask, trip_cost, inf)
-                        min_dist = masked.min(dim=2).values  # [K,A]
-                    else:  # 7 / 8
-                        masked = torch.where(city_mask, trip_cost, nan)
-                        min_dist = _nanmin(masked, 2)  # [K,A]
-                        max_dist = _nanmax(masked, 2)  # [K,A]
-
-                    max_exp = exp_dis.max(dim=-1, keepdim=True)[0]  # [K,1]
-
-                    if mode == 5:
-                        min_min = min_dist.min(dim=1, keepdim=True)[0]
-                        allow_stay = (min_dist >= max_exp) & (min_dist != min_min)
-                    elif mode == 6:
-                        min_min = min_dist.min(dim=1, keepdim=True)[0]
-                        allow_stay = (min_dist != min_min)
-                    elif mode == 7:
-                        min_min = min_dist.min(dim=1, keepdim=True)[0]
-                        allow_stay = (max_dist >= max_exp) & (min_dist != min_min)
-                    else:  # mode 8
-                        min_max = max_dist.min(dim=1, keepdim=True)[0]
-                        allow_stay = (max_dist >= max_exp) & (max_dist != min_max)
-
-                    # 写入 allow_stay
-                    b_flat = sel_batch.unsqueeze(1).expand(-1, A).reshape(-1)
-                    a_flat = torch.arange(A, device=dev).expand(K, A).reshape(-1)
-                    pos_flat = cur_pos_sub.reshape(-1)
-                    repeat_masks[b_flat, a_flat, pos_flat] = allow_stay.reshape(-1)
 
         # ============ traj stage ≥2 处理 ============
         if self.stage_2.any():
@@ -193,6 +81,12 @@ class MTSPEnv(Env):
             repeat_masks[b_idx, a_idx, 0] = True
 
         self.salesmen_mask = repeat_masks
+        if torch.all(~repeat_masks,dim=2).any():
+            x = ~repeat_masks
+            xxx = torch.all(x,dim=2)
+            xxxxx= torch.argwhere(xxx)
+            pass
+
         return self.salesmen_mask.detach().cpu().numpy()
 
 

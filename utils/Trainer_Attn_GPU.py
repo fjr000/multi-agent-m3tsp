@@ -11,7 +11,7 @@ import tqdm
 sys.path.append("../")
 sys.path.append("./")
 
-from envs.MTSP.MTSP5_Penalty import MTSPEnv
+from envs.MTSP.MTSP5T_Penalty import MTSPEnv
 from algorithm.Attn.AgentV1 import Agent as Agent
 from EvalTools import EvalTools
 from model.n4Model.config import Config as Config
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_dir", type=str, default="../pth/")
     parser.add_argument("--repeat_times", type=int, default=4)
     parser.add_argument("--augment", type=int, default=8)
-    parser.add_argument("--agent_id", type=int, default=999999999)
+    parser.add_argument("--agent_id", type=int, default=999_999_999)
     parser.add_argument("--env_masks_mode", type=int, default=7,
                         help="0 for only the min cost  not allow back depot; 1 for only the max cost allow back depot")
     parser.add_argument("--eval_interval", type=int, default=100, help="eval  interval")
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         "train_actions_model": args.train_actions_model,
     }
 
-    greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env)
+    greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env,info={"use_conflict_model":True})
     writer.add_scalar("eval/cost", greedy_cost, 0)
     print(f"agent_num:{eval_agent_num},city_num:{eval_graph.shape[1]},"
           f"costs:{greedy_cost:.5f},"
@@ -188,7 +188,7 @@ if __name__ == "__main__":
                               )
 
             if total_step % (args.accumulation_steps * args.eval_interval) == 0:
-                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env)
+                greedy_cost, greedy_traj, greedy_time = EvalTools.EvalGreedy(eval_graph, eval_agent_num, agent, env, info = {"use_conflict_model":True})
                 writer.add_scalar("eval/cost", greedy_cost, total_step)
                 print(f"total_step:{total_step}, agent_num:{eval_agent_num},city_num:{eval_graph.shape[1]},"
                       f"costs:{greedy_cost:.5f},"

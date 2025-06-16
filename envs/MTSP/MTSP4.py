@@ -439,13 +439,15 @@ class MTSPEnv:
     def reset_actions(self, actions):
         # 获取当前最后位置 [B, A]
 
-        # 生成条件掩码 [B, A]
-        same_pos_mask = (self.cur_pos == actions)
-
-        # 将保持静止的动作置本身 [B, A]
-        actions = np.where(same_pos_mask, self.cur_pos, actions)
-        actions = np.where(actions == 0, self.trajectories[..., self.step_count], actions)
-
+        # # 生成条件掩码 [B, A]
+        # same_pos_mask = (self.cur_pos == actions)
+        #
+        # # 将保持静止的动作置本身 [B, A]
+        # actions = np.where(same_pos_mask, self.cur_pos, actions)
+        # actions = np.where(actions == 0, self.trajectories[..., self.step_count], actions)
+        cur_pos_1 = self.cur_pos+1
+        same_pos_mask = ((cur_pos_1 == actions) | (actions == 0))
+        actions = np.where(same_pos_mask, cur_pos_1, actions)
         return actions
 
     def _do_actions(self, ori_actions):
@@ -454,8 +456,7 @@ class MTSPEnv:
             actions = self.deal_conflict_batch(actions)
         self.actions = actions
         self.step_count += 1
-        if self.step_count >= self.trajectories.shape[-1]:
-            pass
+
         self.trajectories[..., self.step_count] = actions
 
         return actions

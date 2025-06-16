@@ -519,6 +519,12 @@ class Model(nn.Module):
             acts = actions_logits.argmax(dim=-1)
         elif mode == "sample":
             probs = torch.softmax(actions_logits.view(-1, actions_logits.size(-1)), dim=-1)
+            if torch.isnan(probs).any() :
+                x = torch.argwhere(torch.isnan(probs))
+                pass
+            if torch.isinf(probs).any():
+                x = torch.argwhere(torch.isinf(probs))
+                pass
             acts = torch.multinomial(probs, num_samples=1).squeeze(-1)
             acts = acts.view(actions_logits.size(0), actions_logits.size(1))
             # acts = torch.distributions.Categorical(logits=actions_logits).sample()
