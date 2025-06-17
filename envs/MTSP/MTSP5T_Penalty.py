@@ -100,15 +100,26 @@ def test2Env(agent, env1, env2):
         "env_masks_mode": 7,
         "use_conflict_model": True
     }
+
+
     states1, env_info1 = env1.reset(env_config, batch_graph)
     states2, env_info2 = env2.reset(env_config, batch_graph)
 
+    assert np.isclose(env1.graph_matrix.cpu().numpy(), env2.graph_matrix).all()
+    if not np.isclose(states1, states2).all():
+        x = np.argwhere(~np.isclose(states1,states2))
+        aa  = x.nonzero()
+        pass
     assert np.isclose(states1, states2).all()
+
+
+
     def assert_check(d,d2):
         for k,v in d.items():
             if isinstance(v,np.ndarray):
                 assert np.isclose(v, d2[k]).all(), f"k:{k}"
             else:
+                print(f"k:{k}:->{v}, -> {d2[k]}" )
                 assert v == d2[k], f"k:{k}"
     assert_check(env_info2,env_info1)
 
@@ -158,8 +169,8 @@ def test2Env(agent, env1, env2):
         x = np.isclose(states2, states)
         xx = np.argwhere(~x)
 
-        if np.isclose(states2, states).all():
-            xx = np.argwhere(np.isclose(states2, states))
+        if not np.isclose(states2, states).all():
+            xx = np.argwhere(~np.isclose(states2, states))
             pass
         assert np.isclose(r, r2).all()
         assert done2 == done

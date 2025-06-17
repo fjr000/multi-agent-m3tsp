@@ -181,7 +181,7 @@ class MTSPEnv:
 
         self.states[..., 9] = max_cost / scale
         self.states[..., 10] = min_cost / scale
-        self.states[..., 11] = max_max_dist_depot / scale
+        self.states[..., 11] = max_max_dist_depot
         self.states[..., 12] = progress
 
         return self.states
@@ -536,7 +536,7 @@ class MTSPEnv:
             "mask": self.mask,
             "salesmen_masks": self._get_salesmen_masks(),
             "masks_in_salesmen": self._get_masks_in_salesmen(),
-            "dones": self.dones if any(self.dones) else None
+            "dones": self.dones if self.done else None
         }
 
         # self.path_count = np.where(

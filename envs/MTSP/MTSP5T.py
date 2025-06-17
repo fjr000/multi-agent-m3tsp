@@ -79,13 +79,13 @@ class MTSPEnv(Env):
             repeat_masks[self.stage_2] = False
             b_idx, a_idx = torch.nonzero(self.stage_2, as_tuple=True)
             repeat_masks[b_idx, a_idx, 0] = True
-
+        #
         self.salesmen_mask = repeat_masks
-        if torch.all(~repeat_masks,dim=2).any():
-            x = ~repeat_masks
-            xxx = torch.all(x,dim=2)
-            xxxxx= torch.argwhere(xxx)
-            pass
+        # if torch.all(~repeat_masks,dim=2).any():
+        #     x = ~repeat_masks
+        #     xxx = torch.all(x,dim=2)
+        #     xxxxx= torch.argwhere(xxx)
+        #     pass
 
         return self.salesmen_mask.detach().cpu().numpy()
 
